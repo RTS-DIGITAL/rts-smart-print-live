@@ -18,8 +18,8 @@ export function PrintersPanel({ shop, onSaved }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const [targetName, setTargetName] = useState(shop.targetPrinterName);
-  const [tray, setTray] = useState<PaperSize>(shop.defaultPaperTray);
+  const [targetName, setTargetName] = useState(shop.targetPrinterName || 'Brother DCP-T730DW');
+  const [tray, setTray] = useState<PaperSize>(shop.defaultPaperTray || 'A4');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -118,6 +118,8 @@ export function PrintersPanel({ shop, onSaved }: Props) {
           <ul className="grid gap-3 md:grid-cols-2">
             {printers.map((printer) => {
               const online = printer.status === 'online';
+              const supportedSizesText = (printer.supportedSizes || []).join(', ') || 'A4';
+
               return (
                 <li key={printer.id} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center gap-3">
@@ -125,9 +127,9 @@ export function PrintersPanel({ shop, onSaved }: Props) {
                       <Printer className="h-5 w-5" aria-hidden="true" />
                     </span>
                     <div>
-                      <p className="font-semibold text-slate-900">{printer.displayName}</p>
+                      <p className="font-semibold text-slate-900">{printer.displayName || 'Default Printer'}</p>
                       <p className="text-xs text-slate-500">
-                        {printer.systemName} · {printer.supportedSizes.join(', ')}
+                        {printer.systemName || 'Local Spooler'} · {supportedSizesText}
                       </p>
                     </div>
                   </div>

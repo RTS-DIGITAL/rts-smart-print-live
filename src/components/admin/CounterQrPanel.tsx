@@ -6,12 +6,14 @@ import type { Shop } from '@/lib/types';
 const STAND_WIDTH = 600;
 const STAND_HEIGHT = 900;
 
-function escapeXml(value: string): string {
-  return value
+function escapeXml(value?: string | null): string {
+  if (!value) return '';
+  return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 async function buildStandSvg(shop: Shop, url: string): Promise<string> {
@@ -21,6 +23,7 @@ async function buildStandSvg(shop: Shop, url: string): Promise<string> {
     errorCorrectionLevel: 'M',
     color: { dark: '#0F172A', light: '#FFFFFF' },
   });
+
   const qrDoc = new DOMParser().parseFromString(qrSvg, 'image/svg+xml');
   const qrRoot = qrDoc.documentElement;
   const qrInner = Array.from(qrRoot.childNodes)
@@ -28,24 +31,26 @@ async function buildStandSvg(shop: Shop, url: string): Promise<string> {
     .join('');
   const qrViewBox = qrRoot.getAttribute('viewBox') ?? '0 0 1 1';
 
-  const notice = shop.counterNotice?.trim() || 'Collect your prints at the counter';
-  const address = shop.address?.trim() ?? '';
+  const name = shop?.name?.trim() || 'RTS Digital Seva';
+  const notice = shop?.counterNotice?.trim() || 'Collect your prints at Counter 1';
+  const address = shop?.address?.trim() || 'Cheruthazham / Payyanur, Kannur, Kerala';
+  const tagline = shop?.tagline?.trim() || 'Scan • Upload • Pay • Print';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${STAND_WIDTH}" height="${STAND_HEIGHT}" viewBox="0 0 ${STAND_WIDTH} ${STAND_HEIGHT}">
   <rect width="${STAND_WIDTH}" height="${STAND_HEIGHT}" fill="#FFFFFF"/>
   <rect width="${STAND_WIDTH}" height="210" fill="#0F172A"/>
   <rect x="40" y="62" width="84" height="84" rx="20" fill="#10B981"/>
   <text x="82" y="114" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" font-weight="700" fill="#FFFFFF">RTS</text>
-  <text x="152" y="98" font-family="Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#FFFFFF">${escapeXml(shop.name)}</text>
-  <text x="152" y="140" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#CBD5E1">${escapeXml(address)}</text>
-  <text x="152" y="178" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#10B981">${escapeXml(shop.tagline)}</text>
+  <text x="152" y="98" font-family="Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#FFFFFF">${escapeXml(name)}</text>
+  <text x="152" y="140" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#CBD5E1">${escapeXml(address)}</text>
+  <text x="152" y="178" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#10B981">${escapeXml(tagline)}</text>
   <text x="300" y="296" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#0F172A">Scan to print</text>
   <text x="300" y="338" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#475569">Upload your file, pay, and collect</text>
   <rect x="150" y="372" width="300" height="300" rx="24" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="3"/>
   <svg x="180" y="402" width="240" height="240" viewBox="${qrViewBox}">${qrInner}</svg>
-  <text x="300" y="724" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#0F172A">${escapeXml(url)}</text>
+  <text x="300" y="724" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#0F172A">${escapeXml(url)}</text>
   <rect x="60" y="758" width="480" height="60" rx="16" fill="#ECFDF5"/>
-  <text x="300" y="796" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#065F46">${escapeXml(notice)}</text>
+  <text x="300" y="796" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#065F46">${escapeXml(notice)}</text>
   <text x="300" y="864" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#10B981">Scan • Upload • Pay • Print</text>
 </svg>`;
 }
@@ -77,17 +82,24 @@ function download(blob: Blob, filename: string) {
 export function CounterQrPanel({ shop }: { shop: Shop }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const url = `${window.location.origin}/shop/${shop.slug}`;
+  const targetSlug = shop?.slug || 'rts-digital-seva';
+  const url = `${window.location.origin}/shop/${targetSlug}`;
 
   useEffect(() => {
     let active = true;
+    if (!shop) return;
+
     buildStandSvg(shop, url)
       .then((built) => {
-        if (active) setSvg(built);
+        if (active) {
+          setSvg(built);
+          setError(null);
+        }
       })
-      .catch(() => {
-        if (active) setError('The QR code could not be generated.');
+      .catch((err) => {
+        if (active) setError(err?.message || 'The QR code could not be generated.');
       });
+
     return () => {
       active = false;
     };

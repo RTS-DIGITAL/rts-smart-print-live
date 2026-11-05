@@ -164,7 +164,6 @@ export function createLiveService(client: Client): PrintService {
         const sanitizedFileName = input.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const calculatedStoragePath = `${resolvedShopId || 'rts-digital-seva'}/${newOrderId}/${sanitizedFileName}`;
 
-        // Get live price rule or fallback to standard rates
         let pricePerPage = input.selection.isColor
           ? (input.selection.isDoubleSided ? 18.00 : 10.00)
           : (input.selection.isDoubleSided ? 3.50 : 2.00);
@@ -186,7 +185,7 @@ export function createLiveService(client: Client): PrintService {
 
         const calculatedTotalAmount = pricePerPage * input.totalPages * input.selection.copies;
 
-        // 1. Insert directly into print_orders
+        // 1. Insert into print_orders with 'pending' status so it DOES NOT print before payment
         const { error: insertOrderError } = await client
           .from('print_orders')
           .insert({
@@ -202,7 +201,7 @@ export function createLiveService(client: Client): PrintService {
             customer_phone: input.customerPhone || null,
             file_name: input.file.name,
             file_url: calculatedStoragePath,
-            status: 'paid',
+            status: 'pending',
           });
 
         if (insertOrderError) throw insertOrderError;
@@ -216,15 +215,6 @@ export function createLiveService(client: Client): PrintService {
             original_filename: input.file.name,
             mime_type: input.file.type || 'application/pdf',
             file_size: input.file.size || 0,
-          });
-
-        // 3. Queue into print_jobs for local print agent pickup
-        await client
-          .from('print_jobs')
-          .insert({
-            order_id: newOrderId,
-            shop_id: resolvedShopId,
-            status: 'pending',
           });
 
         return {
@@ -252,10 +242,28 @@ export function createLiveService(client: Client): PrintService {
         });
         if (error) throw error;
       } catch {
-        await client
+        // Fallback: Transition order to 'printing' only after payment is confirmed
+        const { data: updatedOrder } = await client
           .from('print_orders')
-          .update({ status: 'paid', paid_at: new Date().toISOString() })
-          .eq('id', orderId);
+          .update({
+            status: 'printing',
+            paid_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', orderId)
+          .select('shop_id')
+          .maybeSingle();
+
+        const shopId = updatedOrder?.shop_id;
+
+        // Queue into print_jobs so agent dispatches it
+        await client
+          .from('print_jobs')
+          .upsert({
+            order_id: orderId,
+            shop_id: shopId,
+            status: 'pending',
+          }, { onConflict: 'order_id' });
       }
     },
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Bell, BellOff, Download, ExternalLink, RotateCcw } from 'lucide-react';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { getErrorMessage } from '@/lib/errors';
@@ -70,21 +70,17 @@ export function OrdersPanel({ shopId }: { shopId: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem(CHIME_STORAGE_KEY) === 'on');
-  const seenStatuses = useRef | null>(null);
 
-  useEffect(() => printService.subscribeOrders(shopId, refresh), [shopId, refresh]);
-
+  // Subscribe to real-time order updates and play chime if enabled
   useEffect(() => {
-    if (!orders) return;
-    const previous = seenStatuses.current;
-    seenStatuses.current = new Map(orders.map((order) => [order.id, order.status]));
-    if (!previous) return;
-    const arrived = orders.some((order) => {
-      const before = previous.get(order.id);
-      return before === undefined || (order.status === 'paid' && before !== 'paid');
+    const unsubscribe = printService.subscribeOrders(shopId, () => {
+      if (soundOn) {
+        playOrderChime(); // <-- Plays beep whenever an order is submitted or status changes
+      }
+      refresh();
     });
-    if (arrived && soundOn) playOrderChime();
-  }, [orders, soundOn]);
+    return () => unsubscribe();
+  }, [shopId, soundOn, refresh]);
 
   const agentListening =
     !!agentSeen.data && Date.now() - Date.parse(agentSeen.data) < AGENT_HEARTBEAT_WINDOW_MS;

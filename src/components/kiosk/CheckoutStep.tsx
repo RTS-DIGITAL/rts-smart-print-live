@@ -39,7 +39,7 @@ export const CheckoutStep: React.FC<Props> = ({
   const isRazorpayActive = Boolean(razorpayKeyId && razorpayKeyId.trim().length > 0);
 
   // Direct UPI Configuration
-  const targetUpi = upiId || '7012833699@okbizaxis';
+  const targetUpi = 'rajaneesht99-1@okhdfcbank';
   const encodedShopName = encodeURIComponent(shopName || 'RTS Digital Seva');
   const amountFormatted = total.toFixed(2);
   const tempOrderRef = `RTS-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Clock, Loader2, ArrowLeft, ExternalLink } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, ArrowLeft, ExternalLink } from 'lucide-react';
 import { getErrorMessage } from '@/lib/errors';
 import { formatINR } from '@/lib/pricing';
 import { openRazorpayCheckout } from '@/lib/razorpay';
@@ -34,27 +34,26 @@ export const CheckoutStep: React.FC<Props> = ({
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [paymentInitiated, setPaymentInitiated] = useState(false);
+  const [hasInitiatedPayment, setHasInitiatedPayment] = useState(false);
 
   const isRazorpayActive = Boolean(razorpayKeyId && razorpayKeyId.trim().length > 0);
 
   // Exact Verified UPI VPA
-  const activeUpi = 'rajaneesht99-1@okhdfcbank';
+  const activeUpi = (upiId && upiId.trim().length > 0) ? upiId.trim() : 'rajaneesht99-1@okhdfcbank';
   const payeeName = 'Rajaneesh T';
   const amountFormatted = total.toFixed(2);
   const orderRef = `RTS${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-  // Standard NPCI clean URI (ensures GPay/PhonePe resolve without 'No account registered')
+  // Clean NPCI UPI format compatible with GPay, PhonePe, Paytm, and BHIM
   const cleanUpiUri = `upi://pay?pa=${activeUpi}&pn=${encodeURIComponent(payeeName)}&am=${amountFormatted}&cu=INR&tn=${encodeURIComponent(orderRef)}`;
 
-  // Dynamic QR Code via clean SVG generator
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&format=svg&data=${encodeURIComponent(cleanUpiUri)}`;
+  // Dynamic QR generator
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&format=svg&data=${encodeURIComponent(cleanUpiUri)}`;
 
-  const handleNotifyShopPaid = async () => {
+  const processOrderWithDirectUpi = async () => {
     setLoading(true);
     setError(null);
     try {
-      // 1. Create order with status 'pending' (DOES NOT print automatically)
       const created = await printService.createOrder({
         shopSlug,
         customerPhone: phone.trim() || undefined,
@@ -63,11 +62,9 @@ export const CheckoutStep: React.FC<Props> = ({
         selection,
       });
 
-      // 2. Upload the file safely to Supabase storage
       await printService.uploadOrderFile(created.storagePath, file);
+      await printService.confirmPayment(created.orderId, total, `UPI-${Date.now()}`);
 
-      // 3. Navigate directly to customer status tracker screen
-      // The print will only release when counter owner confirms or clicks approve
       navigate(`/order/${created.orderId}`);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -127,7 +124,6 @@ export const CheckoutStep: React.FC<Props> = ({
       </button>
 
       <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-        {/* Top Header */}
         <div className="bg-gradient-to-r from-emerald-600 to-teal-700 px-6 py-5 text-white flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold uppercase tracking-wider text-emerald-200">Amount Due</span>
@@ -140,7 +136,6 @@ export const CheckoutStep: React.FC<Props> = ({
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Order Details */}
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-2 text-sm">
             <div className="flex justify-between text-slate-600">
               <span>Document</span>
@@ -187,7 +182,6 @@ export const CheckoutStep: React.FC<Props> = ({
             </div>
           ) : (
             <div className="pt-2 flex flex-col items-center space-y-4">
-              {/* Dynamic Clean QR */}
               <div className="relative p-3 bg-white rounded-2xl border-2 border-dashed border-emerald-500 shadow-sm inline-block">
                 <img
                   src={qrImageUrl}
@@ -205,47 +199,44 @@ export const CheckoutStep: React.FC<Props> = ({
                 <p className="text-[11px] text-slate-400 mt-0.5">Payee: {payeeName}</p>
               </div>
 
-              {/* One-Tap App Open Button */}
+              {/* Direct App Link for Mobile Phones */}
               <a
                 href={cleanUpiUri}
-                onClick={() => setPaymentInitiated(true)}
-                className="w-full py-3.5 px-4 bg-slate-900 hover:bg-black text-white font-semibold rounded-2xl text-center text-sm shadow flex items-center justify-center gap-2 active:scale-95 transition"
+                onClick={() => setHasInitiatedPayment(true)}
+                className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-center text-sm shadow flex items-center justify-center gap-2 active:scale-95 transition"
               >
-                <span>Tap to Open GPay / PhonePe / Paytm</span>
+                <span>Tap to Pay with Any UPI App</span>
                 <ExternalLink className="w-4 h-4" />
               </a>
 
-              {/* ONLY Visible After User Clicks Pay or Ready to Confirm */}
-              {paymentInitiated ? (
-                <div className="w-full pt-2 animate-in fade-in duration-300">
+              {/* Confirm & Print Button: Appears only after customer taps pay or indicates they have scanned */}
+              {hasInitiatedPayment ? (
+                <div className="w-full pt-2">
                   <button
-                    onClick={handleNotifyShopPaid}
+                    onClick={processOrderWithDirectUpi}
                     disabled={loading}
-                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-4 bg-slate-900 hover:bg-black active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {loading ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Sending Order to Counter...</span>
+                        <span>Sending to Printer...</span>
                       </>
                     ) : (
                       <>
-                        <Clock className="w-5 h-5" />
-                        <span>I Have Completed Payment (Notify Shop)</span>
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        <span>✓ I Have Paid — Print Now</span>
                       </>
                     )}
                   </button>
-                  <p className="text-[11px] text-slate-400 text-center mt-2">
-                    Prints after counter operator verifies receipt.
-                  </p>
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => setPaymentInitiated(true)}
+                  onClick={() => setHasInitiatedPayment(true)}
                   className="text-xs font-semibold text-emerald-700 hover:underline pt-1"
                 >
-                  Already scanned and paid? Click here
+                  Scanned with another phone? Click here to confirm
                 </button>
               )}
             </div>

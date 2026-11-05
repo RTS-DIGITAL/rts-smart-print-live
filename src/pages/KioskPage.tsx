@@ -208,7 +208,7 @@ export default function KioskPage() {
   file={file!}
   pageCount={pageCount}
   selection={selection}
-  total={totalAmount}
+  total={total}
   onBack={() => setStep('configure')}
 />
           )}

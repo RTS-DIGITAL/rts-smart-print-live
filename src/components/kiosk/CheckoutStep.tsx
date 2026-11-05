@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Loader2, ArrowLeft, ExternalLink } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, ArrowLeft, Printer, ExternalLink } from 'lucide-react';
 import { getErrorMessage } from '@/lib/errors';
 import { formatINR } from '@/lib/pricing';
 import { openRazorpayCheckout } from '@/lib/razorpay';
@@ -12,6 +12,7 @@ interface Props {
   shopSlug: string;
   razorpayKeyId: string | null;
   upiId?: string | null;
+  requirePayment?: boolean;
   file: File;
   pageCount: number;
   selection: PrintSelection;
@@ -24,6 +25,7 @@ export const CheckoutStep: React.FC<Props> = ({
   shopSlug,
   razorpayKeyId,
   upiId,
+  requirePayment = true,
   file,
   pageCount,
   selection,
@@ -36,21 +38,20 @@ export const CheckoutStep: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
   const [hasInitiatedPayment, setHasInitiatedPayment] = useState(false);
 
-  const isRazorpayActive = Boolean(razorpayKeyId && razorpayKeyId.trim().length > 0);
+  const isRazorpayActive = Boolean(requirePayment && razorpayKeyId && razorpayKeyId.trim().length > 0);
 
-  // Exact Verified UPI VPA
+  // Exact shop UPI from admin settings or fallback
   const activeUpi = (upiId && upiId.trim().length > 0) ? upiId.trim() : 'rajaneesht99-1@okhdfcbank';
   const payeeName = 'Rajaneesh T';
   const amountFormatted = total.toFixed(2);
   const orderRef = `RTS${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-  // Clean NPCI UPI format compatible with GPay, PhonePe, Paytm, and BHIM
+  // Standard NPCI URI
   const cleanUpiUri = `upi://pay?pa=${activeUpi}&pn=${encodeURIComponent(payeeName)}&am=${amountFormatted}&cu=INR&tn=${encodeURIComponent(orderRef)}`;
-
-  // Dynamic QR generator
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&format=svg&data=${encodeURIComponent(cleanUpiUri)}`;
 
-  const processOrderWithDirectUpi = async () => {
+  // FULLY AUTOMATIC FREE / DIRECT PRINT FLOW (When Payment is OFF)
+  const handleDirectPrintWithoutPayment = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -63,8 +64,33 @@ export const CheckoutStep: React.FC<Props> = ({
       });
 
       await printService.uploadOrderFile(created.storagePath, file);
-      await printService.confirmPayment(created.orderId, total, `UPI-${Date.now()}`);
+      
+      // Instantly mark as 'printing' so the Python agent prints automatically
+      await printService.confirmPayment(created.orderId, total, `FREE-${Date.now()}`);
+      navigate(`/order/${created.orderId}`);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setLoading(false);
+    }
+  };
 
+  // PAID FLOW (When Customer Taps 'I Have Paid')
+  const handleNotifyShopPaid = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const created = await printService.createOrder({
+        shopSlug,
+        customerPhone: phone.trim() || undefined,
+        file,
+        totalPages: pageCount,
+        selection,
+      });
+
+      await printService.uploadOrderFile(created.storagePath, file);
+      
+      // Auto-mark to printing or wait for shop operator approval
+      await printService.confirmPayment(created.orderId, total, `UPI-${Date.now()}`);
       navigate(`/order/${created.orderId}`);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -124,9 +150,12 @@ export const CheckoutStep: React.FC<Props> = ({
       </button>
 
       <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+        {/* Header */}
         <div className="bg-gradient-to-r from-emerald-600 to-teal-700 px-6 py-5 text-white flex justify-between items-center">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-200">Amount Due</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-200">
+              {requirePayment ? 'Amount Due' : 'Order Summary'}
+            </span>
             <h2 className="text-xl font-bold">{shopName}</h2>
           </div>
           <div className="text-right">
@@ -159,7 +188,7 @@ export const CheckoutStep: React.FC<Props> = ({
               value={phone}
               onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
               disabled={loading}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
             />
           </div>
 
@@ -170,17 +199,40 @@ export const CheckoutStep: React.FC<Props> = ({
             </div>
           )}
 
-          {isRazorpayActive ? (
+          {/* CASE 1: PAYMENT METHOD IS TURNED OFF -> DIRECT 1-CLICK PRINT */}
+          {!requirePayment ? (
+            <div className="pt-2">
+              <button
+                onClick={handleDirectPrintWithoutPayment}
+                disabled={loading}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Spooling Document to Printer...</span>
+                  </>
+                ) : (
+                  <>
+                    <Printer className="w-5 h-5" />
+                    <span>Send Directly to Printer ({formatINR(total)})</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : isRazorpayActive ? (
+            /* CASE 2: RAZORPAY GATEWAY ACTIVE */
             <div className="pt-2">
               <button
                 onClick={handleRazorpayFlow}
                 disabled={loading}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Pay & Print'}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : `Pay ${formatINR(total)} & Print`}
               </button>
             </div>
           ) : (
+            /* CASE 3: DIRECT UPI PAYMENT ACTIVE */
             <div className="pt-2 flex flex-col items-center space-y-4">
               <div className="relative p-3 bg-white rounded-2xl border-2 border-dashed border-emerald-500 shadow-sm inline-block">
                 <img
@@ -199,7 +251,6 @@ export const CheckoutStep: React.FC<Props> = ({
                 <p className="text-[11px] text-slate-400 mt-0.5">Payee: {payeeName}</p>
               </div>
 
-              {/* Direct App Link for Mobile Phones */}
               <a
                 href={cleanUpiUri}
                 onClick={() => setHasInitiatedPayment(true)}
@@ -209,11 +260,10 @@ export const CheckoutStep: React.FC<Props> = ({
                 <ExternalLink className="w-4 h-4" />
               </a>
 
-              {/* Confirm & Print Button: Appears only after customer taps pay or indicates they have scanned */}
               {hasInitiatedPayment ? (
                 <div className="w-full pt-2">
                   <button
-                    onClick={processOrderWithDirectUpi}
+                    onClick={handleNotifyShopPaid}
                     disabled={loading}
                     className="w-full py-4 bg-slate-900 hover:bg-black active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
                   >

@@ -201,11 +201,11 @@ export default function KioskPage() {
 
           {file && preview && step === 3 && (
             <CheckoutStep
-  shopName={kioskData.shop.name}
-  shopSlug={kioskData.shop.slug}
-  razorpayKeyId={kioskData.shop.razorpayEnabled ? kioskData.shop.razorpayKeyId : null}
-upiId={kioskData.shop.upiId}
-file={selectedFile}
+  shopName={kiosk?.shop?.name || 'RTS Digital Seva'}
+  shopSlug={kiosk?.shop?.slug || 'rts-digital-seva'}
+  razorpayKeyId={kiosk?.shop?.razorpayEnabled ? kiosk?.shop?.razorpayKeyId : null}
+  upiId={kiosk?.shop?.upiId || 'rajaneesht99-1@okhdfcbank'}
+  file={selectedFile}
   pageCount={pageCount}
   selection={selection}
   total={totalAmount}

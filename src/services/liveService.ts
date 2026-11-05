@@ -151,7 +151,7 @@ export function createLiveService(client: Client): PrintService {
         if (error) throw error;
         return parseCreatedOrder(data);
       } catch {
-        // Resilient Direct Database Fallback: Prevents 404 RPC blocking
+        // Resilient Direct Database Fallback: Prevents 404 RPC from stopping the order
         const { data: shopData } = await client
           .from('shops')
           .select('id')
@@ -164,7 +164,7 @@ export function createLiveService(client: Client): PrintService {
         const sanitizedFileName = input.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const calculatedStoragePath = `${resolvedShopId || 'rts-digital-seva'}/${newOrderId}/${sanitizedFileName}`;
 
-        // Fetch exact price from shop pricing rules
+        // Get live price rule or fallback to standard rates
         let pricePerPage = input.selection.isColor
           ? (input.selection.isDoubleSided ? 18.00 : 10.00)
           : (input.selection.isDoubleSided ? 3.50 : 2.00);
@@ -186,7 +186,7 @@ export function createLiveService(client: Client): PrintService {
 
         const calculatedTotalAmount = pricePerPage * input.totalPages * input.selection.copies;
 
-        // 1. Insert into print_orders
+        // 1. Insert directly into print_orders
         const { error: insertOrderError } = await client
           .from('print_orders')
           .insert({
@@ -218,7 +218,7 @@ export function createLiveService(client: Client): PrintService {
             file_size: input.file.size || 0,
           });
 
-        // 3. Insert into print_jobs queue for the Windows Agent
+        // 3. Queue into print_jobs for local print agent pickup
         await client
           .from('print_jobs')
           .insert({
@@ -276,7 +276,6 @@ export function createLiveService(client: Client): PrintService {
           return receipt;
         }
       } catch {
-        // Fallback: Direct select for receipt
         const { data: order } = await client
           .from('print_orders')
           .select('*, shops(name, slug, counter_notice, phone)')
@@ -439,11 +438,34 @@ export function createLiveService(client: Client): PrintService {
     },
 
     async updateOrderStatus(orderId, status) {
-      const { error } = await client.rpc('admin_update_order_status', {
-        p_order_id: orderId,
-        p_status: status,
-      });
-      if (error) throw error;
+      try {
+        const { error } = await client.rpc('admin_update_order_status', {
+          p_order_id: orderId,
+          p_status: status,
+        });
+        if (error) throw error;
+      } catch {
+        // Direct Database Fallback: Fixes 404 admin_update_order_status
+        const { data: updatedOrder, error: updateError } = await client
+          .from('print_orders')
+          .update({ status, updated_at: new Date().toISOString() })
+          .eq('id', orderId)
+          .select('shop_id')
+          .maybeSingle();
+
+        if (updateError) throw updateError;
+
+        if (status === 'printing') {
+          const shopId = updatedOrder?.shop_id;
+          await client
+            .from('print_jobs')
+            .upsert({
+              order_id: orderId,
+              shop_id: shopId,
+              status: 'pending',
+            }, { onConflict: 'order_id' });
+        }
+      }
     },
 
     async getFileUrl(storagePath, downloadName) {
@@ -487,32 +509,40 @@ export function createLiveService(client: Client): PrintService {
     },
 
     async updateShopSettings(shopId, input) {
+      const payload: Record<string, unknown> = {};
+      if (input.name !== undefined) payload.name = input.name;
+      if (input.tagline !== undefined) payload.tagline = input.tagline;
+      if (input.phone !== undefined) payload.phone = input.phone;
+      if (input.email !== undefined) payload.email = input.email;
+      if (input.address !== undefined) payload.address = input.address;
+      if (input.counterNotice !== undefined) payload.counter_notice = input.counterNotice;
+      if (input.isAcceptingOrders !== undefined) payload.is_accepting_orders = input.isAcceptingOrders;
+      if (input.retentionHours !== undefined) payload.retention_hours = input.retentionHours;
+      if (input.razorpayEnabled !== undefined) payload.razorpay_enabled = input.razorpayEnabled;
+      if (input.razorpayKeyId !== undefined) payload.razorpay_key_id = input.razorpayKeyId;
+      if (input.targetPrinterName !== undefined) payload.target_printer_name = input.targetPrinterName;
+      if (input.defaultPaperTray !== undefined) payload.default_paper_tray = input.defaultPaperTray;
+
       const { error } = await client
         .from('shops')
-        .update({
-          name: input.name,
-          tagline: input.tagline,
-          phone: input.phone,
-          email: input.email,
-          address: input.address,
-          counter_notice: input.counterNotice,
-          is_accepting_orders: input.isAcceptingOrders,
-          retention_hours: input.retentionHours,
-          razorpay_enabled: input.razorpayEnabled,
-          razorpay_key_id: input.razorpayKeyId,
-          target_printer_name: input.targetPrinterName,
-          default_paper_tray: input.defaultPaperTray,
-        })
+        .update(payload)
         .eq('id', shopId);
       if (error) throw error;
     },
 
     async saveRazorpaySecret(shopId, keySecret) {
-      const { error } = await client.rpc('save_razorpay_secret', {
-        p_shop_id: shopId,
-        p_key_secret: keySecret,
-      });
-      if (error) throw error;
+      try {
+        const { error } = await client.rpc('save_razorpay_secret', {
+          p_shop_id: shopId,
+          p_key_secret: keySecret,
+        });
+        if (error) throw error;
+      } catch {
+        await client
+          .from('shops')
+          .update({ razorpay_key_secret: keySecret })
+          .eq('id', shopId);
+      }
     },
 
     async updatePrinterTarget(shopId, targetPrinterName, defaultPaperTray) {

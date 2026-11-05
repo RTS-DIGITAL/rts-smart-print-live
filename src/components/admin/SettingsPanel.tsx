@@ -61,6 +61,7 @@ export function SettingsPanel({ shop, onSaved }: Props) {
     targetPrinterName: shop.targetPrinterName,
     defaultPaperTray: shop.defaultPaperTray,
     upiId: shop.upiId,
+    requirePayment: shop.requirePayment,
   }));
   const [keySecret, setKeySecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -161,6 +162,40 @@ export function SettingsPanel({ shop, onSaved }: Props) {
         </div>
       </section>
 
+      {/* Master Payment Controls */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Enforce Customer Payment</h3>
+            <p className="text-xs text-slate-500">
+              When enabled, customer must pay via UPI/Gateway before printing. When disabled, checkout prints automatically.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={form.requirePayment ?? true}
+            onChange={(e) => setForm({ ...form, requirePayment: e.target.checked })}
+            className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
+          />
+        </div>
+
+        <div className="pt-3 border-t border-slate-100">
+          <label className="block text-sm font-semibold text-slate-800 mb-1">
+            Shop UPI ID (VPA)
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. rajaneesht99-1@okhdfcbank"
+            value={form.upiId || ''}
+            onChange={(e) => setForm({ ...form, upiId: e.target.value })}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+          />
+          <p className="text-[11px] text-slate-400 mt-1">
+            Direct bank settlements for Google Pay, PhonePe, and Paytm.
+          </p>
+        </div>
+      </div>
+
       <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 font-semibold text-slate-900">
@@ -216,25 +251,6 @@ export function SettingsPanel({ shop, onSaved }: Props) {
               </button>
             </div>
           </Field>
-        </div>
-
-        {/* Shop UPI VPA Section */}
-        <div className="pt-4 border-t border-slate-100">
-          <label className="block text-sm font-semibold text-slate-800 mb-1">
-            Shop UPI ID (VPA)
-          </label>
-          <p className="text-xs text-slate-500 mb-2">
-            Direct bank settlement via Google Pay, PhonePe, and Paytm when Razorpay is turned off.
-          </p>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="e.g. 7012833699@okbizaxis or rtsdigital@upi"
-              value={form.upiId || ''}
-              onChange={(e) => update('upiId', e.target.value)}
-              className={inputClass}
-            />
-          </div>
         </div>
 
         <p className="flex items-start gap-2 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">

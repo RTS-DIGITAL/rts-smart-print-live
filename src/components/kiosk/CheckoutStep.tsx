@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
 import { getErrorMessage } from '@/lib/errors';
 import { formatINR } from '@/lib/pricing';
 import { openRazorpayCheckout } from '@/lib/razorpay';
@@ -52,11 +51,13 @@ export const CheckoutStep: React.FC<Props> = ({
   const phonepeUri = `phonepe://pay?pa=${targetUpi}&pn=${encodedShopName}&am=${amountFormatted}&cu=INR&tn=${encodedNote}`;
   const paytmUri = `paytmmp://pay?pa=${targetUpi}&pn=${encodedShopName}&am=${amountFormatted}&cu=INR&tn=${encodedNote}`;
 
+  // Zero-dependency dynamic QR image URL
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&format=svg&data=${encodeURIComponent(genericUpiUri)}`;
+
   const processOrderWithDirectUpi = async () => {
     setLoading(true);
     setError(null);
     try {
-      // 1. Create order in Supabase
       const created = await printService.createOrder({
         shopSlug,
         customerPhone: phone.trim() || undefined,
@@ -65,13 +66,9 @@ export const CheckoutStep: React.FC<Props> = ({
         selection,
       });
 
-      // 2. Upload the file to storage
       await printService.uploadOrderFile(created.storagePath, file);
-
-      // 3. Mark payment as confirmed & ready for print agent
       await printService.confirmPayment(created.orderId, total, `UPI-${Date.now()}`);
 
-      // 4. Redirect to order tracker receipt
       navigate(`/order/${created.orderId}`);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -200,17 +197,15 @@ export const CheckoutStep: React.FC<Props> = ({
           ) : (
             /* DIRECT UPI + GPAY / PHONEPE / PAYTM INTENTS */
             <div className="pt-2 flex flex-col items-center space-y-4">
-              {/* Dynamic QR with NPCI UPI Payload */}
-              <div className="relative p-3.5 bg-white rounded-2xl border-2 border-dashed border-emerald-500 shadow-sm inline-block">
-                <QRCodeSVG
-                  value={genericUpiUri}
-                  size={180}
-                  level="H"
-                  includeMargin={true}
-                  fgColor="#0f172a"
-                  bgColor="#ffffff"
+              {/* Dynamic QR Container without external package dependencies */}
+              <div className="relative p-3 bg-white rounded-2xl border-2 border-dashed border-emerald-500 shadow-sm inline-block">
+                <img
+                  src={qrImageUrl}
+                  alt={`UPI QR for ${formatINR(total)}`}
+                  className="w-44 h-44 rounded-lg block"
+                  loading="eager"
                 />
-                <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-emerald-600 text-[10px] font-bold text-white px-3 py-0.5 rounded-full uppercase tracking-wider shadow">
+                <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-emerald-600 text-[10px] font-bold text-white px-3 py-0.5 rounded-full uppercase tracking-wider shadow whitespace-nowrap">
                   Scan to Pay {formatINR(total)}
                 </div>
               </div>

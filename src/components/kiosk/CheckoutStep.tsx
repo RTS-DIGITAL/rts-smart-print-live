@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
+import { AlertCircle, Clock, Loader2, ArrowLeft, ExternalLink } from 'lucide-react';
 import { getErrorMessage } from '@/lib/errors';
 import { formatINR } from '@/lib/pricing';
 import { openRazorpayCheckout } from '@/lib/razorpay';
@@ -34,30 +34,27 @@ export const CheckoutStep: React.FC<Props> = ({
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentInitiated, setPaymentInitiated] = useState(false);
 
-  // Check if Razorpay should be used
   const isRazorpayActive = Boolean(razorpayKeyId && razorpayKeyId.trim().length > 0);
 
-  // Direct UPI Configuration
-  const targetUpi = 'rajaneesht99-1@okhdfcbank';
-  const encodedShopName = encodeURIComponent(shopName || 'RTS Digital Seva');
+  // Exact Verified UPI VPA
+  const activeUpi = 'rajaneesht99-1@okhdfcbank';
+  const payeeName = 'Rajaneesh T';
   const amountFormatted = total.toFixed(2);
-  const tempOrderRef = `RTS-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-  const encodedNote = encodeURIComponent(`Order ${tempOrderRef}`);
+  const orderRef = `RTS${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-  // NPCI standard UPI URLs & App Deep Links
-  const genericUpiUri = `upi://pay?pa=${targetUpi}&pn=${encodedShopName}&am=${amountFormatted}&cu=INR&tn=${encodedNote}`;
-  const gpayUri = `tez://upi/pay?pa=${targetUpi}&pn=${encodedShopName}&am=${amountFormatted}&cu=INR&tn=${encodedNote}`;
-  const phonepeUri = `phonepe://pay?pa=${targetUpi}&pn=${encodedShopName}&am=${amountFormatted}&cu=INR&tn=${encodedNote}`;
-  const paytmUri = `paytmmp://pay?pa=${targetUpi}&pn=${encodedShopName}&am=${amountFormatted}&cu=INR&tn=${encodedNote}`;
+  // Standard NPCI clean URI (ensures GPay/PhonePe resolve without 'No account registered')
+  const cleanUpiUri = `upi://pay?pa=${activeUpi}&pn=${encodeURIComponent(payeeName)}&am=${amountFormatted}&cu=INR&tn=${encodeURIComponent(orderRef)}`;
 
-  // Zero-dependency dynamic QR image URL
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&format=svg&data=${encodeURIComponent(genericUpiUri)}`;
+  // Dynamic QR Code via clean SVG generator
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&format=svg&data=${encodeURIComponent(cleanUpiUri)}`;
 
-  const processOrderWithDirectUpi = async () => {
+  const handleNotifyShopPaid = async () => {
     setLoading(true);
     setError(null);
     try {
+      // 1. Create order with status 'pending' (DOES NOT print automatically)
       const created = await printService.createOrder({
         shopSlug,
         customerPhone: phone.trim() || undefined,
@@ -66,9 +63,11 @@ export const CheckoutStep: React.FC<Props> = ({
         selection,
       });
 
+      // 2. Upload the file safely to Supabase storage
       await printService.uploadOrderFile(created.storagePath, file);
-      await printService.confirmPayment(created.orderId, total, `UPI-${Date.now()}`);
 
+      // 3. Navigate directly to customer status tracker screen
+      // The print will only release when counter owner confirms or clicks approve
       navigate(`/order/${created.orderId}`);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -118,7 +117,6 @@ export const CheckoutStep: React.FC<Props> = ({
 
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
-      {/* Back Button */}
       <button
         onClick={onBack}
         disabled={loading}
@@ -128,43 +126,37 @@ export const CheckoutStep: React.FC<Props> = ({
         Change print settings
       </button>
 
-      {/* Main Order Card */}
       <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-        {/* Header */}
+        {/* Top Header */}
         <div className="bg-gradient-to-r from-emerald-600 to-teal-700 px-6 py-5 text-white flex justify-between items-center">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-200">Payment Summary</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-200">Amount Due</span>
             <h2 className="text-xl font-bold">{shopName}</h2>
           </div>
           <div className="text-right">
-            <span className="text-xs text-emerald-200 block uppercase font-medium">To Pay</span>
+            <span className="text-xs text-emerald-200 block uppercase font-medium">Total</span>
             <span className="text-3xl font-extrabold">{formatINR(total)}</span>
           </div>
         </div>
 
-        {/* Order Details List */}
         <div className="p-6 space-y-4">
+          {/* Order Details */}
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-2 text-sm">
             <div className="flex justify-between text-slate-600">
-              <span>File</span>
+              <span>Document</span>
               <span className="font-semibold text-slate-900 truncate max-w-[200px]">{file.name}</span>
             </div>
             <div className="flex justify-between text-slate-600">
-              <span>Pages &amp; Copies</span>
-              <span className="font-medium text-slate-900">{pageCount} page(s) × {selection.copies} copy</span>
-            </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Mode</span>
+              <span>Format</span>
               <span className="font-medium text-slate-900">
-                {selection.paperSize} • {selection.isColor ? 'Colour' : 'B&W'} • {selection.isDoubleSided ? 'Double-sided' : 'Single-sided'}
+                {pageCount} page(s) × {selection.copies} copy • {selection.isColor ? 'Colour' : 'B&W'}
               </span>
             </div>
           </div>
 
-          {/* Optional Phone Number input */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Mobile Number (Optional - for order SMS updates)
+              Mobile Number (Optional)
             </label>
             <input
               type="tel"
@@ -183,7 +175,6 @@ export const CheckoutStep: React.FC<Props> = ({
             </div>
           )}
 
-          {/* CONDITION: If Razorpay is Active vs Direct Native UPI */}
           {isRazorpayActive ? (
             <div className="pt-2">
               <button
@@ -191,79 +182,72 @@ export const CheckoutStep: React.FC<Props> = ({
                 disabled={loading}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Pay & Spool to Printer'}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Pay & Print'}
               </button>
             </div>
           ) : (
-            /* DIRECT UPI + GPAY / PHONEPE / PAYTM INTENTS */
             <div className="pt-2 flex flex-col items-center space-y-4">
-              {/* Dynamic QR Container without external package dependencies */}
+              {/* Dynamic Clean QR */}
               <div className="relative p-3 bg-white rounded-2xl border-2 border-dashed border-emerald-500 shadow-sm inline-block">
                 <img
                   src={qrImageUrl}
                   alt={`UPI QR for ${formatINR(total)}`}
-                  className="w-44 h-44 rounded-lg block"
+                  className="w-48 h-48 rounded-lg block"
                   loading="eager"
                 />
                 <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-emerald-600 text-[10px] font-bold text-white px-3 py-0.5 rounded-full uppercase tracking-wider shadow whitespace-nowrap">
-                  Scan to Pay {formatINR(total)}
+                  Pay {formatINR(total)}
                 </div>
               </div>
 
-              <p className="text-xs text-slate-500 text-center font-medium">
-                Tap your preferred app below to pay directly:
-              </p>
-
-              {/* One-Tap Mobile App Switch Buttons */}
-              <div className="grid grid-cols-3 gap-2 w-full">
-                <a
-                  href={gpayUri}
-                  className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:scale-95 transition"
-                >
-                  <span className="text-xs font-bold text-slate-800">Google Pay</span>
-                </a>
-
-                <a
-                  href={phonepeUri}
-                  className="flex flex-col items-center justify-center p-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 active:scale-95 transition"
-                >
-                  <span className="text-xs font-bold text-purple-700">PhonePe</span>
-                </a>
-
-                <a
-                  href={paytmUri}
-                  className="flex flex-col items-center justify-center p-3 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 active:scale-95 transition"
-                >
-                  <span className="text-xs font-bold text-sky-700">Paytm</span>
-                </a>
+              <div className="text-center">
+                <p className="text-xs text-slate-500 font-medium">UPI ID: <span className="text-slate-900 font-bold">{activeUpi}</span></p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Payee: {payeeName}</p>
               </div>
 
-              {/* Any Other UPI App */}
+              {/* One-Tap App Open Button */}
               <a
-                href={genericUpiUri}
-                className="w-full py-2.5 text-center text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                href={cleanUpiUri}
+                onClick={() => setPaymentInitiated(true)}
+                className="w-full py-3.5 px-4 bg-slate-900 hover:bg-black text-white font-semibold rounded-2xl text-center text-sm shadow flex items-center justify-center gap-2 active:scale-95 transition"
               >
-                Pay with Other UPI App (BHIM / Cred / WhatsApp)
+                <span>Tap to Open GPay / PhonePe / Paytm</span>
+                <ExternalLink className="w-4 h-4" />
               </a>
 
-              {/* Final Confirm Print Button */}
-              <button
-                onClick={processOrderWithDirectUpi}
-                disabled={loading}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Spooling Document to Counter...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-5 h-5" />
-                    <span>✓ I Have Paid — Print Now</span>
-                  </>
-                )}
-              </button>
+              {/* ONLY Visible After User Clicks Pay or Ready to Confirm */}
+              {paymentInitiated ? (
+                <div className="w-full pt-2 animate-in fade-in duration-300">
+                  <button
+                    onClick={handleNotifyShopPaid}
+                    disabled={loading}
+                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Sending Order to Counter...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="w-5 h-5" />
+                        <span>I Have Completed Payment (Notify Shop)</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[11px] text-slate-400 text-center mt-2">
+                    Prints after counter operator verifies receipt.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPaymentInitiated(true)}
+                  className="text-xs font-semibold text-emerald-700 hover:underline pt-1"
+                >
+                  Already scanned and paid? Click here
+                </button>
+              )}
             </div>
           )}
         </div>

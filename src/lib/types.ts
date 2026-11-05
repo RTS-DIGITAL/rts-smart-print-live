@@ -19,7 +19,8 @@ export interface Shop {
   isAcceptingOrders: boolean;
   razorpayEnabled: boolean;
   razorpayKeyId: string | null;
-  upiId?: string | null; // <-- Added
+  requirePayment?: boolean; // <-- Added
+  upiId?: string | null;       // <-- Added
   targetPrinterName: string | null;
   defaultPaperTray: PaperSize;
 }

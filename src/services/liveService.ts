@@ -156,11 +156,16 @@ export function createLiveService(client: Client): PrintService {
         // Resilient Direct Database Fallback: Prevents 404 RPC from stopping the order
         const { data: shopData } = await client
           .from('shops')
-          .select('id')
+          .select('id, require_payment')
           .eq('slug', input.shopSlug)
           .maybeSingle();
 
         const resolvedShopId = shopData?.id;
+        const requiresPayment = (shopData as any)?.require_payment ?? true;
+        
+        // If shop owner disabled payment requirement, mark 'printing' directly so agent prints instantly!
+        const initialStatus: OrderStatus = requiresPayment ? 'pending' : 'printing';
+
         const newOrderId = crypto.randomUUID();
         const generatedOrderNumber = `RTS-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
         const sanitizedFileName = input.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -187,7 +192,7 @@ export function createLiveService(client: Client): PrintService {
 
         const calculatedTotalAmount = pricePerPage * input.totalPages * input.selection.copies;
 
-        // 1. Insert into print_orders with 'pending' status so it DOES NOT print before payment
+        // 1. Insert into print_orders with calculated initial status
         const { error: insertOrderError } = await client
           .from('print_orders')
           .insert({
@@ -203,7 +208,8 @@ export function createLiveService(client: Client): PrintService {
             customer_phone: input.customerPhone || null,
             file_name: input.file.name,
             file_url: calculatedStoragePath,
-            status: 'pending',
+            status: initialStatus,
+            paid_at: requiresPayment ? null : new Date().toISOString(),
           });
 
         if (insertOrderError) throw insertOrderError;
@@ -218,6 +224,17 @@ export function createLiveService(client: Client): PrintService {
             mime_type: input.file.type || 'application/pdf',
             file_size: input.file.size || 0,
           });
+
+        // 3. If direct printing is enabled (no payment required), immediately queue for print agent!
+        if (!requiresPayment) {
+          await client
+            .from('print_jobs')
+            .upsert({
+              order_id: newOrderId,
+              shop_id: resolvedShopId,
+              status: 'pending',
+            }, { onConflict: 'order_id' });
+        }
 
         return {
           orderId: newOrderId,
@@ -258,7 +275,7 @@ export function createLiveService(client: Client): PrintService {
 
         const shopId = updatedOrder?.shop_id;
 
-        // Queue into print_jobs so agent dispatches it
+        // Queue into print_jobs so agent dispatches it immediately
         await client
           .from('print_jobs')
           .upsert({

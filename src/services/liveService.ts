@@ -42,7 +42,8 @@ const toShop = (row: ShopRow): Shop => ({
   isAcceptingOrders: row.is_accepting_orders,
   razorpayEnabled: row.razorpay_enabled,
   razorpayKeyId: row.razorpay_key_id,
-  upiId: (row as any).upi_id ?? null, // <-- Added
+  requirePayment: (row as any).require_payment ?? true,
+  upiId: (row as any).upi_id ?? null,
   targetPrinterName: row.target_printer_name,
   defaultPaperTray: row.default_paper_tray as PaperSize,
 });
@@ -529,7 +530,8 @@ export function createLiveService(client: Client): PrintService {
       if (input.retentionHours !== undefined) payload.retention_hours = input.retentionHours;
       if (input.razorpayEnabled !== undefined) payload.razorpay_enabled = input.razorpayEnabled;
       if (input.razorpayKeyId !== undefined) payload.razorpay_key_id = input.razorpayKeyId;
-      if ((input as any).upiId !== undefined) (payload as any).upi_id = (input as any).upiId; // <-- Added
+      if ((input as any).requirePayment !== undefined) payload.require_payment = (input as any).requirePayment;
+      if ((input as any).upiId !== undefined) payload.upi_id = (input as any).upiId;
       if (input.targetPrinterName !== undefined) payload.target_printer_name = input.targetPrinterName;
       if (input.defaultPaperTray !== undefined) payload.default_paper_tray = input.defaultPaperTray;
 

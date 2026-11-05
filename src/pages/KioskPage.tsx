@@ -205,7 +205,7 @@ export default function KioskPage() {
   shopSlug={kiosk?.shop?.slug || 'rts-digital-seva'}
   razorpayKeyId={kiosk?.shop?.razorpayEnabled ? kiosk?.shop?.razorpayKeyId : null}
   upiId={kiosk?.shop?.upiId || 'rajaneesht99-1@okhdfcbank'}
-  file={selectedFile}
+  file={file!}
   pageCount={pageCount}
   selection={selection}
   total={totalAmount}

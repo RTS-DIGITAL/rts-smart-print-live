@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, BellOff, Download, ExternalLink, RotateCcw } from 'lucide-react';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { getErrorMessage } from '@/lib/errors';
-import { playChime } from '@/lib/chime';
 import { formatINR } from '@/lib/pricing';
 import { useLiveData } from '@/lib/useLiveData';
 import type { AdminOrder, AdminOrderStatus, OrderStatus } from '@/lib/types';
@@ -11,6 +10,30 @@ import { printService } from '@/services/printService';
 const FILTERS: Array<'all' | OrderStatus> = ['all', 'pending', 'paid', 'printing', 'completed', 'failed'];
 const CHIME_STORAGE_KEY = 'orders-chime';
 const AGENT_HEARTBEAT_WINDOW_MS = 15 * 1000;
+
+// Helper function: Clean two-tone chime without external MP3 files
+const playOrderChime = () => {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.15); // A5
+    
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch {
+    // Audio context fallback if blocked by browser policy
+  }
+};
 
 interface Action {
   label: string;
@@ -47,7 +70,7 @@ export function OrdersPanel({ shopId }: { shopId: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem(CHIME_STORAGE_KEY) === 'on');
-  const seenStatuses = useRef<Map<string, OrderStatus> | null>(null);
+  const seenStatuses = useRef | null>(null);
 
   useEffect(() => printService.subscribeOrders(shopId, refresh), [shopId, refresh]);
 
@@ -60,7 +83,7 @@ export function OrdersPanel({ shopId }: { shopId: string }) {
       const before = previous.get(order.id);
       return before === undefined || (order.status === 'paid' && before !== 'paid');
     });
-    if (arrived && soundOn) playChime();
+    if (arrived && soundOn) playOrderChime();
   }, [orders, soundOn]);
 
   const agentListening =
@@ -70,7 +93,7 @@ export function OrdersPanel({ shopId }: { shopId: string }) {
     const next = !soundOn;
     setSoundOn(next);
     localStorage.setItem(CHIME_STORAGE_KEY, next ? 'on' : 'off');
-    if (next) playChime();
+    if (next) playOrderChime();
   }
 
   async function run(work: () => Promise<void>, orderId: string) {

@@ -204,8 +204,8 @@ export default function KioskPage() {
   shopName={kioskData.shop.name}
   shopSlug={kioskData.shop.slug}
   razorpayKeyId={kioskData.shop.razorpayEnabled ? kioskData.shop.razorpayKeyId : null}
-  upiId={kioskData.shop.upiId}   {/* <--- ADD THIS LINE */}
-  file={selectedFile}
+upiId={kioskData.shop.upiId}
+file={selectedFile}
   pageCount={pageCount}
   selection={selection}
   total={totalAmount}

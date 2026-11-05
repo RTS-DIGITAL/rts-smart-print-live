@@ -9,7 +9,7 @@ export interface Shop {
   id: string;
   slug: string;
   name: string;
-  tagline: string;
+  tagline: string | null;
   phone: string | null;
   email: string | null;
   isActive: boolean;
@@ -19,7 +19,8 @@ export interface Shop {
   isAcceptingOrders: boolean;
   razorpayEnabled: boolean;
   razorpayKeyId: string | null;
-  targetPrinterName: string;
+  upiId?: string | null; // <-- Added
+  targetPrinterName: string | null;
   defaultPaperTray: PaperSize;
 }
 

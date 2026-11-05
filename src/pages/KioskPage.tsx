@@ -201,15 +201,16 @@ export default function KioskPage() {
 
           {file && preview && step === 3 && (
             <CheckoutStep
-              shopName={kiosk.shop.name}
-              shopSlug={kiosk.shop.slug}
-              razorpayKeyId={kiosk.shop.razorpayEnabled ? kiosk.shop.razorpayKeyId : null}
-              file={file}
-              pageCount={pageCount}
-              selection={selection}
-              total={total}
-              onBack={() => setStep(2)}
-            />
+  shopName={kioskData.shop.name}
+  shopSlug={kioskData.shop.slug}
+  razorpayKeyId={kioskData.shop.razorpayEnabled ? kioskData.shop.razorpayKeyId : null}
+  upiId={kioskData.shop.upiId}   {/* <--- ADD THIS LINE */}
+  file={selectedFile}
+  pageCount={pageCount}
+  selection={selection}
+  total={totalAmount}
+  onBack={() => setStep('configure')}
+/>
           )}
         </main>
 

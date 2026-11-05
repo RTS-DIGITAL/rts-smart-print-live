@@ -60,6 +60,7 @@ export function SettingsPanel({ shop, onSaved }: Props) {
     razorpayKeyId: shop.razorpayKeyId,
     targetPrinterName: shop.targetPrinterName,
     defaultPaperTray: shop.defaultPaperTray,
+    upiId: shop.upiId,
   }));
   const [keySecret, setKeySecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -91,6 +92,7 @@ export function SettingsPanel({ shop, onSaved }: Props) {
         address: blankToNull(form.address),
         counterNotice: blankToNull(form.counterNotice),
         razorpayKeyId: blankToNull(form.razorpayKeyId),
+        upiId: blankToNull(form.upiId),
       });
       if (keySecret.trim()) {
         await printService.saveRazorpaySecret(shop.id, keySecret.trim());
@@ -214,6 +216,25 @@ export function SettingsPanel({ shop, onSaved }: Props) {
               </button>
             </div>
           </Field>
+        </div>
+
+        {/* Shop UPI VPA Section */}
+        <div className="pt-4 border-t border-slate-100">
+          <label className="block text-sm font-semibold text-slate-800 mb-1">
+            Shop UPI ID (VPA)
+          </label>
+          <p className="text-xs text-slate-500 mb-2">
+            Direct bank settlement via Google Pay, PhonePe, and Paytm when Razorpay is turned off.
+          </p>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="e.g. 7012833699@okbizaxis or rtsdigital@upi"
+              value={form.upiId || ''}
+              onChange={(e) => update('upiId', e.target.value)}
+              className={inputClass}
+            />
+          </div>
         </div>
 
         <p className="flex items-start gap-2 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">

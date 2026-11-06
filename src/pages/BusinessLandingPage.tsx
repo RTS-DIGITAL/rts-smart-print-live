@@ -117,7 +117,7 @@ export const BusinessLandingPage: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          access_key: 'YOUR_WEB3FORMS_ACCESS_KEY',
+          access_key: 'c6424f38-4a5e-4f4c-b874-460081e81c74',
           subject: `New Shop Registration: ${formData.businessName}`,
           from_name: 'RTS Smart Print Inquiries',
           ...formData

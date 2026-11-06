@@ -22,7 +22,8 @@ import {
   Play,
   Pause,
   Trash2,
-  Check
+  Check,
+  Bell
 } from 'lucide-react';
 
 interface ShopData {
@@ -49,6 +50,7 @@ interface OrderRow {
   status: string;
   created_at: string;
   copies: number;
+  page_count: number;
 }
 
 interface PricingRule {
@@ -84,7 +86,6 @@ export default function AdminPage() {
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
 
   const loadShopData = async () => {
-    setLoading(true);
     try {
       const { data: shopRes, error: shopErr } = await supabase
         .from('shops')
@@ -119,7 +120,7 @@ export default function AdminPage() {
         .select('*')
         .eq('shop_id', shopRes.id)
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(30);
 
       if (ordersRes) setOrders(ordersRes);
 
@@ -139,6 +140,26 @@ export default function AdminPage() {
   useEffect(() => {
     loadShopData();
   }, [activeSlug]);
+
+  // Realtime Live Subscription: Instantly show incoming customer orders
+  useEffect(() => {
+    if (!shop?.id) return;
+
+    const channel = supabase
+      .channel(`admin-queue-${shop.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'print_orders', filter: `shop_id=eq.${shop.id}` },
+        () => {
+          loadShopData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [shop?.id]);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,26 +193,31 @@ export default function AdminPage() {
     }
   };
 
-  // Queue Approval / Reject Actions
-  const handleApproveOrder = async (orderId: string) => {
+  // Manual Approval Action: Changes status to 'paid' so Windows Print Agent picks it up
+  const handleApproveOrder = async (orderNumber: string) => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('print_orders')
         .update({ status: 'paid' })
-        .eq('id', orderId);
+        .eq('order_number', orderNumber);
+
+      if (error) throw error;
       loadShopData();
     } catch (err: any) {
       alert('Error approving order: ' + err.message);
     }
   };
 
-  const handleRejectOrder = async (orderId: string) => {
-    if (!window.confirm('Are you sure you want to discard this print job?')) return;
+  // Reject Action: Discards order
+  const handleRejectOrder = async (orderNumber: string) => {
+    if (!window.confirm(`Discard order ${orderNumber}?`)) return;
     try {
-      await supabase
+      const { error } = await supabase
         .from('print_orders')
         .update({ status: 'rejected' })
-        .eq('id', orderId);
+        .eq('order_number', orderNumber);
+
+      if (error) throw error;
       loadShopData();
     } catch (err: any) {
       alert('Error rejecting order: ' + err.message);
@@ -203,7 +229,6 @@ export default function AdminPage() {
     loadShopData();
   };
 
-  // Dynamic Standee Generator with Counter PIN
   const handlePrintStandee = () => {
     if (!shop) return;
     const kioskUrl = `${window.location.origin}/shop/${shop.slug}`;
@@ -466,7 +491,7 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* ANTI-SPAM 4-DIGIT PIN GATE TOGGLE */}
+              {/* ANTI-SPAM PIN GATE */}
               <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2.5">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-1.5 font-bold text-slate-900">
@@ -496,14 +521,11 @@ export default function AdminPage() {
                       onChange={(e) => setCounterPin(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-xl border border-amber-300 font-mono font-bold text-amber-950 text-center tracking-widest text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500"
                     />
-                    <p className="text-[10px] text-amber-700 mt-1 leading-tight">
-                      Customers must type this PIN before they can upload files. Stops remote spam completely.
-                    </p>
                   </div>
                 )}
               </div>
 
-              {/* PRINT EXECUTION MODE (AUTO-PILOT VS MANUAL) */}
+              {/* PRINT EXECUTION MODE */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Print Execution Mode</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -533,14 +555,9 @@ export default function AdminPage() {
                     Manual Approval
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  {autoPrintEnabled 
-                    ? 'Orders spool to printer automatically as soon as submitted.'
-                    : 'Jobs are held in queue until you click "Approve & Print" on this screen.'}
-                </p>
               </div>
 
-              {/* PAYMENT MODE TOGGLE */}
+              {/* PAYMENT MODE */}
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -607,19 +624,6 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between pt-1">
-                <span className="font-semibold text-slate-700">Counter Queue Status</span>
-                <button
-                  type="button"
-                  onClick={() => setIsAccepting(!isAccepting)}
-                  className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition ${
-                    isAccepting ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {isAccepting ? 'Accepting Orders' : 'Paused'}
-                </button>
-              </div>
-
               <button
                 type="submit"
                 disabled={saving}
@@ -632,9 +636,8 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Right Column: Live Queue & Pricing */}
+        {/* Right Column: Live Queue with Manual Approval Controls */}
         <div className="md:col-span-2 space-y-6">
-          {/* Live Orders Table with Manual Release Buttons */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <div>
@@ -642,11 +645,15 @@ export default function AdminPage() {
                   <Printer className="w-4 h-4 text-emerald-600" />
                   Recent Print Queue
                 </h2>
-                <p className="text-[11px] text-slate-400">Incoming customer jobs for this shop</p>
+                <p className="text-[11px] text-slate-400">Live incoming counter print jobs</p>
               </div>
-              <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full">
-                {orders.length} orders
-              </span>
+              <button
+                onClick={loadShopData}
+                className="text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Refresh ({orders.length})</span>
+              </button>
             </div>
 
             {orders.length === 0 ? (
@@ -663,51 +670,62 @@ export default function AdminPage() {
                       <th className="py-2.5 px-4">Copies</th>
                       <th className="py-2.5 px-4">Amount</th>
                       <th className="py-2.5 px-4">Status</th>
-                      <th className="py-2.5 px-4 text-right">Action</th>
+                      <th className="py-2.5 px-4 text-right">Counter Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {orders.map((o) => {
-                      const isPending = o.status === 'pending' || o.status === 'waiting_counter_approval';
+                      // An order needs action if it's waiting for counter approval or pending
+                      const needsApproval = 
+                        o.status === 'waiting_counter_approval' || 
+                        o.status === 'pending' || 
+                        o.status === 'held';
 
                       return (
-                        <tr key={o.id} className="hover:bg-slate-50/50">
+                        <tr 
+                          key={o.id} 
+                          className={needsApproval ? 'bg-amber-50/60 font-semibold' : 'hover:bg-slate-50/50'}
+                        >
                           <td className="py-3 px-4 font-mono font-bold text-slate-900">{o.order_number}</td>
                           <td className="py-3 px-4 truncate max-w-[140px]">{o.file_name}</td>
                           <td className="py-3 px-4">{o.copies}</td>
                           <td className="py-3 px-4 font-semibold text-slate-900">₹{o.total_amount?.toFixed(2)}</td>
                           <td className="py-3 px-4">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase inline-block ${
                               o.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
-                              o.status === 'printing' ? 'bg-blue-100 text-blue-800' : 
-                              o.status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                              o.status === 'printing' ? 'bg-blue-100 text-blue-800 animate-pulse' : 
+                              o.status === 'rejected' ? 'bg-rose-100 text-rose-800' : 
+                              o.status === 'waiting_counter_approval' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                              'bg-slate-100 text-slate-800'
                             }`}>
-                              {o.status}
+                              {o.status === 'waiting_counter_approval' ? 'HOLD: NEEDS APPROVAL' : o.status}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            {isPending ? (
+                            {needsApproval ? (
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleApproveOrder(o.id)}
-                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition flex items-center gap-1 shadow-sm"
+                                  onClick={() => handleApproveOrder(o.order_number)}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30 active:scale-95"
                                   title="Approve & Send to Printer"
                                 >
-                                  <Check className="w-3 h-3" />
-                                  <span>Print</span>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Print Now</span>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRejectOrder(o.id)}
-                                  className="p-1 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition"
+                                  onClick={() => handleRejectOrder(o.order_number)}
+                                  className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl transition active:scale-95"
                                   title="Reject & Discard"
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
+                            ) : o.status === 'completed' ? (
+                              <span className="text-[10px] font-bold text-emerald-600">Printed</span>
                             ) : (
-                              <span className="text-[10px] text-slate-400 font-mono">Synced</span>
+                              <span className="text-[10px] text-slate-400 font-mono">Spooling...</span>
                             )}
                           </td>
                         </tr>
@@ -719,7 +737,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Pricing Rules Configuration */}
+          {/* Pricing Rules */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div>
               <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">

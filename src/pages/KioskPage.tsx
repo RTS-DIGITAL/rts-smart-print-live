@@ -23,7 +23,7 @@ const DEFAULT_SELECTION: PrintSelection = {
 
 type LoadState = 'loading' | 'ready' | 'missing' | 'error';
 
-export default function KioskPage() {
+const KioskPage = () => {
   const { shopSlug = '' } = useParams();
   const [kiosk, setKiosk] = useState<KioskData | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('loading');
@@ -215,23 +215,24 @@ export default function KioskPage() {
           )}
         </main>
 
-        <footer className="mt-12 text-center pb-8 border-t border-slate-200/60 pt-6 px-5">
+        {/* Business Inquiry Footer Badge */}
+        <footer className="mt-14 pb-8 text-center border-t border-slate-200/70 pt-6 px-5">
           <p className="text-xs text-slate-400">
-            Want this automated print kiosk for your own shop?{' '}
+            Own a printing or digital service shop?{' '}
             <a
               href="/for-business"
               target="_blank"
               rel="noreferrer"
-              className="text-emerald-600 font-semibold hover:underline inline-flex items-center gap-1"
+              className="text-emerald-600 font-bold hover:underline inline-flex items-center gap-1"
             >
-              Learn more & pricing →
+              Get RTS Smart Print for your shop →
             </a>
           </p>
         </footer>
       </div>
     </div>
   );
-}
+};
 
 function StatusMessage({ title, text }: { title: string; text: string }) {
   return (
@@ -242,3 +243,5 @@ function StatusMessage({ title, text }: { title: string; text: string }) {
     </div>
   );
 }
+
+export default KioskPage;

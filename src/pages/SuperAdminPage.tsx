@@ -24,7 +24,8 @@ import {
   Ban,
   CheckCircle2,
   UserPlus,
-  MessageCircle
+  MessageCircle,
+  Calendar
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -39,7 +40,11 @@ interface ShopTenant {
   subscription_status: string;
   is_accepting_orders: boolean;
   auto_delete_hours: number;
+  pairing_code: string;
+  admin_username: string;
+  admin_pin: string;
   created_at: string;
+  approved_at: string | null;
 }
 
 interface PlatformPlan {
@@ -77,7 +82,6 @@ export const SuperAdminPage: React.FC = () => {
   const [shops, setShops] = useState<ShopTenant[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
-  const [pairingCodesMap, setPairingCodesMap] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -85,7 +89,6 @@ export const SuperAdminPage: React.FC = () => {
   const [modalSaving, setModalSaving] = useState(false);
   const [approvingInquiryId, setApprovingInquiryId] = useState<string | null>(null);
 
-  // Directly launches an email drafted to the CUSTOMER'S EMAIL (not admin inbox)
   const sendShopStatusEmail = (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
     if (!email) return;
 
@@ -103,7 +106,6 @@ export const SuperAdminPage: React.FC = () => {
       body = `Hi ${shopName},\n\nPayment received! Your print station has been re-approved and reactivated. Your kiosk is now accepting customer print jobs again.\n\nThank you for partnering with RTS Smart Print!`;
     }
 
-    // Opens default mail app addressed directly to the customer's email
     window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
   };
 
@@ -121,34 +123,18 @@ export const SuperAdminPage: React.FC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Shops
       const { data: shopsData } = await supabase
         .from('shops')
         .select('*')
         .order('created_at', { ascending: false });
       if (shopsData) setShops(shopsData);
 
-      // 2. Fetch all shop pairing keys for easy mapping
-      const { data: keysData } = await supabase
-        .from('shop_connector_keys')
-        .select('shop_id, pairing_code');
-      
-      if (keysData) {
-        const map: Record<string, string> = {};
-        keysData.forEach((k) => {
-          map[k.shop_id] = k.pairing_code;
-        });
-        setPairingCodesMap(map);
-      }
-
-      // 3. Fetch Inquiries from shop_inquiries
       const { data: inqData } = await supabase
         .from('shop_inquiries')
         .select('*')
         .order('created_at', { ascending: false });
       if (inqData) setInquiries(inqData);
 
-      // 4. Fetch dynamic pricing
       const { data: plansData } = await supabase
         .from('platform_plans')
         .select('*')
@@ -167,7 +153,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   }, [isAuthenticated]);
 
-  // Helper to format WhatsApp message text
   const getWhatsAppKitLink = (inq: Inquiry) => {
     const slug = inq.business_name
       .toLowerCase()
@@ -175,9 +160,8 @@ export const SuperAdminPage: React.FC = () => {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
 
-    // Find if the shop already exists to grab the exact pairing code
     const existingShop = shops.find(s => s.slug === slug || s.name.toLowerCase() === inq.business_name.toLowerCase());
-    const pairingCode = existingShop && pairingCodesMap[existingShop.id] ? pairingCodesMap[existingShop.id] : '314475';
+    const pairingCode = existingShop?.pairing_code || 'Check Admin';
 
     const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
@@ -187,7 +171,7 @@ export const SuperAdminPage: React.FC = () => {
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
 
-  // 1-Click Approve Inquiry & Provision Shop
+  // 1-Click Approve Inquiry & Provision Shop with GUARANTEED UNIQUE PAIRING CODE
   const handleApproveAndCreateShop = async (inq: Inquiry) => {
     if (!window.confirm(`Approve ${inq.business_name} and generate counter station?`)) return;
     setApprovingInquiryId(inq.id);
@@ -199,9 +183,11 @@ export const SuperAdminPage: React.FC = () => {
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '') || `shop-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const pairingCode = Math.floor(100000 + Math.random() * 900000).toString();
+      // Generate a distinct 6-digit code
+      const uniquePairingCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const shortUsername = slug.split('-')[0] || slug;
 
-      // 1. Create shop in shops table
+      // 1. Create shop in shops table WITH pairing_code and approved_at
       const { data: newShop, error: shopErr } = await supabase
         .from('shops')
         .insert([
@@ -217,7 +203,11 @@ export const SuperAdminPage: React.FC = () => {
             counter_notice: 'Please collect your prints at the counter',
             auto_delete_hours: 24,
             is_pin_protected: false,
-            auto_print_enabled: true
+            auto_print_enabled: true,
+            pairing_code: uniquePairingCode,
+            admin_username: shortUsername,
+            admin_pin: '123456',
+            approved_at: new Date().toISOString()
           }
         ])
         .select()
@@ -225,16 +215,16 @@ export const SuperAdminPage: React.FC = () => {
 
       if (shopErr) throw shopErr;
 
-      // 2. Generate shop connector pairing key
+      // 2. Also register in connector table
       await supabase.from('shop_connector_keys').insert([
         {
           shop_id: newShop.id,
-          pairing_code: pairingCode,
+          pairing_code: uniquePairingCode,
           is_active: true
         }
       ]);
 
-      // 3. Add default pricing rules
+      // 3. Setup default pricing rules
       await supabase.from('pricing_rules').insert([
         { shop_id: newShop.id, paper_size: 'A4', is_color: false, is_double_sided: false, price_per_page: 2.0 },
         { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 }
@@ -246,16 +236,42 @@ export const SuperAdminPage: React.FC = () => {
         .update({ status: 'approved' })
         .eq('id', inq.id);
 
-      // 5. Send Email to Customer directly
-      sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode });
+      sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode: uniquePairingCode });
 
-      alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${pairingCode}\n\nNow click "Send WhatsApp Kit" to forward details directly to their phone.`);
+      alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${uniquePairingCode}\nLogin ID: ${shortUsername}\nDefault PIN: 123456`);
       setActiveTab('shops');
       fetchAllData();
     } catch (err: any) {
       alert('Failed to approve shop: ' + err.message);
     } finally {
       setApprovingInquiryId(null);
+    }
+  };
+
+  // HARD PERMANENT DELETE SHOP
+  const handleDeleteShop = async (shop: ShopTenant) => {
+    const confirmation = window.prompt(`⚠️ PERMANENT DELETE\n\nType the shop name "${shop.name}" to delete this store and all its data permanently:`);
+    if (confirmation !== shop.name) {
+      if (confirmation !== null) alert('Shop name did not match. Deletion cancelled.');
+      return;
+    }
+
+    try {
+      // 1. Delete associated files from storage
+      const { data: files } = await supabase.storage.from('print-files').list(shop.id);
+      if (files && files.length > 0) {
+        const filePaths = files.map(f => `${shop.id}/${f.name}`);
+        await supabase.storage.from('print-files').remove(filePaths);
+      }
+
+      // 2. Delete shop from table (cascades to orders, rules, keys)
+      const { error } = await supabase.from('shops').delete().eq('id', shop.id);
+      if (error) throw error;
+
+      alert(`Shop "${shop.name}" has been permanently deleted.`);
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to delete shop: ' + err.message);
     }
   };
 
@@ -283,7 +299,11 @@ export const SuperAdminPage: React.FC = () => {
     try {
       await supabase
         .from('shops')
-        .update({ subscription_status: 'active', is_accepting_orders: true })
+        .update({ 
+          subscription_status: 'active', 
+          is_accepting_orders: true,
+          approved_at: new Date().toISOString()
+        })
         .eq('id', shop.id);
 
       if (shop.owner_email) {
@@ -308,6 +328,9 @@ export const SuperAdminPage: React.FC = () => {
           name: editingShop.name,
           phone: editingShop.phone,
           owner_email: editingShop.owner_email,
+          admin_username: editingShop.admin_username,
+          admin_pin: editingShop.admin_pin,
+          pairing_code: editingShop.pairing_code,
           upi_id: editingShop.upi_id,
           target_printer_name: editingShop.target_printer_name,
           counter_notice: editingShop.counter_notice,
@@ -428,7 +451,7 @@ export const SuperAdminPage: React.FC = () => {
         </button>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 pt-6 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
         {/* SHOPS TAB */}
         {activeTab === 'shops' && (
           <div className="space-y-4">
@@ -450,10 +473,10 @@ export const SuperAdminPage: React.FC = () => {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800">
                     <tr>
-                      <th className="py-3 px-4">Shop</th>
-                      <th className="py-3 px-4">Contact & Email</th>
+                      <th className="py-3 px-4">Shop & ID</th>
                       <th className="py-3 px-4">Pairing Code</th>
-                      <th className="py-3 px-4">Auto-Delete</th>
+                      <th className="py-3 px-4">Contact</th>
+                      <th className="py-3 px-4">Subscription Period (Dates)</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Super Admin Actions</th>
                     </tr>
@@ -461,28 +484,36 @@ export const SuperAdminPage: React.FC = () => {
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
                     {filteredShops.map((shop) => {
                       const isSuspended = shop.subscription_status === 'suspended';
-                      const pCode = pairingCodesMap[shop.id] || '---';
+                      const appliedDate = new Date(shop.created_at).toLocaleDateString();
+                      const approvedDate = shop.approved_at ? new Date(shop.approved_at).toLocaleDateString() : 'Pending';
 
                       return (
                         <tr key={shop.id} className="hover:bg-slate-800/30">
                           <td className="py-3.5 px-4">
                             <span className="font-extrabold text-white text-sm block">{shop.name}</span>
                             <span className="text-[11px] font-mono text-emerald-400">/shop/{shop.slug}</span>
+                            <span className="text-[10px] text-slate-500 block font-mono">ID: {shop.admin_username || shop.slug}</span>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <span className="font-mono font-black text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/20 text-xs">
+                              {shop.pairing_code || '---'}
+                            </span>
                           </td>
 
                           <td className="py-3.5 px-4 space-y-0.5">
                             <p className="font-semibold text-slate-300">{shop.phone || 'No phone'}</p>
-                            <p className="text-[11px] text-slate-500">{shop.owner_email || 'No email saved'}</p>
+                            <p className="text-[11px] text-slate-500 truncate max-w-[140px]">{shop.owner_email || 'No email'}</p>
                           </td>
 
-                          <td className="py-3.5 px-4 font-mono font-bold text-amber-400">
-                            {pCode}
-                          </td>
-
-                          <td className="py-3.5 px-4">
-                            <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-300 font-bold text-[10px]">
-                              {shop.auto_delete_hours || 24} Hours
-                            </span>
+                          <td className="py-3.5 px-4 space-y-0.5">
+                            <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                              <Calendar className="w-3 h-3 text-slate-500" />
+                              <span>Applied: {appliedDate}</span>
+                            </div>
+                            <div className="text-[11px] text-emerald-400 font-semibold">
+                              Approved: {approvedDate}
+                            </div>
                           </td>
 
                           <td className="py-3.5 px-4">
@@ -496,7 +527,7 @@ export const SuperAdminPage: React.FC = () => {
                           </td>
 
                           <td className="py-3.5 px-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end gap-1.5">
                               {isSuspended ? (
                                 <button
                                   type="button"
@@ -526,12 +557,21 @@ export const SuperAdminPage: React.FC = () => {
                                 <span>Manage</span>
                               </button>
 
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteShop(shop)}
+                                className="p-1.5 bg-rose-950/50 hover:bg-rose-900 text-rose-400 rounded-xl border border-rose-900/60 transition"
+                                title="Permanently Delete Shop"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+
                               <a
                                 href={`/shop/${shop.slug}/admin`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
-                                title="Open Counter Admin"
+                                title="Open Shop Admin"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
                               </a>
@@ -547,13 +587,13 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* INQUIRIES TAB WITH 1-CLICK APPROVAL & 1-CLICK WHATSAPP KIT */}
+        {/* INQUIRIES TAB */}
         {activeTab === 'inquiries' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-base font-black text-white">Pending Partner Inquiries</h2>
-                <p className="text-xs text-slate-400">Review registrations, activate shops, and dispatch WhatsApp setup kits.</p>
+                <p className="text-xs text-slate-400">Review registrations and dispatch setup kits.</p>
               </div>
               <span className="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full font-bold">
                 {inquiries.length} submitted
@@ -568,6 +608,7 @@ export const SuperAdminPage: React.FC = () => {
               <div className="divide-y divide-slate-800">
                 {inquiries.map((inq) => {
                   const isAlreadyApproved = inq.status === 'approved';
+                  const appliedDate = new Date(inq.created_at).toLocaleDateString();
 
                   return (
                     <div key={inq.id} className="py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -579,6 +620,7 @@ export const SuperAdminPage: React.FC = () => {
                           }`}>
                             {inq.status}
                           </span>
+                          <span className="text-[10px] text-slate-500 font-mono">Applied: {appliedDate}</span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Owner: <span className="text-slate-200 font-bold">{inq.owner_name}</span> • Phone: {inq.phone} • {inq.email} • {inq.city}
@@ -591,7 +633,6 @@ export const SuperAdminPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center flex-wrap gap-2">
-                        {/* 1. APPROVE & CREATE SHOP BUTTON */}
                         {!isAlreadyApproved && (
                           <button
                             type="button"
@@ -604,24 +645,20 @@ export const SuperAdminPage: React.FC = () => {
                           </button>
                         )}
 
-                        {/* 2. INSTANT 1-CLICK WHATSAPP KIT BUTTON */}
                         <a
                           href={getWhatsAppKitLink(inq)}
                           target="_blank"
                           rel="noreferrer"
                           className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1.5 shadow-sm"
-                          title="Open WhatsApp with Setup Kit"
                         >
                           <MessageCircle className="w-3.5 h-3.5 text-slate-950" />
                           <span>Send WhatsApp Kit</span>
                         </a>
 
-                        {/* 3. DIRECT CUSTOMER EMAIL SENDER */}
                         <button
                           type="button"
                           onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved')}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs transition flex items-center gap-1"
-                          title="Compose email directly to customer"
                         >
                           <Mail className="w-3.5 h-3.5 text-emerald-400" />
                           <span>Email Customer</span>
@@ -639,15 +676,10 @@ export const SuperAdminPage: React.FC = () => {
         {activeTab === 'pricing' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <div>
-                <h2 className="text-base font-black text-white flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-emerald-400" />
-                  Public Landing Page Pricing & Promotional Offers
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Adjust launch offers, strike-through rates, and trial periods displayed on <code>/for-business</code>.
-                </p>
-              </div>
+              <h2 className="text-base font-black text-white flex items-center gap-2">
+                <Tag className="w-4 h-4 text-emerald-400" />
+                Public Landing Page Pricing & Promotional Offers
+              </h2>
 
               <div className="grid md:grid-cols-2 gap-4 pt-2">
                 {plans.map((plan) => (
@@ -659,7 +691,6 @@ export const SuperAdminPage: React.FC = () => {
                         defaultValue={plan.badge_text}
                         onBlur={(e) => handleUpdatePlan(plan.id, { badge_text: e.target.value })}
                         className="bg-slate-900 border border-slate-800 text-[10px] font-black text-emerald-400 px-2 py-1 rounded-lg uppercase outline-none focus:border-emerald-500"
-                        title="Promotional Badge"
                       />
                     </div>
 
@@ -729,14 +760,14 @@ export const SuperAdminPage: React.FC = () => {
         )}
       </main>
 
-      {/* REMOTE SHOP MANAGER MODAL */}
+      {/* REMOTE SHOP MANAGER MODAL (WITH SHOP ID, PAIRING CODE, UPI & PIN)[cite: 32] */}
       {editingShop && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div>
                 <h3 className="text-base font-black text-white">Remote Shop Manager: {editingShop.name}</h3>
-                <p className="text-[11px] text-slate-400">Super Admin remote override</p>
+                <p className="text-[11px] text-slate-400">Configure credentials, subscription, and printer</p>
               </div>
               <button
                 type="button"
@@ -758,6 +789,41 @@ export const SuperAdminPage: React.FC = () => {
                 />
               </div>
 
+              {/* CREDENTIALS SECTION */}
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[10px] text-slate-400 font-bold mb-1">Shop ID (Login ID)</label>
+                  <input
+                    type="text"
+                    value={editingShop.admin_username || editingShop.slug}
+                    onChange={(e) => setEditingShop({ ...editingShop, admin_username: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-emerald-400 font-mono text-xs font-bold outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-slate-400 font-bold mb-1">6-Digit Admin PIN</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={editingShop.admin_pin || '123456'}
+                    onChange={(e) => setEditingShop({ ...editingShop, admin_pin: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-amber-400 font-mono text-center text-xs font-bold outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-slate-400 font-bold mb-1">Windows Pairing Code</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={editingShop.pairing_code || ''}
+                    onChange={(e) => setEditingShop({ ...editingShop, pairing_code: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white font-mono text-center text-xs font-bold outline-none"
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Owner Contact Phone</label>
@@ -770,10 +836,9 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Owner Email (For Alerts)</label>
+                  <label className="block text-slate-400 mb-1">Owner Email</label>
                   <input
                     type="email"
-                    placeholder="shop@gmail.com"
                     value={editingShop.owner_email || ''}
                     onChange={(e) => setEditingShop({ ...editingShop, owner_email: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
@@ -781,20 +846,15 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl space-y-1.5">
-                <label className="block font-bold text-emerald-400">
-                  Auto-Delete Printed Files (Save Supabase Space)
-                </label>
-                <select
-                  value={editingShop.auto_delete_hours || 24}
-                  onChange={(e) => setEditingShop({ ...editingShop, auto_delete_hours: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-emerald-800/60 rounded-xl px-3 py-2 text-white outline-none font-bold"
-                >
-                  <option value={1}>Auto-delete after 1 Hour</option>
-                  <option value={4}>Auto-delete after 4 Hours</option>
-                  <option value={12}>Auto-delete after 12 Hours</option>
-                  <option value={24}>Auto-delete after 24 Hours (Max Limit)</option>
-                </select>
+              <div>
+                <label className="block text-emerald-400 font-bold mb-1">Shop UPI ID (Direct Payments)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. shop@okaxis"
+                  value={editingShop.upi_id || ''}
+                  onChange={(e) => setEditingShop({ ...editingShop, upi_id: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono outline-none"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -807,7 +867,7 @@ export const SuperAdminPage: React.FC = () => {
                   >
                     <option value="trial">7-Day Free Trial</option>
                     <option value="active">Active (Paid)</option>
-                    <option value="suspended">Suspended (Trial Ended / Payment Due)</option>
+                    <option value="suspended">Suspended</option>
                   </select>
                 </div>
 
@@ -822,14 +882,20 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1">Shop UPI ID</label>
-                <input
-                  type="text"
-                  value={editingShop.upi_id || ''}
-                  onChange={(e) => setEditingShop({ ...editingShop, upi_id: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none font-mono"
-                />
+              <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl">
+                <label className="block font-bold text-emerald-400 mb-1">
+                  Auto-Delete Printed Files
+                </label>
+                <select
+                  value={editingShop.auto_delete_hours || 24}
+                  onChange={(e) => setEditingShop({ ...editingShop, auto_delete_hours: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-emerald-800/60 rounded-xl px-3 py-1.5 text-white outline-none font-bold"
+                >
+                  <option value={1}>Auto-delete after 1 Hour</option>
+                  <option value={4}>Auto-delete after 4 Hours</option>
+                  <option value={12}>Auto-delete after 12 Hours</option>
+                  <option value={24}>Auto-delete after 24 Hours</option>
+                </select>
               </div>
 
               <div className="flex gap-2 pt-2">

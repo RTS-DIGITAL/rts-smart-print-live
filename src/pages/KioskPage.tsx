@@ -218,7 +218,19 @@ export default function KioskPage() {
         <footer className="flex items-center justify-center gap-2 border-t border-slate-100 px-5 py-4 text-xs text-slate-400">
           <Store className="h-3.5 w-3.5" aria-hidden="true" />
           {kiosk.shop.name}
-        </footer>
+        <footer className="mt-12 text-center pb-8 border-t border-slate-200/60 pt-6">
+  <p className="text-xs text-slate-400">
+    Want this automated print kiosk for your own shop?{' '}
+    <a
+      href="/for-business"
+      target="_blank"
+      rel="noreferrer"
+      className="text-emerald-600 font-semibold hover:underline inline-flex items-center gap-1"
+    >
+      Learn more & pricing →
+    </a>
+  </p>
+</footer>
       </div>
     </div>
   );

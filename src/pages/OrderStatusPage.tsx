@@ -1,204 +1,247 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Check, Loader2, Printer, PackageCheck } from 'lucide-react';
-import { BrandMark } from '@/components/BrandMark';
-import { getErrorMessage } from '@/lib/errors';
-import { formatINR, DEFAULT_SHOP_SLUG } from '@/lib/pricing';
-import type { OrderReceipt, OrderStatus } from '@/lib/types';
-import { printService } from '@/services/printService';
+import React, { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { supabase } from '@/lib/supabase';
+import { 
+  CheckCircle2, 
+  Clock, 
+  Printer, 
+  AlertCircle, 
+  ArrowLeft,
+  FileText
+} from 'lucide-react';
 
-const POLL_INTERVAL_MS = 4000;
-const TERMINAL_STATUSES: OrderStatus[] = ['completed', 'failed'];
-
-const STAGES = [
-  { status: 'paid', label: 'Queued', detail: 'Your payment is in and your job is waiting its turn.', icon: Check },
-  { status: 'printing', label: 'Printing', detail: 'Your pages are printing right now.', icon: Printer },
-  { status: 'completed', label: 'Ready for pickup', detail: 'Collect your prints from the counter.', icon: PackageCheck },
-] as const;
-
-function stageIndex(status: OrderStatus): number {
-  return STAGES.findIndex((stage) => stage.status === status);
+interface OrderDetail {
+  id: string;
+  order_number: string;
+  file_name: string;
+  page_count: number;
+  copies: number;
+  total_amount: number;
+  status: string;
+  is_color: boolean;
+  is_double_sided: boolean;
+  paper_size: string;
+  created_at: string;
+  shop_id: string;
+  shops?: {
+    name: string;
+    slug: string;
+    phone: string | null;
+    counter_notice: string | null;
+  };
 }
 
 export default function OrderStatusPage() {
-  const { orderId = '' } = useParams();
-  const [receipt, setReceipt] = useState<OrderReceipt | null>(null);
-  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
-  const [pollError, setPollError] = useState<string | null>(null);
+  const { orderId } = useParams<{ orderId: string }>();
+  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const fetchReceipt = useCallback(async () => {
+  const fetchOrder = async () => {
+    if (!orderId) return;
+
     try {
-      const next = await printService.getReceipt(orderId);
-      setPollError(null);
-      if (!next) {
-        setLoadState('missing');
-        return null;
+      // Allow searching by either the UUID `id` OR the display `order_number`
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+      
+      let query = supabase
+        .from('print_orders')
+        .select('*, shops(name, slug, phone, counter_notice)');
+
+      if (isUuid) {
+        query = query.eq('id', orderId);
+      } else {
+        query = query.eq('order_number', orderId);
       }
-      setReceipt(next);
-      setLoadState('ready');
-      return next;
-    } catch (caught) {
-      setPollError(getErrorMessage(caught));
-      setLoadState((current) => (current === 'loading' ? 'error' : current));
-      return null;
+
+      const { data, error } = await query.maybeSingle();
+
+      if (error) throw error;
+      if (data) setOrder(data as OrderDetail);
+    } catch (err) {
+      console.error('Failed to load order status:', err);
+    } finally {
+      setLoading(false);
     }
-  }, [orderId]);
+  };
 
   useEffect(() => {
-    let timer: number | undefined;
-    let cancelled = false;
+    fetchOrder();
 
-    const tick = async () => {
-      const next = await fetchReceipt();
-      if (cancelled) return;
-      if (!next || !TERMINAL_STATUSES.includes(next.status)) {
-        timer = window.setTimeout(tick, POLL_INTERVAL_MS);
-      }
-    };
-    void tick();
+    // Subscribe to live order status updates
+    const channel = supabase
+      .channel(`order-status-${orderId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'print_orders' },
+        (payload) => {
+          if (payload.new && (payload.new.id === orderId || payload.new.order_number === orderId)) {
+            setOrder((prev) => (prev ? { ...prev, ...payload.new } : null));
+          }
+        }
+      )
+      .subscribe();
 
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      supabase.removeChannel(channel);
     };
-  }, [fetchReceipt]);
+  }, [orderId]);
 
-  if (loadState === 'loading') {
+  if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" aria-label="Loading order" />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <p className="text-xs font-bold text-slate-400 animate-pulse">Loading order details...</p>
       </div>
     );
   }
 
-  if (loadState === 'missing' || loadState === 'error' || !receipt) {
+  if (!order) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center">
-        <AlertTriangle className="h-8 w-8 text-amber-500" aria-hidden="true" />
-        <p className="font-semibold text-slate-900">
-          {loadState === 'missing' ? 'We could not find this order' : 'Order status is unavailable'}
-        </p>
-        {pollError && <p className="text-sm text-slate-500">{pollError}</p>}
-        <Link to={`/shop/${DEFAULT_SHOP_SLUG}`} className="text-sm font-semibold text-emerald-700 hover:underline">
-          Back to the kiosk
-        </Link>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center max-w-sm space-y-3 shadow-sm">
+          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
+          <h2 className="text-lg font-black text-slate-900">Order Not Found</h2>
+          <p className="text-xs text-slate-500">
+            We could not find order reference: <code className="font-mono text-emerald-700">{orderId}</code>
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:underline pt-2"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Home
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const current = stageIndex(receipt.status);
-  const failed = receipt.status === 'failed';
-  const awaitingPayment = receipt.status === 'pending';
+  const shopSlug = order.shops?.slug || 'rts-digital-seva';
+  const shopName = order.shops?.name || 'Smart Print Station';
+  const shopPhone = order.shops?.phone || '7012833699';
+  const counterNotice = order.shops?.counter_notice || 'Please collect prints at Counter 1';
+
+  const isCompleted = order.status === 'completed';
+  const isPrinting = order.status === 'printing';
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-white shadow-xl shadow-slate-900/5">
-        <header className="flex items-center gap-3 bg-slate-900 px-5 py-5 text-white">
-          <BrandMark />
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
+      {/* Top Header */}
+      <header className="bg-slate-900 text-white py-4 px-6 sticky top-0 z-40 flex justify-between items-center shadow-md">
+        <div>
+          <h1 className="font-extrabold text-sm flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            {shopName}
+          </h1>
+          <p className="text-[10px] text-slate-400 font-mono">Order: {order.order_number}</p>
+        </div>
+        <Link
+          to={`/shop/${shopSlug}`}
+          className="text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1 transition"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>New Print</span>
+        </Link>
+      </header>
+
+      <main className="max-w-md mx-auto px-4 pt-8 space-y-5">
+        {/* Status Card */}
+        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm text-center space-y-4">
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto transition ${
+            isCompleted 
+              ? 'bg-emerald-100 text-emerald-600' 
+              : isPrinting 
+              ? 'bg-blue-100 text-blue-600 animate-pulse' 
+              : 'bg-emerald-100 text-emerald-600'
+          }`}>
+            {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Printer className="w-7 h-7" />}
+          </div>
+
           <div>
-            <p className="text-base font-semibold leading-tight">{receipt.shopName}</p>
-            <p className="text-xs text-slate-300">Order {receipt.orderNumber}</p>
-          </div>
-        </header>
-
-        <main className="flex-1 space-y-6 px-5 py-6 animate-fade-up">
-          <div className="rounded-2xl border border-slate-200 p-5 text-center">
-            <p className="text-sm text-slate-500">Status</p>
-            <p className="mt-1 text-2xl font-semibold text-slate-900">
-              {failed ? 'Print failed' : awaitingPayment ? 'Awaiting payment' : STAGES[current]?.label ?? ''}
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              {failed
-                ? 'Please speak to the counter. Our team will re-queue your job.'
-                : awaitingPayment
-                  ? 'Payment has not been received yet for this order.'
-                  : STAGES[current]?.detail}
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">
+              Live Order Status
+            </span>
+            <h2 className="text-2xl font-black text-slate-900">
+              {isCompleted ? 'Ready for Pickup' : isPrinting ? 'Printing Document...' : 'Queued for Printing'}
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              {isCompleted 
+                ? 'Your document has finished printing at the counter!' 
+                : isPrinting 
+                ? 'Pages are actively spooling from the counter printer.' 
+                : 'Payment received. Waiting its turn in the counter queue.'}
             </p>
           </div>
 
-          {!failed && !awaitingPayment && (
-            <div role="status" className="space-y-3 rounded-2xl bg-emerald-50 p-5 text-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white">
-                Payment Captured • Spooling to Printer
-              </span>
-              <p className="text-base text-emerald-900">
-                Please collect your <span className="font-semibold">{receipt.totalPages * receipt.copies} printed pages</span> at the counter tray.
-              </p>
-              {receipt.shopPhone && (
-                <p className="text-sm text-emerald-900">
-                  Shop Counter Contact: <a href={`tel:${receipt.shopPhone}`} className="font-semibold underline">{receipt.shopPhone}</a>
-                </p>
-              )}
-              {receipt.counterNotice && <p className="text-sm font-semibold text-emerald-900">{receipt.counterNotice}</p>}
-            </div>
-          )}
+          {/* Collection Notice Box */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-left text-xs space-y-1.5 text-emerald-900">
+            <p className="font-bold">{counterNotice}</p>
+            <p className="text-[11px] text-emerald-700">
+              Shop Contact: <strong>{shopPhone}</strong>
+            </p>
+          </div>
 
-          {!failed && !awaitingPayment && (
-            <ol className="space-y-5">
-              {STAGES.map((stage, index) => {
-                const done = index < current || (index === current && receipt.status === 'completed');
-                const active = index === current && !done;
-                const Icon = stage.icon;
-                return (
-                  <li key={stage.status} className="flex items-center gap-4">
-                    <span
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors duration-500 ${
-                        done || active ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'
-                      } ${active ? 'animate-pulse' : ''}`}
-                    >
-                      <Icon className="h-5 w-5" aria-hidden="true" />
-                    </span>
-                    <span
-                      className={`text-base font-medium ${done || active ? 'text-slate-900' : 'text-slate-400'}`}
-                    >
-                      {stage.label}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
+          {/* Stepper Display */}
+          <div className="space-y-2 pt-2 text-left text-xs">
+            <div className="flex items-center gap-2.5 text-emerald-700 font-bold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Queued & Paid</span>
+            </div>
+            <div className={`flex items-center gap-2.5 font-bold ${
+              isPrinting || isCompleted ? 'text-emerald-700' : 'text-slate-400'
+            }`}>
+              <CheckCircle2 className={`w-4 h-4 ${isPrinting || isCompleted ? 'text-emerald-600' : 'text-slate-300'}`} />
+              <span>Printing to Machine</span>
+            </div>
+            <div className={`flex items-center gap-2.5 font-bold ${
+              isCompleted ? 'text-emerald-700' : 'text-slate-400'
+            }`}>
+              <CheckCircle2 className={`w-4 h-4 ${isCompleted ? 'text-emerald-600' : 'text-slate-300'}`} />
+              <span>Ready for Counter Collection</span>
+            </div>
+          </div>
+        </div>
 
-          <dl className="space-y-3 rounded-2xl bg-slate-50 p-5 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Order number</dt>
-              <dd className="font-medium text-slate-900">{receipt.orderNumber}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">File</dt>
-              <dd className="max-w-[60%] truncate font-medium text-slate-900">{receipt.fileName ?? 'Document'}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Setup</dt>
-              <dd className="font-medium text-slate-900">
-                {receipt.paperSize}, {receipt.isColor ? 'Colour' : 'B&W'}, {receipt.isDoubleSided ? 'Double-sided' : 'Single-sided'}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-slate-500">Pages × copies</dt>
-              <dd className="font-medium text-slate-900">
-                {receipt.totalPages} × {receipt.copies}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4 border-t border-slate-200 pt-3">
-              <dt className="font-semibold text-slate-900">Total paid</dt>
-              <dd className="font-semibold tabular-nums text-slate-900">{formatINR(receipt.totalAmount)}</dd>
-            </div>
-          </dl>
+        {/* Receipt Details Card */}
+        <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3 text-xs">
+          <div className="flex justify-between pb-2 border-b border-slate-100">
+            <span className="text-slate-500">Order Number</span>
+            <span className="font-mono font-bold text-slate-900">{order.order_number}</span>
+          </div>
 
-          {pollError && <p className="text-center text-xs text-slate-400">Live updates paused. Retrying...</p>}
-        </main>
+          <div className="flex justify-between pb-2 border-b border-slate-100">
+            <span className="text-slate-500">File Name</span>
+            <span className="font-medium text-slate-800 truncate max-w-[200px]">{order.file_name}</span>
+          </div>
 
-        <footer className="px-5 pb-6">
+          <div className="flex justify-between pb-2 border-b border-slate-100">
+            <span className="text-slate-500">Setup</span>
+            <span className="font-medium text-slate-800">
+              {order.paper_size || 'A4'}, {order.is_color ? 'Color' : 'B&W'}, {order.is_double_sided ? '2-Sided' : '1-Sided'}
+            </span>
+          </div>
+
+          <div className="flex justify-between pb-2 border-b border-slate-100">
+            <span className="text-slate-500">Pages × Copies</span>
+            <span className="font-medium text-slate-800">{order.page_count || 1} × {order.copies}</span>
+          </div>
+
+          <div className="flex justify-between pt-1 text-sm font-extrabold">
+            <span className="text-slate-900">Total Paid</span>
+            <span className="text-emerald-600">₹{order.total_amount?.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* Back to Raju Shop button */}
+        <div className="text-center pt-2">
           <Link
-            to={`/shop/${receipt.shopSlug}`}
-            className="flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            to={`/shop/${shopSlug}`}
+            className="inline-flex items-center justify-center gap-2 w-full py-3.5 bg-slate-900 hover:bg-black text-white font-bold rounded-2xl text-xs shadow-md transition"
           >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Print Another Document
+            <ArrowLeft className="w-4 h-4" />
+            <span>Print Another Document at {shopName}</span>
           </Link>
-        </footer>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

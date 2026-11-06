@@ -13,6 +13,7 @@ export default function App() {
       <Route path="/" element={<Navigate to={`/shop/${DEFAULT_SHOP_SLUG}`} replace />} />
       <Route path="/shop/:shopSlug" element={<KioskPage />} />
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
+      <Route path="/shop/:shopSlug/order/:orderId" element={<OrderStatusPage />} />
 
       {/* Shop Specific Admin */}
       <Route path="/shop/:shopSlug/admin" element={<AdminPage />} />

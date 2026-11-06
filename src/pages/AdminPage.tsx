@@ -13,7 +13,8 @@ import {
   Edit,
   Tag,
   Save,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 
 interface ShopRow {
@@ -45,7 +46,14 @@ interface InquiryRow {
   created_at: string;
 }
 
+// Master Admin Security PIN (Change anytime)
+const MASTER_ADMIN_PIN = "7012";
+
 export const SuperAdminPage: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'inquiries' | 'shops' | 'settings'>('inquiries');
   const [shops, setShops] = useState<ShopRow[]>([]);
   const [inquiries, setInquiries] = useState<InquiryRow[]>([]);
@@ -70,6 +78,18 @@ export const SuperAdminPage: React.FC = () => {
     slug: string;
     pairingCode: string;
   } | null>(null);
+
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput === MASTER_ADMIN_PIN) {
+      setIsAuthenticated(true);
+      setPinError(false);
+      loadData();
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -98,8 +118,10 @@ export const SuperAdminPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isAuthenticated) {
+      loadData();
+    }
+  }, [isAuthenticated]);
 
   const handleUpdateInquiryStatus = async (id: string, status: string) => {
     await supabase.from('shop_inquiries').update({ status }).eq('id', id);
@@ -177,6 +199,46 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
+  // Password Lock Screen
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl max-w-sm w-full p-8 shadow-2xl text-center space-y-5">
+          <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900">RTS Master Control</h2>
+            <p className="text-xs text-slate-400 mt-1">Enter Master Security PIN to access all shops</p>
+          </div>
+
+          <form onSubmit={handlePinSubmit} className="space-y-4">
+            <input
+              type="password"
+              maxLength={6}
+              placeholder="Enter PIN"
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value)}
+              className="w-full text-center tracking-[0.5em] text-2xl font-black py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 outline-none"
+              autoFocus
+            />
+
+            {pinError && (
+              <p className="text-xs font-bold text-rose-600">Incorrect Security PIN</p>
+            )}
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-slate-900 hover:bg-black text-white font-bold rounded-xl text-xs transition"
+            >
+              Unlock Dashboard
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* Top Banner */}
@@ -211,6 +273,13 @@ export const SuperAdminPage: React.FC = () => {
           >
             <Plus className="w-4 h-4" />
             Provision New Shop
+          </button>
+          <button
+            onClick={() => setIsAuthenticated(false)}
+            className="p-2.5 bg-slate-800 hover:bg-rose-950 text-rose-400 rounded-xl transition text-xs"
+            title="Lock Panel"
+          >
+            Lock
           </button>
         </div>
       </header>
@@ -314,7 +383,8 @@ export const SuperAdminPage: React.FC = () => {
               <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
                 <tr>
                   <th className="py-3 px-4">Shop Name</th>
-                  <th className="py-3 px-4">Slug</th>
+                  <th className="py-3 px-4">Public Kiosk</th>
+                  <th className="py-3 px-4">Shop Admin</th>
                   <th className="py-3 px-4">Pairing Code</th>
                   <th className="py-3 px-4">Printer</th>
                   <th className="py-3 px-4">Status</th>
@@ -336,6 +406,17 @@ export const SuperAdminPage: React.FC = () => {
                           className="text-emerald-700 hover:underline flex items-center gap-1 font-mono"
                         >
                           /{shop.slug}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </td>
+                      <td className="py-3 px-4">
+                        <a
+                          href={`/shop/${shop.slug}/admin`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1 font-mono"
+                        >
+                          /admin
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       </td>

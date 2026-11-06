@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
-  ShieldCheck, 
   Store, 
   Calendar, 
   Clock, 
   CheckCircle2, 
-  XCircle, 
   RefreshCw, 
   Plus, 
   Phone, 
   Mail, 
   Search,
-  ExternalLink
+  ExternalLink,
+  Key,
+  Copy
 } from 'lucide-react';
 
 interface ShopRow {
@@ -24,6 +24,7 @@ interface ShopRow {
   subscription_plan: string;
   subscription_expires_at: string;
   created_at: string;
+  pairing_code?: string;
 }
 
 interface InquiryRow {
@@ -41,14 +42,15 @@ interface InquiryRow {
 }
 
 export const SuperAdminPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'shops' | 'inquiries'>('inquiries');
+  const [activeTab, setActiveTab] = useState<'inquiries' | 'shops'>('inquiries');
   const [shops, setShops] = useState<ShopRow[]>([]);
   const [inquiries, setInquiries] = useState<InquiryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // New Shop Provisioning Modal State
+  // Provisioning Modal State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [activeInquiryId, setActiveInquiryId] = useState<string | null>(null);
   const [newShop, setNewShop] = useState({
     name: '',
     slug: '',
@@ -57,15 +59,29 @@ export const SuperAdminPage: React.FC = () => {
     expiryMonths: 12,
   });
 
+  const [provisionResult, setProvisionResult] = useState<{
+    slug: string;
+    pairingCode: string;
+  } | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [shopsRes, inqRes] = await Promise.all([
+      const [shopsRes, keysRes, inqRes] = await Promise.all([
         supabase.from('shops').select('*').order('created_at', { ascending: false }),
+        supabase.from('shop_connector_keys').select('shop_id, pairing_code'),
         supabase.from('shop_inquiries').select('*').order('created_at', { ascending: false })
       ]);
 
-      if (shopsRes.data) setShops(shopsRes.data as ShopRow[]);
+      const keyMap = new Map((keysRes.data || []).map(k => [k.shop_id, k.pairing_code]));
+
+      if (shopsRes.data) {
+        const enrichedShops = (shopsRes.data as ShopRow[]).map(s => ({
+          ...s,
+          pairing_code: keyMap.get(s.id) || '---'
+        }));
+        setShops(enrichedShops);
+      }
       if (inqRes.data) setInquiries(inqRes.data as InquiryRow[]);
     } catch (err) {
       console.error('Failed to load Super-Admin data:', err);
@@ -79,8 +95,33 @@ export const SuperAdminPage: React.FC = () => {
   }, []);
 
   const handleUpdateInquiryStatus = async (id: string, status: string) => {
-    await supabase.from('shop_inquiries').update({ status }).eq('id', id);
-    loadData();
+    try {
+      const { error } = await supabase.from('shop_inquiries').update({ status }).eq('id', id);
+      if (error) throw error;
+      loadData();
+    } catch (err: any) {
+      alert('Error updating status: ' + err.message);
+    }
+  };
+
+  // Pre-fill modal directly from inquiry
+  const handleStartApprove = (inq: InquiryRow) => {
+    const slug = inq.business_name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    setActiveInquiryId(inq.id);
+    setNewShop({
+      name: inq.business_name,
+      slug: slug || 'shop-kiosk',
+      phone: inq.phone,
+      plan: inq.selected_plan || 'starter',
+      expiryMonths: 12
+    });
+    setProvisionResult(null);
+    setShowAddModal(true);
   };
 
   const handleExtendSubscription = async (shopId: string, additionalMonths: number) => {
@@ -107,28 +148,31 @@ export const SuperAdminPage: React.FC = () => {
 
   const handleCreateShop = async (e: React.FormEvent) => {
     e.preventDefault();
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + Number(newShop.expiryMonths));
+    try {
+      const cleanSlug = newShop.slug.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
+      
+      const { data, error } = await supabase.rpc('provision_new_tenant', {
+        p_name: newShop.name,
+        p_slug: cleanSlug,
+        p_phone: newShop.phone,
+        p_plan: newShop.plan,
+        p_expiry_months: Number(newShop.expiryMonths)
+      });
 
-    const { error } = await supabase.from('shops').insert([
-      {
-        name: newShop.name,
-        slug: newShop.slug.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-'),
-        phone: newShop.phone,
-        subscription_plan: newShop.plan,
-        subscription_status: 'active',
-        subscription_expires_at: expiryDate.toISOString(),
-        is_accepting_orders: true,
-        require_payment: true
+      if (error) throw error;
+
+      if (activeInquiryId) {
+        await supabase.from('shop_inquiries').update({ status: 'approved' }).eq('id', activeInquiryId);
       }
-    ]);
 
-    if (!error) {
-      setShowAddModal(false);
-      setNewShop({ name: '', slug: '', phone: '', plan: 'starter', expiryMonths: 12 });
+      setProvisionResult({
+        slug: cleanSlug,
+        pairingCode: data.pairing_code
+      });
+
       loadData();
-    } else {
-      alert('Error creating shop: ' + error.message);
+    } catch (err: any) {
+      alert('Error creating shop: ' + err.message);
     }
   };
 
@@ -153,11 +197,15 @@ export const SuperAdminPage: React.FC = () => {
             onClick={loadData}
             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition text-xs flex items-center gap-1.5"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setActiveInquiryId(null);
+              setProvisionResult(null);
+              setShowAddModal(true);
+            }}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
           >
             <Plus className="w-4 h-4" />
@@ -207,7 +255,8 @@ export const SuperAdminPage: React.FC = () => {
                           {inq.selected_plan}
                         </span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                          inq.status === 'new' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                          inq.status === 'new' ? 'bg-amber-100 text-amber-800' :
+                          inq.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
                         }`}>
                           {inq.status}
                         </span>
@@ -224,7 +273,7 @@ export const SuperAdminPage: React.FC = () => {
 
                     <div className="flex items-center gap-2">
                       <a
-                        href={`https://wa.me/91${inq.phone.replace(/\D/g, '')}?text=Hello%20${encodeURIComponent(inq.owner_name)},%20this%20is%20RTS%20Smart%20Print.%20We%20received%20your%20registration%20for%20${encodeURIComponent(inq.business_name)}.`}
+                        href={`https://wa.me/91${inq.phone.replace(/\D/g, '')}?text=Hello%20${encodeURIComponent(inq.owner_name)},%20this%20is%20Rajaneesh%20from%20RTS%20Smart%20Print.%20We%20received%20your%20registration%20for%20${encodeURIComponent(inq.business_name)}.`}
                         target="_blank"
                         rel="noreferrer"
                         className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs transition"
@@ -238,10 +287,10 @@ export const SuperAdminPage: React.FC = () => {
                         Mark Contacted
                       </button>
                       <button
-                        onClick={() => handleUpdateInquiryStatus(inq.id, 'approved')}
-                        className="px-3 py-2 bg-slate-900 hover:bg-black text-white font-semibold rounded-xl text-xs"
+                        onClick={() => handleStartApprove(inq)}
+                        className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white font-semibold rounded-xl text-xs"
                       >
-                        Approve
+                        Approve & Provision
                       </button>
                     </div>
                   </div>
@@ -273,9 +322,10 @@ export const SuperAdminPage: React.FC = () => {
                 <tr>
                   <th className="py-3 px-4">Shop</th>
                   <th className="py-3 px-4">Slug (URL)</th>
+                  <th className="py-3 px-4">Pairing Code</th>
                   <th className="py-3 px-4">Plan</th>
-                  <th className="py-3 px-4">Subscription Status</th>
-                  <th className="py-3 px-4">AMC Expiry Date</th>
+                  <th className="py-3 px-4">Subscription</th>
+                  <th className="py-3 px-4">AMC Expiry</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -299,6 +349,11 @@ export const SuperAdminPage: React.FC = () => {
                             /{shop.slug}
                             <ExternalLink className="w-3 h-3" />
                           </a>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-slate-800">
+                          <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            {shop.pairing_code}
+                          </span>
                         </td>
                         <td className="py-3 px-4 uppercase font-bold text-[10px] text-slate-500">
                           {shop.subscription_plan || 'starter'}
@@ -339,96 +394,140 @@ export const SuperAdminPage: React.FC = () => {
         )}
       </main>
 
-      {/* ADD SHOP MODAL */}
+      {/* PROVISION SHOP MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
-            <h3 className="font-extrabold text-slate-900 text-lg mb-1">Provision New Tenant Shop</h3>
-            <p className="text-xs text-slate-400 mb-4">Instantly creates their custom kiosk URL and sets their subscription date.</p>
-
-            <form onSubmit={handleCreateShop} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Business / Shop Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Metro Xerox"
-                  value={newShop.name}
-                  onChange={(e) => {
-                    const name = e.target.value;
-                    const autoSlug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-                    setNewShop({ ...newShop, name, slug: autoSlug });
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Kiosk URL Slug</label>
-                <input
-                  type="text"
-                  required
-                  value={newShop.slug}
-                  onChange={(e) => setNewShop({ ...newShop, slug: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none font-mono"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">Will be: <code>/shop/{newShop.slug || 'slug'}</code></p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
-                <input
-                  type="tel"
-                  placeholder="Mobile number"
-                  value={newShop.phone}
-                  onChange={(e) => setNewShop({ ...newShop, phone: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Plan</label>
-                  <select
-                    value={newShop.plan}
-                    onChange={(e) => setNewShop({ ...newShop, plan: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none"
-                  >
-                    <option value="starter">Starter</option>
-                    <option value="pro">Pro</option>
-                  </select>
+            {provisionResult ? (
+              <div className="text-center py-4 space-y-4">
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="font-extrabold text-slate-900 text-xl">Shop Activated Successfully!</h3>
+                
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-left space-y-2.5 text-xs">
+                  <div>
+                    <span className="text-slate-400 block font-medium">Customer Kiosk Link:</span>
+                    <a
+                      href={`/shop/${provisionResult.slug}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-700 font-bold hover:underline break-all"
+                    >
+                      {window.location.origin}/shop/{provisionResult.slug}
+                    </a>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-medium">6-Digit Agent Pairing Code:</span>
+                    <span className="text-xl font-mono font-black text-slate-900 tracking-wider">
+                      {provisionResult.pairingCode}
+                    </span>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Validity</label>
-                  <select
-                    value={newShop.expiryMonths}
-                    onChange={(e) => setNewShop({ ...newShop, expiryMonths: Number(e.target.value) })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none"
-                  >
-                    <option value={12}>1 Year (12 Mo)</option>
-                    <option value={24}>2 Years (24 Mo)</option>
-                    <option value={1}>1 Month Trial</option>
-                  </select>
-                </div>
-              </div>
+                <p className="text-[11px] text-slate-400">
+                  Send this link and 6-digit code to the shop owner on WhatsApp to start printing.
+                </p>
 
-              <div className="flex gap-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setProvisionResult(null);
+                  }}
+                  className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl text-xs hover:bg-black transition"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl text-xs text-white shadow-md"
-                >
-                  Create & Activate
+                  Done
                 </button>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleCreateShop} className="space-y-3.5">
+                <h3 className="font-extrabold text-slate-900 text-lg mb-1">Provision New Tenant Shop</h3>
+                <p className="text-xs text-slate-400 mb-4">Creates their kiosk URL and generates their agent pairing code.</p>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Business / Shop Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Metro Xerox"
+                    value={newShop.name}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      const autoSlug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+                      setNewShop({ ...newShop, name, slug: autoSlug });
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Kiosk URL Slug</label>
+                  <input
+                    type="text"
+                    required
+                    value={newShop.slug}
+                    onChange={(e) => setNewShop({ ...newShop, slug: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Will be: <code>/shop/{newShop.slug || 'slug'}</code></p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
+                  <input
+                    type="tel"
+                    placeholder="Mobile number"
+                    value={newShop.phone}
+                    onChange={(e) => setNewShop({ ...newShop, phone: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Plan</label>
+                    <select
+                      value={newShop.plan}
+                      onChange={(e) => setNewShop({ ...newShop, plan: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none"
+                    >
+                      <option value="starter">Starter</option>
+                      <option value="pro">Pro</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Validity</label>
+                    <select
+                      value={newShop.expiryMonths}
+                      onChange={(e) => setNewShop({ ...newShop, expiryMonths: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none"
+                    >
+                      <option value={12}>1 Year (12 Mo)</option>
+                      <option value={24}>2 Years (24 Mo)</option>
+                      <option value={1}>1 Month Trial</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl text-xs text-white shadow-md"
+                  >
+                    Create & Activate
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

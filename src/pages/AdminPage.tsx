@@ -8,9 +8,6 @@ import {
   Settings, 
   RefreshCw, 
   CreditCard, 
-  FileText, 
-  CheckCircle2, 
-  Clock, 
   ExternalLink,
   ShieldAlert,
   Save,
@@ -22,7 +19,10 @@ import {
   Play,
   Pause,
   Trash2,
-  Check
+  Check,
+  KeyRound,
+  LogOut,
+  Mail
 } from 'lucide-react';
 
 interface ShopData {
@@ -30,6 +30,7 @@ interface ShopData {
   slug: string;
   name: string;
   phone: string | null;
+  owner_email: string | null;
   upi_id: string | null;
   target_printer_name: string | null;
   counter_notice: string | null;
@@ -40,6 +41,9 @@ interface ShopData {
   counter_pin: string;
   auto_print_enabled: boolean;
   auto_delete_hours: number;
+  pairing_code: string;
+  admin_pin: string;
+  admin_username: string;
 }
 
 interface OrderRow {
@@ -68,14 +72,21 @@ export default function AdminPage() {
   const [shop, setShop] = useState<ShopData | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [pricing, setPricing] = useState<PricingRule[]>([]);
-  const [pairingCode, setPairingCode] = useState<string>('---');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Authentication State
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginId, setLoginId] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+
   // Form State
   const [shopName, setShopName] = useState('');
   const [phone, setPhone] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
   const [upiId, setUpiId] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
   const [counterNotice, setCounterNotice] = useState('');
@@ -83,8 +94,17 @@ export default function AdminPage() {
   const [requirePayment, setRequirePayment] = useState(false);
   const [isPinProtected, setIsPinProtected] = useState(false);
   const [counterPin, setCounterPin] = useState('1234');
+  const [adminPin, setAdminPin] = useState('123456');
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
+
+  // Check Local Session
+  useEffect(() => {
+    const sessionKey = `rts_auth_${activeSlug}`;
+    if (localStorage.getItem(sessionKey) === 'true') {
+      setIsLoggedIn(true);
+    }
+  }, [activeSlug]);
 
   const loadShopData = async () => {
     try {
@@ -99,6 +119,7 @@ export default function AdminPage() {
       setShop(shopRes);
       setShopName(shopRes.name || '');
       setPhone(shopRes.phone || '');
+      setOwnerEmail(shopRes.owner_email || '');
       setUpiId(shopRes.upi_id || '');
       setTargetPrinter(shopRes.target_printer_name || '');
       setCounterNotice(shopRes.counter_notice || '');
@@ -106,28 +127,11 @@ export default function AdminPage() {
       setRequirePayment(shopRes.require_payment ?? false);
       setIsPinProtected(shopRes.is_pin_protected ?? false);
       setCounterPin(shopRes.counter_pin || '1234');
+      setAdminPin(shopRes.admin_pin || '123456');
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
       setAutoDeleteHours(shopRes.auto_delete_hours || 24);
 
-      // Load Pairing Code (Generate fallback if not exists)
-      const { data: keyRes } = await supabase
-        .from('shop_connector_keys')
-        .select('pairing_code')
-        .eq('shop_id', shopRes.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (keyRes && keyRes.length > 0) {
-        setPairingCode(keyRes[0].pairing_code);
-      } else {
-        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-        await supabase.from('shop_connector_keys').insert([
-          { shop_id: shopRes.id, pairing_code: newCode, is_active: true }
-        ]);
-        setPairingCode(newCode);
-      }
-
-      // Load orders
+      // Load Orders
       const { data: ordersRes } = await supabase
         .from('print_orders')
         .select('*')
@@ -137,7 +141,7 @@ export default function AdminPage() {
 
       if (ordersRes) setOrders(ordersRes);
 
-      // Load pricing
+      // Load Pricing
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
         .select('*')
@@ -155,6 +159,7 @@ export default function AdminPage() {
     loadShopData();
   }, [activeSlug]);
 
+  // Realtime Live Subscription
   useEffect(() => {
     if (!shop?.id) return;
     const channel = supabase
@@ -171,6 +176,41 @@ export default function AdminPage() {
     };
   }, [shop?.id]);
 
+  // Login Handler
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shop) return;
+
+    const validId = (shop.admin_username || shop.slug || '').toLowerCase().trim();
+    const validPhone = (shop.phone || '').trim();
+    const enteredId = loginId.toLowerCase().trim();
+    const validPin = (shop.admin_pin || '123456').trim();
+
+    if ((enteredId === validId || enteredId === validPhone) && loginPin.trim() === validPin) {
+      setIsLoggedIn(true);
+      localStorage.setItem(`rts_auth_${activeSlug}`, 'true');
+      setLoginError('');
+    } else {
+      setLoginError('Invalid User ID or 6-digit PIN');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(`rts_auth_${activeSlug}`);
+    setIsLoggedIn(false);
+  };
+
+  const handleForgotPassword = () => {
+    if (!shop?.owner_email) {
+      alert(`No owner email configured. Please call RTS Super Admin (7012833699) to reset your PIN.`);
+      return;
+    }
+    window.open(
+      `mailto:${shop.owner_email}?subject=Your RTS Shop Admin Login Details&body=Your Shop ID: ${shop.admin_username || shop.slug}%0D%0AYour 6-Digit Admin PIN: ${shop.admin_pin || '123456'}`
+    );
+    setForgotSent(true);
+  };
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -181,6 +221,7 @@ export default function AdminPage() {
         .update({
           name: shopName,
           phone: phone,
+          owner_email: ownerEmail,
           upi_id: upiId,
           target_printer_name: targetPrinter,
           counter_notice: counterNotice,
@@ -188,6 +229,7 @@ export default function AdminPage() {
           require_payment: requirePayment,
           is_pin_protected: isPinProtected,
           counter_pin: counterPin,
+          admin_pin: adminPin,
           auto_print_enabled: autoPrintEnabled,
           auto_delete_hours: autoDeleteHours
         })
@@ -245,71 +287,39 @@ export default function AdminPage() {
             @page { size: A4 portrait; margin: 0; }
             body { 
               font-family: system-ui, -apple-system, sans-serif;
-              margin: 0; 
-              padding: 40px 20px; 
-              display: flex; 
-              justify-content: center; 
-              align-items: center; 
-              min-height: 100vh;
-              background-color: #f8fafc;
-              -webkit-print-color-adjust: exact;
+              margin: 0; padding: 40px 20px; 
+              display: flex; justify-content: center; align-items: center; 
+              min-height: 100vh; background-color: #f8fafc;
             }
             .card { 
-              width: 480px; 
-              background: white; 
-              border: 3px solid #059669; 
-              border-radius: 28px; 
-              padding: 40px 32px; 
-              text-align: center;
-              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+              width: 480px; background: white; border: 3px solid #059669; 
+              border-radius: 28px; padding: 40px 32px; text-align: center;
             }
             .header-tag {
-              display: inline-block;
-              background: #ecfdf5;
-              color: #059669;
-              font-weight: 800;
-              font-size: 13px;
-              padding: 6px 16px;
-              border-radius: 9999px;
-              text-transform: uppercase;
-              letter-spacing: 0.05em;
-              margin-bottom: 12px;
+              display: inline-block; background: #ecfdf5; color: #059669;
+              font-weight: 800; font-size: 13px; padding: 6px 16px;
+              border-radius: 9999px; text-transform: uppercase; margin-bottom: 12px;
             }
             h1 { font-size: 28px; color: #0f172a; margin: 0 0 6px 0; font-weight: 900; }
             p.sub { color: #64748b; font-size: 14px; margin: 0 0 20px 0; }
             .qr-box { 
-              background: white; 
-              padding: 16px; 
-              border: 2px dashed #cbd5e1; 
-              border-radius: 24px; 
-              display: inline-block;
-              margin-bottom: 18px;
+              background: white; padding: 16px; border: 2px dashed #cbd5e1; 
+              border-radius: 24px; display: inline-block; margin-bottom: 18px;
             }
             .qr-box img { width: 240px; height: 240px; display: block; }
             .pin-badge {
-              background: #fef3c7;
-              border: 2px solid #f59e0b;
-              color: #92400e;
-              padding: 8px 16px;
-              border-radius: 14px;
-              font-size: 14px;
-              font-weight: 900;
-              margin-bottom: 20px;
+              background: #fef3c7; border: 2px solid #f59e0b; color: #92400e;
+              padding: 8px 16px; border-radius: 14px; font-size: 14px;
+              font-weight: 900; margin-bottom: 20px;
               display: ${isPinProtected ? 'inline-block' : 'none'};
             }
             .steps { 
-              background: #f8fafc; 
-              border-radius: 16px; 
-              padding: 16px; 
-              text-align: left; 
-              font-size: 13px; 
-              color: #334155; 
-              line-height: 1.8;
-              margin-bottom: 20px;
+              background: #f8fafc; border-radius: 16px; padding: 16px; 
+              text-align: left; font-size: 13px; color: #334155; line-height: 1.8; margin-bottom: 20px;
             }
             .steps strong { color: #059669; }
             .footer { font-size: 11px; color: #94a3b8; font-weight: 600; }
-            @media print { body { background: transparent; padding: 0; } .card { box-shadow: none; border-width: 2px; } }
+            @media print { body { background: transparent; padding: 0; } }
           </style>
         </head>
         <body>
@@ -358,6 +368,78 @@ export default function AdminPage() {
     );
   }
 
+  // =========================================================================
+  // SHOP ADMIN LOGIN GATE (User ID & 6-Digit Password)
+  // =========================================================================
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-slate-950 border border-slate-800 p-8 rounded-3xl max-w-sm w-full text-center space-y-4 shadow-2xl">
+          <div className="w-14 h-14 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20">
+            <Lock className="w-7 h-7" />
+          </div>
+
+          <div>
+            <h1 className="text-lg font-black text-white">{shop.name}</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Counter Admin Login</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-3 text-left">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">User ID / Shop ID</label>
+              <input
+                type="text"
+                placeholder={shop.admin_username || shop.slug}
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                required
+                className="w-full py-2.5 px-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">6-Digit Admin PIN</label>
+              <input
+                type="password"
+                maxLength={6}
+                placeholder="••••••"
+                value={loginPin}
+                onChange={(e) => setLoginPin(e.target.value)}
+                required
+                className="w-full py-2.5 px-3 bg-slate-900 border border-slate-800 rounded-xl text-center text-lg font-mono tracking-widest text-emerald-400 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {loginError && <p className="text-xs text-rose-500 font-bold text-center">{loginError}</p>}
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-md shadow-emerald-600/30"
+            >
+              Sign In to Counter
+            </button>
+          </form>
+
+          <div className="pt-2 border-t border-slate-900">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-[11px] text-slate-400 hover:text-emerald-400 transition"
+            >
+              Forgot 6-Digit PIN?
+            </button>
+            {forgotSent && (
+              <p className="text-[10px] text-emerald-400 mt-1">Reset request prepared via email!</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // LOGGED-IN SHOP ADMIN DASHBOARD
+  // =========================================================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
@@ -400,19 +482,26 @@ export default function AdminPage() {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+          <button
+            onClick={handleLogout}
+            className="p-2 bg-rose-950/40 hover:bg-rose-900 border border-rose-800/60 text-rose-300 rounded-xl transition"
+            title="Sign Out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 pt-6 grid md:grid-cols-3 gap-6">
         <div className="md:col-span-1 space-y-6">
-          {/* Agent Pairing Code Card */}
+          {/* PERMANENT AGENT PAIRING CODE CARD */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-2">
             <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">
-              Windows Agent Pairing Code
+              Permanent Windows Pairing Code
             </span>
             <div className="flex items-center justify-between">
               <span className="text-2xl font-mono font-black text-slate-900 tracking-widest bg-slate-100 px-3 py-1 rounded-xl border border-slate-200">
-                {pairingCode}
+                {shop.pairing_code || '---'}
               </span>
               <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase ${
                 shop.subscription_status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
@@ -421,7 +510,7 @@ export default function AdminPage() {
               </span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
-              Enter this 6-digit code inside <code>RTS-Smart-Print-Agent.exe</code> on your counter PC to link printing[cite: 16].
+              Enter this permanent 6-digit code in <code>RTS-Smart-Print-Agent.exe</code>. Never changes on refresh!
             </p>
           </div>
 
@@ -453,7 +542,25 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* ALWAYS VISIBLE UPI ID CUSTOMIZATION BOX */}
+              {/* 6-DIGIT ADMIN PIN FIELD */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
+                <label className="block font-bold text-slate-800 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                  Counter Admin PIN (6 Numbers)
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={adminPin}
+                  onChange={(e) => setAdminPin(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-300 font-mono text-center font-bold tracking-widest text-slate-900 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Password to log in to this shop admin panel.
+                </p>
+              </div>
+
+              {/* ALWAYS VISIBLE UPI ID */}
               <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-1.5">
                 <label className="block font-bold text-emerald-950 flex items-center gap-1.5">
                   <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
@@ -467,7 +574,7 @@ export default function AdminPage() {
                   className="w-full px-3 py-2 rounded-xl border border-emerald-300 font-mono text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <p className="text-[10px] text-emerald-700 leading-tight">
-                  Customer mobile payments go 100% directly into this UPI ID.
+                  Customer payments go 100% directly into this UPI ID.
                 </p>
               </div>
 
@@ -688,7 +795,6 @@ export default function AdminPage() {
                                   type="button"
                                   onClick={() => handleApproveOrder(o.order_number)}
                                   className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
-                                  title="Approve & Send to Printer"
                                 >
                                   <Check className="w-3.5 h-3.5" />
                                   <span>Print Now</span>
@@ -697,7 +803,6 @@ export default function AdminPage() {
                                   type="button"
                                   onClick={() => handleRejectOrder(o.order_number)}
                                   className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl transition"
-                                  title="Reject & Discard"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>

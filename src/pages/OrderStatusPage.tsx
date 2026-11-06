@@ -32,7 +32,8 @@ interface OrderDetail {
 }
 
 export default function OrderStatusPage() {
-  const { orderId } = useParams<{ orderId: string }>();
+  // Read both optional shopSlug and orderId from URL parameters
+  const { shopSlug: paramShopSlug, orderId } = useParams<{ shopSlug?: string; orderId: string }>();
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,7 +41,7 @@ export default function OrderStatusPage() {
     if (!orderId) return;
 
     try {
-      // Allow searching by either the UUID `id` OR the display `order_number`
+      // Allow searching by either UUID `id` or short `order_number` (e.g. RTS-838515)
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
       
       let query = supabase
@@ -86,6 +87,12 @@ export default function OrderStatusPage() {
     };
   }, [orderId]);
 
+  // Determine active shop slug with fallback hierarchy
+  const activeShopSlug = paramShopSlug || order?.shops?.slug || 'rts-digital-seva';
+  const shopName = order?.shops?.name || 'Smart Print Station';
+  const shopPhone = order?.shops?.phone || '7012833699';
+  const counterNotice = order?.shops?.counter_notice || 'Please collect prints at Counter 1';
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -104,21 +111,16 @@ export default function OrderStatusPage() {
             We could not find order reference: <code className="font-mono text-emerald-700">{orderId}</code>
           </p>
           <Link
-            to="/"
+            to={`/shop/${activeShopSlug}`}
             className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:underline pt-2"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Home
+            Back to Shop Kiosk
           </Link>
         </div>
       </div>
     );
   }
-
-  const shopSlug = order.shops?.slug || 'rts-digital-seva';
-  const shopName = order.shops?.name || 'Smart Print Station';
-  const shopPhone = order.shops?.phone || '7012833699';
-  const counterNotice = order.shops?.counter_notice || 'Please collect prints at Counter 1';
 
   const isCompleted = order.status === 'completed';
   const isPrinting = order.status === 'printing';
@@ -135,7 +137,7 @@ export default function OrderStatusPage() {
           <p className="text-[10px] text-slate-400 font-mono">Order: {order.order_number}</p>
         </div>
         <Link
-          to={`/shop/${shopSlug}`}
+          to={`/shop/${activeShopSlug}`}
           className="text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1 transition"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -231,10 +233,10 @@ export default function OrderStatusPage() {
           </div>
         </div>
 
-        {/* Back to Raju Shop button */}
+        {/* Back Button Preserving Specific Shop */}
         <div className="text-center pt-2">
           <Link
-            to={`/shop/${shopSlug}`}
+            to={`/shop/${activeShopSlug}`}
             className="inline-flex items-center justify-center gap-2 w-full py-3.5 bg-slate-900 hover:bg-black text-white font-bold rounded-2xl text-xs shadow-md transition"
           >
             <ArrowLeft className="w-4 h-4" />

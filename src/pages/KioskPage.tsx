@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertTriangle, Check, Loader2, MapPin, Phone, Store } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, MapPin, Phone } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { CheckoutStep } from '@/components/kiosk/CheckoutStep';
 import { HowItWorks } from '@/components/kiosk/HowItWorks';
@@ -201,36 +201,33 @@ export default function KioskPage() {
 
           {file && preview && step === 3 && (
             <CheckoutStep
-  shopName={kiosk?.shop?.name || 'RTS Digital Seva'}
-  shopSlug={kiosk?.shop?.slug || 'rts-digital-seva'}
-  razorpayKeyId={kiosk?.shop?.razorpayEnabled ? kiosk?.shop?.razorpayKeyId : null}
-  upiId={kiosk?.shop?.upiId || 'rajaneesht99-1@okhdfcbank'}
-  requirePayment={kiosk?.shop?.requirePayment ?? true}
-  file={file!}
-  pageCount={pageCount}
-  selection={selection}
-  total={total}
-  onBack={() => setStep('configure')}
-/>
+              shopName={kiosk?.shop?.name || 'RTS Digital Seva'}
+              shopSlug={kiosk?.shop?.slug || 'rts-digital-seva'}
+              razorpayKeyId={kiosk?.shop?.razorpayEnabled ? kiosk?.shop?.razorpayKeyId : null}
+              upiId={kiosk?.shop?.upiId || 'rajaneesht99-1@okhdfcbank'}
+              requirePayment={kiosk?.shop?.requirePayment ?? true}
+              file={file!}
+              pageCount={pageCount}
+              selection={selection}
+              total={total}
+              onBack={() => setStep(2)}
+            />
           )}
         </main>
 
-        <footer className="flex items-center justify-center gap-2 border-t border-slate-100 px-5 py-4 text-xs text-slate-400">
-          <Store className="h-3.5 w-3.5" aria-hidden="true" />
-          {kiosk.shop.name}
-        <footer className="mt-12 text-center pb-8 border-t border-slate-200/60 pt-6">
-  <p className="text-xs text-slate-400">
-    Want this automated print kiosk for your own shop?{' '}
-    <a
-      href="/for-business"
-      target="_blank"
-      rel="noreferrer"
-      className="text-emerald-600 font-semibold hover:underline inline-flex items-center gap-1"
-    >
-      Learn more & pricing →
-    </a>
-  </p>
-</footer>
+        <footer className="mt-12 text-center pb-8 border-t border-slate-200/60 pt-6 px-5">
+          <p className="text-xs text-slate-400">
+            Want this automated print kiosk for your own shop?{' '}
+            <a
+              href="/for-business"
+              target="_blank"
+              rel="noreferrer"
+              className="text-emerald-600 font-semibold hover:underline inline-flex items-center gap-1"
+            >
+              Learn more & pricing →
+            </a>
+          </p>
+        </footer>
       </div>
     </div>
   );

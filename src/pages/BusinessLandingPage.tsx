@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Zap, CheckCircle2, Phone, Mail, Lock, Languages, Tag } from 'lucide-react';
+import { ShieldCheck, Zap, CheckCircle2, Phone, Mail, Lock, Languages, Tag, Clock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 interface PlatformPlan {
@@ -27,7 +27,7 @@ const TEXTS = {
     safeTitle: "Safe for Shop Workstations",
     safeDesc: "Lightweight Windows agent works cleanly with HP, Canon, Epson, and Brother printers without modifying registry files.",
     plansTitle: "Transparent Subscription Plans",
-    plansSubtitle: "One-time setup with free maintenance (AMC) and trial included",
+    plansSubtitle: "Flexible monthly & yearly plans with free trial included",
     trialBadge: "Free Trial Available",
     formTitle: "Get RTS Smart Print for Your Shop",
     formSubtitle: "Fill this form to activate your shop kiosk today.",
@@ -54,7 +54,7 @@ const TEXTS = {
     safeTitle: "കമ്പ്യൂട്ടറുകൾക്ക് സുരക്ഷിതം",
     safeDesc: "HP, Canon, Epson, Brother പ്രിന്ററുകളിൽ സുരക്ഷിതമായി പ്രവർത്തിക്കുന്ന ലളിതമായ വിൻഡോസ് ആപ്ലിക്കേഷൻ.",
     plansTitle: "സബ്‌സ്‌ക്രിപ്ഷൻ പ്ലാനുകൾ",
-    plansSubtitle: "വൺ-ടൈം സെറ്റപ്പും വാർഷിക മെയിന്റനൻസും ട്രയലും ഉൾപ്പെടുന്നു",
+    plansSubtitle: "പ്രതിമാസ, വാർഷിക പ്ലാനുകളും സൗജന്യ ട്രയലും ഉൾപ്പെടുന്നു",
     trialBadge: "സൗജന്യ ട്രയൽ ലഭ്യമാണ്",
     formTitle: "നിങ്ങളുടെ കടയിൽ RTS സ്മാർട്ട് പ്രിന്റ് തുടങ്ങാം",
     formSubtitle: "വിവരങ്ങൾ പൂരിപ്പിക്കൂ, 2 മണിക്കൂറിനകം സെറ്റപ്പ് ചെയ്തുകൊടുക്കും.",
@@ -86,7 +86,7 @@ export const BusinessLandingPage: React.FC = () => {
     phone: '',
     email: '',
     city: '',
-    selectedPlan: 'starter',
+    selectedPlan: 'starter_monthly',
     printerModel: '',
     message: ''
   });
@@ -223,7 +223,7 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Pricing Cards with Dynamic Super Admin Offers */}
+      {/* Pricing Cards: Starter Station vs Pro (Paused with Coming Soon) */}
       <section className="max-w-4xl mx-auto px-4 py-8">
         <div className="text-center mb-8 space-y-1">
           <span className="text-[11px] font-extrabold uppercase bg-amber-100 text-amber-800 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -235,121 +235,152 @@ export const BusinessLandingPage: React.FC = () => {
 
         <div className="grid md:grid-cols-2 gap-6">
           {dbPlans.length > 0 ? (
-            // Render Dynamic Plans from Super Admin platform_plans table
-            dbPlans.map((plan) => (
-              <div 
-                key={plan.id}
-                className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative flex flex-col justify-between"
-              >
-                {plan.badge_text && (
-                  <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
-                    {plan.badge_text}
-                  </span>
-                )}
+            // Dynamic Plans pulled from Super Admin platform_plans table
+            dbPlans.map((plan) => {
+              const isPro = plan.plan_slug.includes('pro');
+
+              return (
+                <div 
+                  key={plan.id}
+                  className={`bg-white rounded-3xl p-6 shadow-md relative flex flex-col justify-between ${
+                    isPro ? 'border border-slate-200 opacity-90' : 'border-2 border-emerald-500'
+                  }`}
+                >
+                  {isPro ? (
+                    <span className="absolute top-4 right-4 bg-amber-500 text-slate-950 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                      Coming Soon
+                    </span>
+                  ) : (
+                    <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
+                      {plan.badge_text || 'Popular Choice'}
+                    </span>
+                  )}
+
+                  <div>
+                    <h4 className="font-bold text-lg text-slate-900">{plan.name}</h4>
+                    <div className="mt-3 mb-4">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-black text-slate-900">₹{plan.offer_price}</span>
+                        {plan.original_price > plan.offer_price && (
+                          <span className="text-xs text-slate-400 line-through">₹{plan.original_price}</span>
+                        )}
+                        <span className="text-xs text-slate-500 capitalize">/{plan.billing_period}</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                        {plan.trial_days}-Day Free Trial Included
+                      </p>
+                    </div>
+
+                    <ul className="space-y-2 text-xs text-slate-600">
+                      {plan.features && Array.isArray(plan.features) ? (
+                        plan.features.map((feat, idx) => (
+                          <li key={idx} className="flex items-center gap-2">
+                            <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${isPro ? 'text-slate-400' : 'text-emerald-600'}`} />
+                            <span>{feat}</span>
+                          </li>
+                        ))
+                      ) : (
+                        <>
+                          <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Counter Printer Connection</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> QR Standee Generator with PIN</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Cash & Direct UPI Support</li>
+                          <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Live Counter Order Queue</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+
+                  {isPro ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="mt-6 w-full py-2.5 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed border border-slate-200"
+                    >
+                      Pro Plan Coming Soon
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, selectedPlan: plan.plan_slug }));
+                        document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                    >
+                      Select {plan.name}
+                    </button>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            // Default Starter Station (Monthly & Yearly) and Coming Soon Pro Pack
+            <>
+              {/* Starter Station */}
+              <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative flex flex-col justify-between">
+                <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
+                  Popular Choice
+                </span>
                 <div>
-                  <h4 className="font-bold text-lg text-slate-900">{plan.name}</h4>
+                  <h4 className="font-bold text-lg text-slate-900">Starter Station</h4>
                   <div className="mt-3 mb-4">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black text-slate-900">₹{plan.offer_price}</span>
-                      {plan.original_price > plan.offer_price && (
-                        <span className="text-xs text-slate-400 line-through">₹{plan.original_price}</span>
-                      )}
-                      <span className="text-xs text-slate-500 capitalize">/{plan.billing_period}</span>
+                      <span className="text-3xl font-black text-slate-900">₹299</span>
+                      <span className="text-xs text-slate-400 line-through">₹999</span>
+                      <span className="text-xs text-slate-500">/Monthly</span>
                     </div>
                     <p className="text-[11px] text-emerald-700 font-semibold mt-1">
-                      {plan.trial_days}-Day Free Trial Included
+                      7 or 14-Day Free Trial Available • Yearly at ₹1,499/yr
                     </p>
                   </div>
                   <ul className="space-y-2 text-xs text-slate-600">
-                    {plan.features && Array.isArray(plan.features) ? (
-                      plan.features.map((feat, idx) => (
-                        <li key={idx} className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                          <span>{feat}</span>
-                        </li>
-                      ))
-                    ) : (
-                      <>
-                        <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Kiosk Portal & Standee</li>
-                        <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 100% Direct UPI / Cash Flow</li>
-                        <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Spooler</li>
-                      </>
-                    )}
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Counter Printer Connection</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> QR Standee Generator with PIN</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Cash & Direct UPI Support (0% Commission)</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Live Realtime Print Queue & Spooler</li>
                   </ul>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    setFormData(prev => ({ ...prev, selectedPlan: plan.plan_slug }));
+                    setFormData(prev => ({ ...prev, selectedPlan: 'starter_monthly' }));
                     document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
                   }}
                   className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
                 >
-                  Select {plan.name}
-                </button>
-              </div>
-            ))
-          ) : (
-            // Fallback Static Starter and Pro Cards
-            <>
-              <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative flex flex-col justify-between">
-                <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
-                  Popular
-                </span>
-                <div>
-                  <h4 className="font-bold text-lg text-slate-900">{t.starterTitle}</h4>
-                  <div className="mt-3 mb-4">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black text-slate-900">{t.starterOffer}</span>
-                      <span className="text-xs text-slate-400 line-through">{t.starterSetup}</span>
-                    </div>
-                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.starterRenewal}</p>
-                  </div>
-                  <ul className="space-y-2 text-xs text-slate-600">
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Kiosk Portal</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 100% Direct UPI Payments</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Spooler</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 7-Day Free Trial Available</li>
-                  </ul>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData(prev => ({ ...prev, selectedPlan: 'starter' }));
-                    document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition"
-                >
-                  Select Starter
+                  Select Starter Station
                 </button>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
+              {/* Pro Digital Seva (Paused with Coming Soon) */}
+              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between relative opacity-85">
+                <span className="absolute top-4 right-4 bg-amber-500 text-slate-950 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                  Coming Soon
+                </span>
                 <div>
-                  <h4 className="font-bold text-lg text-slate-900">{t.proTitle}</h4>
+                  <h4 className="font-bold text-lg text-slate-900">Pro Digital Seva</h4>
                   <div className="mt-3 mb-4">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black text-slate-900">{t.proOffer}</span>
-                      <span className="text-xs text-slate-400 line-through">{t.proSetup}</span>
+                      <span className="text-3xl font-black text-slate-400">₹1,999</span>
+                      <span className="text-xs text-slate-400 line-through">₹5,999</span>
+                      <span className="text-xs text-slate-400">/Yearly</span>
                     </div>
-                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.proRenewal}</p>
+                    <p className="text-[11px] text-slate-400 font-semibold mt-1">
+                      Advanced Multi-Printer Automation (Coming Soon)
+                    </p>
                   </div>
-                  <ul className="space-y-2 text-xs text-slate-600">
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Multi-Printer Support (B&W + Color)</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Dual UPI & Cash Counter mode</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Priority WhatsApp & Remote Support</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Free QR Counter Standee Design</li>
+                  <ul className="space-y-2 text-xs text-slate-400">
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-slate-300" /> Multi-Printer Auto-Routing (B&W + Color)</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-slate-300" /> Advanced Anti-Spam PIN & Priority Queue</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-slate-300" /> Custom Standee Branding & Remote Support</li>
                   </ul>
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setFormData(prev => ({ ...prev, selectedPlan: 'pro' }));
-                    document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  className="mt-6 w-full py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition"
+                  disabled
+                  className="mt-6 w-full py-2.5 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed border border-slate-200"
                 >
-                  Select Pro
+                  Pro Plan Coming Soon
                 </button>
               </div>
             </>
@@ -445,19 +476,10 @@ export const BusinessLandingPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs bg-white outline-none"
                   >
-                    {dbPlans.length > 0 ? (
-                      dbPlans.map((p) => (
-                        <option key={p.id} value={p.plan_slug}>
-                          {p.name} (₹{p.offer_price})
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="starter">Starter Pack (Offer: ₹1,999)</option>
-                        <option value="pro">Pro Pack (Offer: ₹3,999)</option>
-                      </>
-                    )}
-                    <option value="trial">7-Day Free Trial (₹0)</option>
+                    <option value="starter_monthly">Starter Monthly (₹299/mo)</option>
+                    <option value="starter_yearly">Starter Yearly (₹1,499/yr)</option>
+                    <option value="trial_7">7-Day Free Trial (₹0)</option>
+                    <option value="trial_14">14-Day Free Trial (₹0)</option>
                   </select>
                 </div>
                 <div>

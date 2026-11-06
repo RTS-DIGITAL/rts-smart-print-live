@@ -10,17 +10,18 @@ import {
   Plus, 
   Minus, 
   Printer, 
-  QrCode, 
   Banknote, 
   Smartphone, 
-  CheckCircle2, 
   AlertCircle,
   Copy,
-  Check
+  Check,
+  Lock,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure pdfjs worker for client-side page counting
+// Client-side page count worker configuration
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface ShopConfig {
@@ -33,6 +34,9 @@ interface ShopConfig {
   is_accepting_orders: boolean;
   counter_notice: string | null;
   subscription_status: string;
+  is_pin_protected: boolean;
+  counter_pin: string;
+  auto_print_enabled: boolean;
 }
 
 interface UploadedItem {
@@ -65,12 +69,17 @@ export default function KioskPage() {
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
   const [loadingShop, setLoadingShop] = useState(true);
 
+  // Counter Access PIN Gate State
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState(false);
+
   // File Queue State
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
 
-  // Checkout State
+  // Checkout Modal State
   const [showCheckout, setShowCheckout] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
   const [copiedUpi, setCopiedUpi] = useState(false);
@@ -88,6 +97,12 @@ export default function KioskPage() {
 
         if (shopData) {
           setShop(shopData);
+
+          // If the shop does NOT have PIN protection turned on, unlock right away
+          if (!shopData.is_pin_protected) {
+            setIsUnlocked(true);
+          }
+
           const { data: pricingData } = await supabase
             .from('pricing_rules')
             .select('*')
@@ -104,6 +119,20 @@ export default function KioskPage() {
     init();
   }, [activeSlug]);
 
+  // Verify PIN entered by customer
+  const handleVerifyPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shop) return;
+
+    if (enteredPin.trim() === (shop.counter_pin || '1234').trim()) {
+      setIsUnlocked(true);
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setEnteredPin('');
+    }
+  };
+
   // Safe client-side page count extraction
   const getPageCount = async (file: File): Promise<number> => {
     if (file.type === 'application/pdf') {
@@ -115,10 +144,10 @@ export default function KioskPage() {
         return 1;
       }
     }
-    return 1; // Images are 1 page
+    return 1; // Images count as 1 page
   };
 
-  // Handle Multi-File Selection
+  // Multi-File Selection
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -157,7 +186,7 @@ export default function KioskPage() {
     );
   };
 
-  // Calculate pricing for a specific file
+  // Pricing calculation
   const calculateItemPrice = (item: UploadedItem): number => {
     const rule = pricingRules.find(
       (r) =>
@@ -169,11 +198,10 @@ export default function KioskPage() {
     return item.pages * item.copies * rate;
   };
 
-  // Grand Total
   const totalAmount = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
   const totalPages = items.reduce((sum, item) => sum + item.pages * item.copies, 0);
 
-  // Submit Order to Supabase & Storage
+  // Submit Order
   const handleProceedOrder = async () => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
@@ -182,12 +210,16 @@ export default function KioskPage() {
       const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
       const isCashMode = !shop.require_payment;
 
-      // Process each file into storage and create an order record
+      // Status determined by payment mode & auto-pilot configuration
+      let targetStatus = 'pending';
+      if (isCashMode) {
+        targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
+      }
+
       for (const item of items) {
         const fileExt = item.name.split('.').pop() || 'pdf';
         const storagePath = `${shop.id}/${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${fileExt}`;
 
-        // Upload to Supabase Storage
         const { error: uploadError } = await supabase.storage
           .from('print-files')
           .upload(storagePath, item.file, {
@@ -199,7 +231,6 @@ export default function KioskPage() {
 
         const itemTotal = calculateItemPrice(item);
 
-        // Insert into print_orders table
         const { error: orderError } = await supabase.from('print_orders').insert([
           {
             shop_id: shop.id,
@@ -212,7 +243,7 @@ export default function KioskPage() {
             is_double_sided: item.isDoubleSided,
             paper_size: item.paperSize,
             total_amount: itemTotal,
-            status: isCashMode ? 'paid' : 'pending',
+            status: targetStatus,
             payment_ref: isCashMode ? 'CASH_AT_COUNTER' : utrNumber || 'UPI_SUBMITTED'
           }
         ]);
@@ -220,7 +251,7 @@ export default function KioskPage() {
         if (orderError) throw orderError;
       }
 
-      // Navigate to confirmation page
+      // Navigate preserving the shop slug
       navigate(`/shop/${shop.slug}/order/${orderNumber}`);
     } catch (err: any) {
       alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
@@ -244,7 +275,7 @@ export default function KioskPage() {
           <AlertCircle className="w-12 h-12 text-amber-500 mx-auto" />
           <h2 className="text-lg font-black text-slate-900">{shop?.name || 'Counter Offline'}</h2>
           <p className="text-xs text-slate-500">
-            This print counter is currently paused or offline. Please contact the counter operator directly.
+            This print counter is currently paused or offline. Please contact the shop operator.
           </p>
         </div>
       </div>
@@ -274,7 +305,7 @@ export default function KioskPage() {
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Content Area */}
       <main className="max-w-xl mx-auto px-4 pt-6 space-y-5">
         {/* Notice from Counter Operator */}
         {shop.counter_notice && (
@@ -284,171 +315,217 @@ export default function KioskPage() {
           </div>
         )}
 
-        {/* Multi-File Upload Drop Area */}
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-8 rounded-3xl text-center cursor-pointer transition space-y-2"
-        >
-          <input
-            type="file"
-            multiple
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept=".pdf,.png,.jpg,.jpeg"
-            className="hidden"
-          />
-          <div className="w-12 h-12 bg-white text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-            <UploadCloud className="w-6 h-6" />
-          </div>
-          <h3 className="font-extrabold text-slate-900 text-sm">
-            {isProcessingFiles ? 'Reading Documents...' : 'Tap to Select Files (Multiple Allowed)'}
-          </h3>
-          <p className="text-[11px] text-slate-500">
-            Supports PDF, JPG, PNG • You can select several documents at once
-          </p>
-        </div>
-
-        {/* Selected Documents Queue */}
-        {items.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex justify-between items-center px-1">
-              <span className="text-xs font-bold text-slate-700">
-                Uploaded Files ({items.length})
-              </span>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add More
-              </button>
+        {/* 1. LOCKED STATE: COUNTER ACCESS PIN PROMPT */}
+        {!isUnlocked && shop.is_pin_protected ? (
+          <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-sm text-center space-y-4">
+            <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+              <Lock className="w-7 h-7" />
             </div>
 
-            <div className="space-y-3">
-              {items.map((item) => {
-                const itemTotal = calculateItemPrice(item);
-                const isPdf = item.name.toLowerCase().endsWith('.pdf');
+            <div>
+              <h2 className="text-base font-black text-slate-900">Counter PIN Required</h2>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                Please enter the 4-digit PIN displayed on the counter standee to unlock printing.
+              </p>
+            </div>
 
-                return (
-                  <div
-                    key={item.id}
-                    className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3"
+            <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3">
+              <div className="relative">
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="Enter PIN"
+                  value={enteredPin}
+                  onChange={(e) => setEnteredPin(e.target.value)}
+                  className="w-full py-3 px-4 border border-slate-200 rounded-2xl text-center font-mono font-black text-lg tracking-widest text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              </div>
+
+              {pinError && (
+                <p className="text-xs font-bold text-rose-600">Incorrect PIN. Please check the counter standee.</p>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs shadow transition flex items-center justify-center gap-1.5"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Unlock Print Station
+              </button>
+            </form>
+          </div>
+        ) : (
+          /* 2. UNLOCKED STATE: MULTI-FILE UPLOAD ZONE */
+          <>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-8 rounded-3xl text-center cursor-pointer transition space-y-2"
+            >
+              <input
+                type="file"
+                multiple
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept=".pdf,.png,.jpg,.jpeg"
+                className="hidden"
+              />
+              <div className="w-12 h-12 bg-white text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+                <UploadCloud className="w-6 h-6" />
+              </div>
+              <h3 className="font-extrabold text-slate-900 text-sm">
+                {isProcessingFiles ? 'Reading Documents...' : 'Tap to Select Files (Multiple Allowed)'}
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Supports PDF, JPG, PNG • You can select several documents at once
+              </p>
+            </div>
+
+            {/* Selected Documents Queue */}
+            {items.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-xs font-bold text-slate-700">
+                    Uploaded Files ({items.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1"
                   >
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex items-center gap-2.5 overflow-hidden">
-                        <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
-                          {isPdf ? <FileText className="w-4 h-4 text-rose-500" /> : <ImageIcon className="w-4 h-4 text-blue-500" />}
-                        </div>
-                        <div className="truncate">
-                          <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
-                          <p className="text-[10px] text-slate-400">
-                            {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} • {(item.size / 1024).toFixed(0)} KB
-                          </p>
-                        </div>
-                      </div>
+                    <Plus className="w-3.5 h-3.5" />
+                    Add More
+                  </button>
+                </div>
 
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition"
+                <div className="space-y-3">
+                  {items.map((item) => {
+                    const itemTotal = calculateItemPrice(item);
+                    const isPdf = item.name.toLowerCase().endsWith('.pdf');
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3"
                       >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex items-center gap-2.5 overflow-hidden">
+                            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
+                              {isPdf ? <FileText className="w-4 h-4 text-rose-500" /> : <ImageIcon className="w-4 h-4 text-blue-500" />}
+                            </div>
+                            <div className="truncate">
+                              <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
+                              <p className="text-[10px] text-slate-400">
+                                {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} • {(item.size / 1024).toFixed(0)} KB
+                              </p>
+                            </div>
+                          </div>
 
-                    {/* Per-Item Controls: Copies & Color */}
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
-                      {/* Copies Stepper */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-slate-500">Copies:</span>
-                        <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
                           <button
                             type="button"
-                            onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })}
-                            className="p-1 hover:bg-white rounded-lg transition"
+                            onClick={() => removeItem(item.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition"
                           >
-                            <Minus className="w-3 h-3 text-slate-600" />
-                          </button>
-                          <span className="px-2 font-black text-xs text-slate-800">{item.copies}</span>
-                          <button
-                            type="button"
-                            onClick={() => updateItem(item.id, { copies: item.copies + 1 })}
-                            className="p-1 hover:bg-white rounded-lg transition"
-                          >
-                            <Plus className="w-3 h-3 text-slate-600" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                      </div>
 
-                      {/* Color Toggle */}
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => updateItem(item.id, { isColor: false })}
-                          className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${
-                            !item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          B&W
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateItem(item.id, { isColor: true })}
-                          className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${
-                            item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          Color
-                        </button>
-                      </div>
+                        {/* Per-Item Controls: Copies & Color */}
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                          {/* Copies Stepper */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-slate-500">Copies:</span>
+                            <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })}
+                                className="p-1 hover:bg-white rounded-lg transition"
+                              >
+                                <Minus className="w-3 h-3 text-slate-600" />
+                              </button>
+                              <span className="px-2 font-black text-xs text-slate-800">{item.copies}</span>
+                              <button
+                                type="button"
+                                onClick={() => updateItem(item.id, { copies: item.copies + 1 })}
+                                className="p-1 hover:bg-white rounded-lg transition"
+                              >
+                                <Plus className="w-3 h-3 text-slate-600" />
+                              </button>
+                            </div>
+                          </div>
 
-                      {/* Item Total */}
-                      <div className="font-extrabold text-slate-900 text-xs">
-                        ₹{itemTotal.toFixed(2)}
+                          {/* Color Toggle */}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => updateItem(item.id, { isColor: false })}
+                              className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${
+                                !item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              B&W
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateItem(item.id, { isColor: true })}
+                              className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${
+                                item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              Color
+                            </button>
+                          </div>
+
+                          {/* Item Total */}
+                          <div className="font-extrabold text-slate-900 text-xs">
+                            ₹{itemTotal.toFixed(2)}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    );
+                  })}
+                </div>
+
+                {/* Total Summary Card */}
+                <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-3">
+                  <div className="flex justify-between items-center text-xs text-slate-400">
+                    <span>Total Output Pages:</span>
+                    <span className="font-bold text-white">{totalPages} pages</span>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
+                    <span className="text-sm font-bold">Total Bill:</span>
+                    <span className="text-2xl font-black text-emerald-400">₹{totalAmount.toFixed(2)}</span>
+                  </div>
 
-            {/* Total Summary Card */}
-            <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-3">
-              <div className="flex justify-between items-center text-xs text-slate-400">
-                <span>Total Output Pages:</span>
-                <span className="font-bold text-white">{totalPages} pages</span>
+                  {/* Checkout Trigger */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!shop.require_payment) {
+                        handleProceedOrder(); // Cash mode proceeds directly
+                      } else {
+                        setShowCheckout(true); // Online mode opens UPI modal
+                      }
+                    }}
+                    disabled={submittingOrder}
+                    className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs"
+                  >
+                    <Printer className="w-4 h-4" />
+                    {submittingOrder
+                      ? 'Sending to Printer...'
+                      : shop.require_payment
+                      ? 'Proceed to Pay & Print'
+                      : shop.auto_print_enabled
+                      ? 'Send to Print (Pay Cash at Counter)'
+                      : 'Submit to Counter (Staff Will Release)'}
+                  </button>
+                </div>
               </div>
-              <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
-                <span className="text-sm font-bold">Total Bill:</span>
-                <span className="text-2xl font-black text-emerald-400">₹{totalAmount.toFixed(2)}</span>
-              </div>
-
-              {/* Checkout Trigger */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!shop.require_payment) {
-                    handleProceedOrder(); // Cash mode prints directly
-                  } else {
-                    setShowCheckout(true); // Online mode opens UPI modal
-                  }
-                }}
-                disabled={submittingOrder}
-                className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs"
-              >
-                <Printer className="w-4 h-4" />
-                {submittingOrder
-                  ? 'Sending to Printer...'
-                  : shop.require_payment
-                  ? 'Proceed to Pay & Print'
-                  : 'Send to Print (Pay Cash at Counter)'}
-              </button>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
-        {/* Business Landing Footer Badge */}
+        {/* Footer */}
         <footer className="mt-14 pb-8 text-center border-t border-slate-200/70 pt-6">
           <p className="text-xs text-slate-400">
             Own a printing or digital service shop?{' '}
@@ -464,14 +541,13 @@ export default function KioskPage() {
         </footer>
       </main>
 
-      {/* Online UPI Payment Modal (Only displays if require_payment is active) */}
+      {/* Online UPI Payment Modal */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
             <h3 className="font-extrabold text-slate-900 text-base">Scan & Pay via UPI</h3>
             <p className="text-xs text-slate-500">Scan using Google Pay, PhonePe, or Paytm</p>
 
-            {/* UPI QR Display */}
             {shop.upi_id && (
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 inline-block mx-auto">
                 <img

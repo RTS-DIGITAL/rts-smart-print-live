@@ -3,6 +3,7 @@ import AdminPage from '@/pages/AdminPage';
 import KioskPage from '@/pages/KioskPage';
 import OrderStatusPage from '@/pages/OrderStatusPage';
 import PartnerRegisterPage from '@/pages/PartnerRegisterPage';
+import { BusinessLandingPage } from '@/pages/BusinessLandingPage';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/partner-register" element={<PartnerRegisterPage />} />
+      <Route path="/for-business" element={<BusinessLandingPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

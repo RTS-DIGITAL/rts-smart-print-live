@@ -55,13 +55,13 @@ export const BusinessLandingPage: React.FC = () => {
           </div>
         </div>
         <a
-          href="https://wa.me/917012833699?text=Hello%20RTS,%20I%20am%20interested%20in%20setting%20up%20Smart%20Print%20for%20my%20shop"
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs font-bold px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-sm hover:bg-emerald-700 transition"
-        >
-          Direct WhatsApp Call
-        </a>
+  href="https://wa.me/917012833699?text=Hello%20RTS,%20I%20am%20interested%20in%20setting%20up%20Smart%20Print%20for%20my%20shop"
+  target="_blank"
+  rel="noreferrer"
+  className="text-xs font-bold px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-sm hover:bg-emerald-700 transition"
+>
+  WhatsApp Us (7012833699)
+</a>
       </header>
 
       {/* Hero */}

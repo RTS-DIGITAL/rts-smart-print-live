@@ -1,6 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Zap, CheckCircle2, Phone, Mail, Lock, Languages, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+
+interface PlatformPlan {
+  id: string;
+  plan_slug: string;
+  name: string;
+  original_price: number;
+  offer_price: number;
+  billing_period: string;
+  trial_days: number;
+  badge_text: string;
+  features: string[];
+  is_active: boolean;
+}
 
 const TEXTS = {
   en: {
@@ -14,16 +27,8 @@ const TEXTS = {
     safeTitle: "Safe for Shop Workstations",
     safeDesc: "Lightweight Windows agent works cleanly with HP, Canon, Epson, and Brother printers without modifying registry files.",
     plansTitle: "Transparent Subscription Plans",
-    plansSubtitle: "One-time setup with 1-year free maintenance (AMC) included",
-    starterTitle: "Starter Counter Pack",
-    starterSetup: "₹2,499",
-    starterOffer: "₹1,999",
-    starterRenewal: "₹999/yr renewal from Year 2",
-    proTitle: "Pro Multi-Printer Pack",
-    proSetup: "₹4,999",
-    proOffer: "₹3,999",
-    proRenewal: "₹1,499/yr renewal from Year 2",
-    trialBadge: "7-Day Free Trial Available",
+    plansSubtitle: "One-time setup with free maintenance (AMC) and trial included",
+    trialBadge: "Free Trial Available",
     formTitle: "Get RTS Smart Print for Your Shop",
     formSubtitle: "Fill this form to activate your shop kiosk today.",
     businessNameLabel: "Shop / Business Name *",
@@ -49,16 +54,8 @@ const TEXTS = {
     safeTitle: "കമ്പ്യൂട്ടറുകൾക്ക് സുരക്ഷിതം",
     safeDesc: "HP, Canon, Epson, Brother പ്രിന്ററുകളിൽ സുരക്ഷിതമായി പ്രവർത്തിക്കുന്ന ലളിതമായ വിൻഡോസ് ആപ്ലിക്കേഷൻ.",
     plansTitle: "സബ്‌സ്‌ക്രിപ്ഷൻ പ്ലാനുകൾ",
-    plansSubtitle: "വൺ-ടൈം സെറ്റപ്പും 1 വർഷത്തെ വാർഷിക മെയിന്റനൻസും ഉൾപ്പെടുന്നു",
-    starterTitle: "സ്റ്റാർട്ടർ കൗണ്ടർ പായ്ക്ക്",
-    starterSetup: "₹2,499",
-    starterOffer: "₹1,999",
-    starterRenewal: "രണ്ടാം വർഷം മുതൽ ₹999/വർഷം",
-    proTitle: "പ്രോ മൾട്ടി-പ്രിന്റർ പായ്ക്ക്",
-    proSetup: "₹4,999",
-    proOffer: "₹3,999",
-    proRenewal: "രണ്ടാം വർഷം മുതൽ ₹1,499/വർഷം",
-    trialBadge: "7 ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭ്യമാണ്",
+    plansSubtitle: "വൺ-ടൈം സെറ്റപ്പും വാർഷിക മെയിന്റനൻസും ട്രയലും ഉൾപ്പെടുന്നു",
+    trialBadge: "സൗജന്യ ട്രയൽ ലഭ്യമാണ്",
     formTitle: "നിങ്ങളുടെ കടയിൽ RTS സ്മാർട്ട് പ്രിന്റ് തുടങ്ങാം",
     formSubtitle: "വിവരങ്ങൾ പൂരിപ്പിക്കൂ, 2 മണിക്കൂറിനകം സെറ്റപ്പ് ചെയ്തുകൊടുക്കും.",
     businessNameLabel: "സ്ഥാപനത്തിന്റെ പേര് *",
@@ -79,6 +76,8 @@ export const BusinessLandingPage: React.FC = () => {
   const [lang, setLang] = useState<'en' | 'ml'>('ml');
   const t = TEXTS[lang];
 
+  // Dynamic Plans from Supabase
+  const [dbPlans, setDbPlans] = useState<PlatformPlan[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -92,12 +91,32 @@ export const BusinessLandingPage: React.FC = () => {
     message: ''
   });
 
+  // Load platform plans configured in Super Admin
+  useEffect(() => {
+    async function loadPlans() {
+      try {
+        const { data, error } = await supabase
+          .from('platform_plans')
+          .select('*')
+          .eq('is_active', true)
+          .order('offer_price', { ascending: true });
+
+        if (!error && data && data.length > 0) {
+          setDbPlans(data as PlatformPlan[]);
+        }
+      } catch (err) {
+        console.error('Failed to load dynamic plans:', err);
+      }
+    }
+    loadPlans();
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // 1. Save inquiry directly to Supabase
+      // 1. Save inquiry to Supabase
       await supabase.from('shop_inquiries').insert([
         {
           business_name: formData.businessName,
@@ -112,7 +131,6 @@ export const BusinessLandingPage: React.FC = () => {
       ]);
 
       // 2. Dispatch email to info@rtsdigitalseva.online via Web3Forms
-      // Replace YOUR_WEB3FORMS_ACCESS_KEY with the free key from web3forms.com
       fetch('https://api.web3forms.com/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -205,7 +223,7 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Pricing Cards with Festive Offers */}
+      {/* Pricing Cards with Dynamic Super Admin Offers */}
       <section className="max-w-4xl mx-auto px-4 py-8">
         <div className="text-center mb-8 space-y-1">
           <span className="text-[11px] font-extrabold uppercase bg-amber-100 text-amber-800 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -216,49 +234,131 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
-          {/* Starter Pack */}
-          <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative">
-            <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
-              Popular
-            </span>
-            <h4 className="font-bold text-lg text-slate-900">{t.starterTitle}</h4>
-            <div className="mt-3 mb-4">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-black text-slate-900">{t.starterOffer}</span>
-                <span className="text-xs text-slate-400 line-through">{t.starterSetup}</span>
+          {dbPlans.length > 0 ? (
+            // Render Dynamic Plans from Super Admin platform_plans table
+            dbPlans.map((plan) => (
+              <div 
+                key={plan.id}
+                className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative flex flex-col justify-between"
+              >
+                {plan.badge_text && (
+                  <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
+                    {plan.badge_text}
+                  </span>
+                )}
+                <div>
+                  <h4 className="font-bold text-lg text-slate-900">{plan.name}</h4>
+                  <div className="mt-3 mb-4">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black text-slate-900">₹{plan.offer_price}</span>
+                      {plan.original_price > plan.offer_price && (
+                        <span className="text-xs text-slate-400 line-through">₹{plan.original_price}</span>
+                      )}
+                      <span className="text-xs text-slate-500 capitalize">/{plan.billing_period}</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                      {plan.trial_days}-Day Free Trial Included
+                    </p>
+                  </div>
+                  <ul className="space-y-2 text-xs text-slate-600">
+                    {plan.features && Array.isArray(plan.features) ? (
+                      plan.features.map((feat, idx) => (
+                        <li key={idx} className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <span>{feat}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <>
+                        <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Kiosk Portal & Standee</li>
+                        <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 100% Direct UPI / Cash Flow</li>
+                        <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Spooler</li>
+                      </>
+                    )}
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, selectedPlan: plan.plan_slug }));
+                    document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                >
+                  Select {plan.name}
+                </button>
               </div>
-              <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.starterRenewal}</p>
-            </div>
-            <ul className="space-y-2 text-xs text-slate-600">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Kiosk Portal</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 100% Direct UPI Payments</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Spooler</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 7-Day Free Trial Available</li>
-            </ul>
-          </div>
+            ))
+          ) : (
+            // Fallback Static Starter and Pro Cards
+            <>
+              <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative flex flex-col justify-between">
+                <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
+                  Popular
+                </span>
+                <div>
+                  <h4 className="font-bold text-lg text-slate-900">{t.starterTitle}</h4>
+                  <div className="mt-3 mb-4">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black text-slate-900">{t.starterOffer}</span>
+                      <span className="text-xs text-slate-400 line-through">{t.starterSetup}</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.starterRenewal}</p>
+                  </div>
+                  <ul className="space-y-2 text-xs text-slate-600">
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Kiosk Portal</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 100% Direct UPI Payments</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Spooler</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 7-Day Free Trial Available</li>
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, selectedPlan: 'starter' }));
+                    document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition"
+                >
+                  Select Starter
+                </button>
+              </div>
 
-          {/* Pro Pack */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-            <h4 className="font-bold text-lg text-slate-900">{t.proTitle}</h4>
-            <div className="mt-3 mb-4">
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-black text-slate-900">{t.proOffer}</span>
-                <span className="text-xs text-slate-400 line-through">{t.proSetup}</span>
+              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <h4 className="font-bold text-lg text-slate-900">{t.proTitle}</h4>
+                  <div className="mt-3 mb-4">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black text-slate-900">{t.proOffer}</span>
+                      <span className="text-xs text-slate-400 line-through">{t.proSetup}</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.proRenewal}</p>
+                  </div>
+                  <ul className="space-y-2 text-xs text-slate-600">
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Multi-Printer Support (B&W + Color)</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Dual UPI & Cash Counter mode</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Priority WhatsApp & Remote Support</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Free QR Counter Standee Design</li>
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, selectedPlan: 'pro' }));
+                    document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="mt-6 w-full py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition"
+                >
+                  Select Pro
+                </button>
               </div>
-              <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.proRenewal}</p>
-            </div>
-            <ul className="space-y-2 text-xs text-slate-600">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Multi-Printer Support (B&W + Color)</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Razorpay + UPI Gateway toggle</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Priority WhatsApp & Remote Support</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Free QR Counter Standee Design</li>
-            </ul>
-          </div>
+            </>
+          )}
         </div>
       </section>
 
       {/* Inquiry Form */}
-      <section className="max-w-xl mx-auto px-4 py-8 pb-16">
+      <section id="inquiry-form-section" className="max-w-xl mx-auto px-4 py-8 pb-16">
         <div className="bg-white p-7 rounded-3xl border border-slate-200 shadow-xl">
           {submitted ? (
             <div className="text-center py-8 space-y-3">
@@ -345,8 +445,18 @@ export const BusinessLandingPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs bg-white outline-none"
                   >
-                    <option value="starter">Starter Pack (Offer: ₹1,999)</option>
-                    <option value="pro">Pro Pack (Offer: ₹3,999)</option>
+                    {dbPlans.length > 0 ? (
+                      dbPlans.map((p) => (
+                        <option key={p.id} value={p.plan_slug}>
+                          {p.name} (₹{p.offer_price})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="starter">Starter Pack (Offer: ₹1,999)</option>
+                        <option value="pro">Pro Pack (Offer: ₹3,999)</option>
+                      </>
+                    )}
                     <option value="trial">7-Day Free Trial (₹0)</option>
                   </select>
                 </div>
@@ -380,3 +490,5 @@ export const BusinessLandingPage: React.FC = () => {
     </div>
   );
 };
+
+export default BusinessLandingPage;

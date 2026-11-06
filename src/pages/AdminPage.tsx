@@ -8,21 +8,21 @@ import {
   Settings, 
   RefreshCw, 
   CreditCard, 
-  ExternalLink,
-  ShieldAlert,
-  Save,
-  QrCode,
-  Banknote,
-  Smartphone,
-  Lock,
-  Unlock,
-  Play,
-  Pause,
-  Trash2,
-  Check,
-  KeyRound,
-  LogOut,
-  Mail
+  ExternalLink, 
+  ShieldAlert, 
+  Save, 
+  QrCode, 
+  Banknote, 
+  Smartphone, 
+  Lock, 
+  Unlock, 
+  Play, 
+  Pause, 
+  Trash2, 
+  Check, 
+  KeyRound, 
+  LogOut, 
+  Mail 
 } from 'lucide-react';
 
 interface ShopData {
@@ -53,6 +53,7 @@ interface OrderRow {
   id: string;
   order_number: string;
   file_name: string;
+  file_url?: string;
   total_amount: number;
   status: string;
   created_at: string;
@@ -119,6 +120,35 @@ export default function AdminPage() {
 
       if (shopErr || !shopRes) throw new Error('Shop not found');
 
+      // -------------------------------------------------------------
+      // AUTOMATIC STORAGE & QUEUE PURGE (Reclaims Supabase Disk Space)
+      // -------------------------------------------------------------
+      const retentionHours = shopRes.auto_delete_hours || 1;
+      const expirationThreshold = new Date(Date.now() - retentionHours * 60 * 60 * 1000).toISOString();
+
+      // 1. Find all expired orders
+      const { data: expiredOrders } = await supabase
+        .from('print_orders')
+        .select('id, file_url')
+        .eq('shop_id', shopRes.id)
+        .lt('created_at', expirationThreshold);
+
+      if (expiredOrders && expiredOrders.length > 0) {
+        const filePathsToRemove = expiredOrders
+          .map((o) => o.file_url)
+          .filter((url): url is string => Boolean(url));
+
+        // 2. Remove files from Supabase Storage bucket (reclaims space)
+        if (filePathsToRemove.length > 0) {
+          await supabase.storage.from('print-files').remove(filePathsToRemove);
+        }
+
+        // 3. Delete matching database records
+        const idsToDelete = expiredOrders.map((o) => o.id);
+        await supabase.from('print_orders').delete().in('id', idsToDelete);
+      }
+      // -------------------------------------------------------------
+
       setShop(shopRes);
       setShopName(shopRes.name || '');
       setPhone(shopRes.phone || '');
@@ -134,7 +164,7 @@ export default function AdminPage() {
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
       setAutoDeleteHours(shopRes.auto_delete_hours || 24);
 
-      // Load Orders
+      // Load Orders (Limited to 30)
       const { data: ordersRes } = await supabase
         .from('print_orders')
         .select('*')
@@ -261,6 +291,11 @@ export default function AdminPage() {
   const handleRejectOrder = async (orderNumber: string) => {
     if (!window.confirm(`Discard order ${orderNumber}?`)) return;
     try {
+      // Find file to remove from storage immediately
+      const target = orders.find((o) => o.order_number === orderNumber);
+      if (target?.file_url) {
+        await supabase.storage.from('print-files').remove([target.file_url]);
+      }
       await supabase.from('print_orders').update({ status: 'rejected' }).eq('order_number', orderNumber);
       loadShopData();
     } catch (err: any) {
@@ -456,7 +491,9 @@ export default function AdminPage() {
               <h1 className="font-black text-white text-base">{shop.name}</h1>
               {/* Live Reverse Countdown Pill */}
               {(() => {
-                const approvalDate = shop.approved_at ? new Date(shop.approved_at).getTime() : new Date(shop.created_at || Date.now()).getTime();
+                const approvalDate = shop.approved_at 
+                  ? new Date(shop.approved_at).getTime() 
+                  : new Date(shop.created_at || Date.now()).getTime();
                 const elapsedDays = Math.floor((new Date().getTime() - approvalDate) / (1000 * 60 * 60 * 24));
                 const remainingDays = Math.max(0, (shop.subscription_days || 7) - elapsedDays);
                 const isExpired = remainingDays <= 0;

@@ -1,8 +1,84 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Printer, Zap, CheckCircle2, ArrowRight, Phone, Mail, FileText, Lock } from 'lucide-react';
+import { ShieldCheck, Zap, CheckCircle2, Phone, Mail, Lock, Languages, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
+const TEXTS = {
+  en: {
+    heroBadge: "Zero-Touch Customer Printing",
+    heroTitle: "Eliminate WhatsApp & Pen Drive Queues in Your Shop",
+    heroDesc: "Let customers scan a QR code at your counter, upload documents, pay via UPI directly into your bank account, and have pages print automatically.",
+    privacyTitle: "100% Customer Privacy",
+    privacyDesc: "Encrypted SSL transfer with auto-deletion after printing. No pen drive viruses, no crowded counters.",
+    upiTitle: "Direct Bank UPI Settlement",
+    upiDesc: "Payments go directly to your Google Pay, PhonePe, or Paytm UPI ID with 0% transaction commission.",
+    safeTitle: "Safe for Shop Workstations",
+    safeDesc: "Lightweight Windows agent works cleanly with HP, Canon, Epson, and Brother printers without modifying registry files.",
+    plansTitle: "Transparent Subscription Plans",
+    plansSubtitle: "One-time setup with 1-year free maintenance (AMC) included",
+    starterTitle: "Starter Counter Pack",
+    starterSetup: "₹2,499",
+    starterOffer: "₹1,999",
+    starterRenewal: "₹999/yr renewal from Year 2",
+    proTitle: "Pro Multi-Printer Pack",
+    proSetup: "₹4,999",
+    proOffer: "₹3,999",
+    proRenewal: "₹1,499/yr renewal from Year 2",
+    trialBadge: "7-Day Free Trial Available",
+    formTitle: "Get RTS Smart Print for Your Shop",
+    formSubtitle: "Fill this form to activate your shop kiosk today.",
+    businessNameLabel: "Shop / Business Name *",
+    ownerNameLabel: "Owner Name *",
+    whatsappLabel: "WhatsApp Number *",
+    emailLabel: "Email Address *",
+    cityLabel: "City / Taluk *",
+    planLabel: "Selected Plan",
+    printerLabel: "Default Printer Model",
+    btnSubmit: "Activate My Shop Now",
+    btnSubmitting: "Submitting Details...",
+    successTitle: "Registration Received!",
+    successDesc: "Thank you! Our technical team from RTS Digital Seva will connect with you on WhatsApp within 2 hours with your setup package."
+  },
+  ml: {
+    heroBadge: "ഓട്ടോമേറ്റഡ് പ്രിന്റിംഗ് സിസ്റ്റം",
+    heroTitle: "കടയിലെ വാട്സാപ്പ്, പെൻഡ്രൈവ് ക്യൂവിന് വിട നൽകാം!",
+    heroDesc: "ഉപഭോക്താക്കൾ കൗണ്ടറിലെ ക്യുആർ കോഡ് സ്കാൻ ചെയ്ത് ഫയലുകൾ അപ്‌ലോഡ് ചെയ്യട്ടെ. തുക നേരിട്ട് നിങ്ങളുടെ ബാങ്കിലേക്ക് UPI വഴി എത്തുകയും രേഖകൾ തനിയെ പ്രിന്റ് ആവുകയും ചെയ്യും.",
+    privacyTitle: "പൂർണ്ണ സുരക്ഷിതത്വം",
+    privacyDesc: "പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ ഓട്ടോമാറ്റിക്കായി ഡിലീറ്റ് ചെയ്യപ്പെടുന്നു. പെൻഡ്രൈവ് വൈറസ് ഭീഷണികളോ ഫയൽ ചോർച്ചയോ ഇല്ല.",
+    upiTitle: "നേരിട്ടുള്ള UPI പേയ്‌മെന്റ്",
+    upiDesc: "പണം ഇടനിലക്കാരില്ലാതെ നിങ്ങളുടെ Google Pay, PhonePe എന്നിവയിലേക്ക് നേരിട്ടെത്തും. യാതൊരു കമ്മീഷനും ഇല്ല.",
+    safeTitle: "കമ്പ്യൂട്ടറുകൾക്ക് സുരക്ഷിതം",
+    safeDesc: "HP, Canon, Epson, Brother പ്രിന്ററുകളിൽ സുരക്ഷിതമായി പ്രവർത്തിക്കുന്ന ലളിതമായ വിൻഡോസ് ആപ്ലിക്കേഷൻ.",
+    plansTitle: "സബ്‌സ്‌ക്രിപ്ഷൻ പ്ലാനുകൾ",
+    plansSubtitle: "വൺ-ടൈം സെറ്റപ്പും 1 വർഷത്തെ വാർഷിക മെയിന്റനൻസും ഉൾപ്പെടുന്നു",
+    starterTitle: "സ്റ്റാർട്ടർ കൗണ്ടർ പായ്ക്ക്",
+    starterSetup: "₹2,499",
+    starterOffer: "₹1,999",
+    starterRenewal: "രണ്ടാം വർഷം മുതൽ ₹999/വർഷം",
+    proTitle: "പ്രോ മൾട്ടി-പ്രിന്റർ പായ്ക്ക്",
+    proSetup: "₹4,999",
+    proOffer: "₹3,999",
+    proRenewal: "രണ്ടാം വർഷം മുതൽ ₹1,499/വർഷം",
+    trialBadge: "7 ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭ്യമാണ്",
+    formTitle: "നിങ്ങളുടെ കടയിൽ RTS സ്മാർട്ട് പ്രിന്റ് തുടങ്ങാം",
+    formSubtitle: "വിവരങ്ങൾ പൂരിപ്പിക്കൂ, 2 മണിക്കൂറിനകം സെറ്റപ്പ് ചെയ്തുകൊടുക്കും.",
+    businessNameLabel: "സ്ഥാപനത്തിന്റെ പേര് *",
+    ownerNameLabel: "ഉടമയുടെ പേര് *",
+    whatsappLabel: "വാട്സാപ്പ് നമ്പർ *",
+    emailLabel: "ഇമെയിൽ വിലാസം *",
+    cityLabel: "സ്ഥലം / താലൂക്ക് *",
+    planLabel: "പ്ലാൻ തിരഞ്ഞെടുക്കുക",
+    printerLabel: "പ്രിന്റർ മോഡൽ",
+    btnSubmit: "ഷോപ്പ് രജിസ്റ്റർ ചെയ്യുക",
+    btnSubmitting: "വിവരങ്ങൾ സമർപ്പിക്കുന്നു...",
+    successTitle: "രജിസ്ട്രേഷൻ വിജയകരമായി ലഭിച്ചു!",
+    successDesc: "നന്ദി! RTS ഡിജിറ്റൽ സേവ സാങ്കേതിക വിഭാഗം ഉടൻ തന്നെ വാട്സാപ്പിൽ ബന്ധപ്പെട്ട് ഇൻസ്റ്റാളേഷൻ പൂർത്തിയാക്കുന്നതാണ്."
+  }
+};
+
 export const BusinessLandingPage: React.FC = () => {
+  const [lang, setLang] = useState<'en' | 'ml'>('ml');
+  const t = TEXTS[lang];
+
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -19,8 +95,10 @@ export const BusinessLandingPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+
     try {
-      const { error } = await supabase.from('shop_inquiries').insert([
+      // 1. Save inquiry directly to Supabase
+      await supabase.from('shop_inquiries').insert([
         {
           business_name: formData.businessName,
           owner_name: formData.ownerName,
@@ -32,10 +110,23 @@ export const BusinessLandingPage: React.FC = () => {
           message: formData.message,
         }
       ]);
-      if (error) throw error;
+
+      // 2. Dispatch email to info@rtsdigitalseva.online via Web3Forms
+      // Replace YOUR_WEB3FORMS_ACCESS_KEY with the free key from web3forms.com
+      fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_key: 'YOUR_WEB3FORMS_ACCESS_KEY',
+          subject: `New Shop Registration: ${formData.businessName}`,
+          from_name: 'RTS Smart Print Inquiries',
+          ...formData
+        })
+      }).catch(() => {});
+
       setSubmitted(true);
-    } catch (err) {
-      alert('Error submitting form. Please call RTS Digital Seva directly.');
+    } catch {
+      alert('Error submitting inquiry. Please call RTS Digital Seva at 7012833699.');
     } finally {
       setLoading(false);
     }
@@ -43,218 +134,230 @@ export const BusinessLandingPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
-      {/* Navigation */}
-      <header className="bg-white border-b border-slate-200 py-4 px-6 flex justify-between items-center sticky top-0 z-50">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">
+      {/* Top Navbar */}
+      <header className="bg-white border-b border-slate-200 py-3.5 px-6 flex justify-between items-center sticky top-0 z-50">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-black text-lg">
             R
           </div>
           <div>
             <h1 className="font-extrabold text-slate-900 leading-tight">RTS Smart Print</h1>
-            <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">Business Solution</p>
+            <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">Business Automation</p>
           </div>
         </div>
-        <a
-  href="https://wa.me/917012833699?text=Hello%20RTS,%20I%20am%20interested%20in%20setting%20up%20Smart%20Print%20for%20my%20shop"
-  target="_blank"
-  rel="noreferrer"
-  className="text-xs font-bold px-4 py-2 bg-emerald-600 text-white rounded-xl shadow-sm hover:bg-emerald-700 transition"
->
-  WhatsApp Us (7012833699)
-</a>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setLang(lang === 'en' ? 'ml' : 'en')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700 transition"
+          >
+            <Languages className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{lang === 'en' ? 'മലയാളം' : 'English'}</span>
+          </button>
+          <a
+            href="https://wa.me/917012833699?text=Hello%20RTS,%20I%20am%20interested%20in%20setting%20up%20Smart%20Print%20for%20my%20shop"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-bold px-3.5 py-1.5 bg-emerald-600 text-white rounded-xl shadow-sm hover:bg-emerald-700 transition"
+          >
+            WhatsApp (7012833699)
+          </a>
+        </div>
       </header>
 
-      {/* Hero */}
+      {/* Hero Section */}
       <section className="max-w-4xl mx-auto px-4 pt-12 pb-8 text-center space-y-4">
-        <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full uppercase">
-          Zero-Touch Customer Printing
+        <span className="px-3.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full uppercase">
+          {t.heroBadge}
         </span>
-        <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight">
-          Eliminate WhatsApp & Pen Drive Queues in Your Shop
+        <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight leading-tight">
+          {t.heroTitle}
         </h2>
         <p className="text-slate-600 text-sm md:text-base max-w-2xl mx-auto leading-relaxed">
-          Let customers scan a QR code at your counter, upload their documents, pay via UPI directly into your bank, and have their pages spool straight to your printer automatically.
+          {t.heroDesc}
         </p>
       </section>
 
-      {/* Safety & Trust Pillars */}
-      <section className="max-w-5xl mx-auto px-4 py-8 grid md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+      {/* Trust & Safety Cards */}
+      <section className="max-w-5xl mx-auto px-4 py-6 grid md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2.5">
           <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
             <Lock className="w-5 h-5" />
           </div>
-          <h3 className="font-bold text-slate-900">Total Customer Privacy</h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Files are transmitted via encrypted SSL and deleted automatically from the server right after printing. No pen drive viruses, no customer WhatsApp numbers cluttering your phone.
-          </p>
+          <h3 className="font-bold text-slate-900 text-base">{t.privacyTitle}</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">{t.privacyDesc}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2.5">
           <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
             <Zap className="w-5 h-5" />
           </div>
-          <h3 className="font-bold text-slate-900">Direct 100% UPI Settlement</h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            All customer payments go directly into your personal or business UPI ID (Google Pay, PhonePe, Paytm). RTS charges 0% transaction commission.
-          </p>
+          <h3 className="font-bold text-slate-900 text-base">{t.upiTitle}</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">{t.upiDesc}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-2.5">
           <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
             <ShieldCheck className="w-5 h-5" />
           </div>
-          <h3 className="font-bold text-slate-900">Safe for Your Shop PC</h3>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            The lightweight Windows agent does not alter system registries or open firewall ports. It uses standard Windows print drivers compatible with HP, Canon, Epson, and Brother.
-          </p>
+          <h3 className="font-bold text-slate-900 text-base">{t.safeTitle}</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">{t.safeDesc}</p>
         </div>
       </section>
 
-      {/* Plans */}
+      {/* Pricing Cards with Festive Offers */}
       <section className="max-w-4xl mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <h3 className="text-2xl font-black text-slate-900">Transparent Subscription Plans</h3>
-          <p className="text-xs text-slate-500 mt-1">One-time setup fee + 1 year free maintenance included</p>
+        <div className="text-center mb-8 space-y-1">
+          <span className="text-[11px] font-extrabold uppercase bg-amber-100 text-amber-800 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
+            <Tag className="w-3 h-3" /> {t.trialBadge}
+          </span>
+          <h3 className="text-2xl font-black text-slate-900">{t.plansTitle}</h3>
+          <p className="text-xs text-slate-500">{t.plansSubtitle}</p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
+          {/* Starter Pack */}
           <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative">
             <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
-              Most Popular
+              Popular
             </span>
-            <h4 className="font-bold text-lg text-slate-900">Starter Counter Pack</h4>
+            <h4 className="font-bold text-lg text-slate-900">{t.starterTitle}</h4>
             <div className="mt-3 mb-4">
-              <span className="text-3xl font-black text-slate-900">₹2,499</span>
-              <span className="text-xs text-slate-500 ml-1">one-time setup</span>
-              <p className="text-[11px] text-emerald-700 font-semibold mt-1">₹999/year renewal from Year 2 onwards</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black text-slate-900">{t.starterOffer}</span>
+                <span className="text-xs text-slate-400 line-through">{t.starterSetup}</span>
+              </div>
+              <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.starterRenewal}</p>
             </div>
             <ul className="space-y-2 text-xs text-slate-600">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Counter Kiosk Page</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Direct UPI Payments (0% fee)</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Agent</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Ready-to-print Shop QR Signage PDF</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Kiosk Portal</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 100% Direct UPI Payments</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Automatic Windows Print Spooler</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 7-Day Free Trial Available</li>
             </ul>
           </div>
 
+          {/* Pro Pack */}
           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-            <h4 className="font-bold text-lg text-slate-900">Pro Multi-Printer Pack</h4>
+            <h4 className="font-bold text-lg text-slate-900">{t.proTitle}</h4>
             <div className="mt-3 mb-4">
-              <span className="text-3xl font-black text-slate-900">₹4,999</span>
-              <span className="text-xs text-slate-500 ml-1">one-time setup</span>
-              <p className="text-[11px] text-emerald-700 font-semibold mt-1">₹1,499/year renewal from Year 2 onwards</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black text-slate-900">{t.proOffer}</span>
+                <span className="text-xs text-slate-400 line-through">{t.proSetup}</span>
+              </div>
+              <p className="text-[11px] text-emerald-700 font-semibold mt-1">{t.proRenewal}</p>
             </div>
             <ul className="space-y-2 text-xs text-slate-600">
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Everything in Starter</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Dual-Printer routing (B&W + Color)</li>
-              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Razorpay Gateway Integration toggle</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Multi-Printer Support (B&W + Color)</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Razorpay + UPI Gateway toggle</li>
               <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Priority WhatsApp & Remote Support</li>
+              <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Free QR Counter Standee Design</li>
             </ul>
           </div>
         </div>
       </section>
 
       {/* Inquiry Form */}
-      <section className="max-w-xl mx-auto px-4 py-12">
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl">
+      <section className="max-w-xl mx-auto px-4 py-8 pb-16">
+        <div className="bg-white p-7 rounded-3xl border border-slate-200 shadow-xl">
           {submitted ? (
             <div className="text-center py-8 space-y-3">
               <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h4 className="text-xl font-bold text-slate-900">Request Received!</h4>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Thank you! Our technical team from RTS Digital Seva will contact you shortly on WhatsApp to configure your shop and provide your installation bundle.
-              </p>
+              <h4 className="text-xl font-bold text-slate-900">{t.successTitle}</h4>
+              <p className="text-xs text-slate-500 leading-relaxed">{t.successDesc}</p>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="text-center mb-4">
-                <h3 className="text-xl font-bold text-slate-900">Get RTS Smart Print for Your Shop</h3>
-                <p className="text-xs text-slate-500">Fill this quick form and we will set up your custom kiosk within 2 hours.</p>
+            <form onSubmit={handleSubmit} className="space-y-3.5">
+              <div className="text-center mb-3">
+                <h3 className="text-xl font-bold text-slate-900">{t.formTitle}</h3>
+                <p className="text-xs text-slate-500">{t.formSubtitle}</p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Shop / Business Name *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">{t.businessNameLabel}</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Friends Xerox & Akshaya Center"
                   value={formData.businessName}
                   onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Owner Name *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{t.ownerNameLabel}</label>
                   <input
                     type="text"
                     required
                     placeholder="Your Name"
                     value={formData.ownerName}
                     onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">WhatsApp Number *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{t.whatsappLabel}</label>
                   <input
                     type="tel"
                     required
                     placeholder="10-digit mobile"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{t.emailLabel}</label>
                   <input
                     type="email"
                     required
                     placeholder="email@example.com"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">City / Taluk *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{t.cityLabel}</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Payyanur / Kannur"
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Select Plan</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{t.planLabel}</label>
                   <select
                     value={formData.selectedPlan}
                     onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs bg-white outline-none"
                   >
-                    <option value="starter">Starter Pack (₹2,499)</option>
-                    <option value="pro">Pro Pack (₹4,999)</option>
+                    <option value="starter">Starter Pack (Offer: ₹1,999)</option>
+                    <option value="pro">Pro Pack (Offer: ₹3,999)</option>
+                    <option value="trial">7-Day Free Trial (₹0)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Printer Model</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{t.printerLabel}</label>
                   <input
                     type="text"
                     placeholder="e.g. HP LaserJet 1020"
                     value={formData.printerModel}
                     onChange={(e) => setFormData({ ...formData, printerModel: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs outline-none"
                   />
                 </div>
               </div>
@@ -262,13 +365,13 @@ export const BusinessLandingPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2 mt-2"
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2 mt-2 text-xs"
               >
-                {loading ? 'Submitting...' : 'Register My Shop Now'}
+                {loading ? t.btnSubmitting : t.btnSubmit}
               </button>
 
               <p className="text-[11px] text-center text-slate-400">
-                Official inquiries handled by RTS Digital Seva (info@rtsdigitalseva.online).
+                Official RTS Smart Print distribution by RTS Digital Seva (info@rtsdigitalseva.online).
               </p>
             </form>
           )}

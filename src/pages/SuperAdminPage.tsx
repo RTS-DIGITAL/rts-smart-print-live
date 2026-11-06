@@ -22,7 +22,8 @@ import {
   Save,
   Check,
   Ban,
-  CheckCircle2
+  CheckCircle2,
+  UserPlus
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -59,40 +60,38 @@ interface Inquiry {
   phone: string;
   email: string;
   city: string;
+  selected_plan: string;
+  printer_model: string;
   status: string;
   created_at: string;
 }
 
 export const SuperAdminPage: React.FC = () => {
-  // Master PIN Gate
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // Active Tab
   const [activeTab, setActiveTab] = useState<'shops' | 'inquiries' | 'pricing'>('shops');
 
-  // Data states
   const [shops, setShops] = useState<ShopTenant[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Remote Shop Manager Modal
   const [editingShop, setEditingShop] = useState<ShopTenant | null>(null);
   const [modalSaving, setModalSaving] = useState(false);
+  const [approvingInquiryId, setApprovingInquiryId] = useState<string | null>(null);
 
-  // Email Notification Helper (Dispatches transactional email)
-  const sendShopStatusEmail = async (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated') => {
+  const sendShopStatusEmail = async (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
     if (!email) return;
 
     let subject = '';
     let body = '';
 
     if (action === 'approved') {
-      subject = `🎉 Welcome to RTS Smart Print - Store Activated!`;
-      body = `Hi ${shopName},\n\nYour print station account has been approved and is now ACTIVE with full access.\nLog in to your admin panel to configure your printer.\n\nSupport: RTS Smart Print Team`;
+      subject = `🎉 Welcome to RTS Smart Print - ${shopName} is Activated!`;
+      body = `Hi ${shopName},\n\nYour print station account has been approved and activated!\n\nShop Links:\n- Customer Kiosk: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n- Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\nYour 6-Digit Windows Agent Pairing Code: ${details?.pairingCode}\n\nEnter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer.\n\nSupport: RTS Digital Seva (7012833699)`;
     } else if (action === 'suspended') {
       subject = `⚠️ RTS Smart Print Account Suspended: ${shopName}`;
       body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired trial or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin to reactivate your station.`;
@@ -102,12 +101,11 @@ export const SuperAdminPage: React.FC = () => {
     }
 
     try {
-      // Direct transactional mail dispatch via Web3Forms API
       await fetch('https://api.web3forms.com/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          access_key: 'c90ebcb1-0428-48b7-a36c-92c584b98f1a', // standard fallback sender key
+          access_key: 'c6424f38-4a5e-4f4c-b874-460081e81c74',
           to_email: email,
           subject: subject,
           message: body,
@@ -115,7 +113,6 @@ export const SuperAdminPage: React.FC = () => {
         })
       });
     } catch {
-      // Fallback: Opens default email client
       window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
     }
   };
@@ -134,21 +131,19 @@ export const SuperAdminPage: React.FC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Shops
       const { data: shopsData } = await supabase
         .from('shops')
         .select('*')
         .order('created_at', { ascending: false });
       if (shopsData) setShops(shopsData);
 
-      // 2. Fetch Inquiries
+      // Fetch from shop_inquiries (matching BusinessLandingPage)
       const { data: inqData } = await supabase
-        .from('partner_inquiries')
+        .from('shop_inquiries')
         .select('*')
         .order('created_at', { ascending: false });
       if (inqData) setInquiries(inqData);
 
-      // 3. Fetch Platform Pricing Plans
       const { data: plansData } = await supabase
         .from('platform_plans')
         .select('*')
@@ -167,7 +162,78 @@ export const SuperAdminPage: React.FC = () => {
     }
   }, [isAuthenticated]);
 
-  // Quick Action: Suspend Shop
+  // 1-Click Approve Inquiry & Provision Shop
+  const handleApproveAndCreateShop = async (inq: Inquiry) => {
+    if (!window.confirm(`Approve ${inq.business_name} and generate counter station?`)) return;
+    setApprovingInquiryId(inq.id);
+
+    try {
+      const slug = inq.business_name
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || `shop-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const pairingCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // 1. Create shop in shops table
+      const { data: newShop, error: shopErr } = await supabase
+        .from('shops')
+        .insert([
+          {
+            name: inq.business_name,
+            slug: slug,
+            phone: inq.phone,
+            owner_email: inq.email,
+            subscription_status: 'active',
+            is_accepting_orders: true,
+            require_payment: false,
+            target_printer_name: inq.printer_model || 'Microsoft Print to PDF',
+            counter_notice: 'Please collect your prints at the counter',
+            auto_delete_hours: 24,
+            is_pin_protected: false,
+            auto_print_enabled: true
+          }
+        ])
+        .select()
+        .single();
+
+      if (shopErr) throw shopErr;
+
+      // 2. Generate shop connector pairing key
+      await supabase.from('shop_connector_keys').insert([
+        {
+          shop_id: newShop.id,
+          pairing_code: pairingCode,
+          is_active: true
+        }
+      ]);
+
+      // 3. Add default pricing rules
+      await supabase.from('pricing_rules').insert([
+        { shop_id: newShop.id, paper_size: 'A4', is_color: false, is_double_sided: false, price_per_page: 2.0 },
+        { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 }
+      ]);
+
+      // 4. Mark inquiry approved
+      await supabase
+        .from('shop_inquiries')
+        .update({ status: 'approved' })
+        .eq('id', inq.id);
+
+      // 5. Send automated onboarding email
+      await sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode });
+
+      alert(`🎉 Shop created!\nSlug: /shop/${slug}\nPairing Code: ${pairingCode}`);
+      setActiveTab('shops');
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to approve shop: ' + err.message);
+    } finally {
+      setApprovingInquiryId(null);
+    }
+  };
+
   const handleSuspendShop = async (shop: ShopTenant) => {
     if (!window.confirm(`Suspend ${shop.name}? Customer kiosk will be paused.`)) return;
     try {
@@ -187,7 +253,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Quick Action: Re-Approve / Reactivate Shop
   const handleReactivateShop = async (shop: ShopTenant) => {
     if (!window.confirm(`Re-approve and activate ${shop.name}?`)) return;
     try {
@@ -207,7 +272,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Remote Shop Manager Modal Save
   const handleSaveShopSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingShop) return;
@@ -238,20 +302,15 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Update Dynamic Platform Plan
   const handleUpdatePlan = async (planId: string, updates: Partial<PlatformPlan>) => {
     try {
-      await supabase
-        .from('platform_plans')
-        .update(updates)
-        .eq('id', planId);
+      await supabase.from('platform_plans').update(updates).eq('id', planId);
       fetchAllData();
     } catch (err: any) {
       alert('Failed to update plan: ' + err.message);
     }
   };
 
-  // PIN Gate Screen
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -292,7 +351,6 @@ export const SuperAdminPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
-      {/* Top Navbar */}
       <header className="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-6 py-4 sticky top-0 z-40 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-950 text-base shadow-lg shadow-emerald-500/30">
@@ -309,7 +367,6 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Navigation Tabs */}
         <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-800 text-xs">
           <button
             onClick={() => setActiveTab('shops')}
@@ -346,11 +403,8 @@ export const SuperAdminPage: React.FC = () => {
         </button>
       </header>
 
-      {/* Main Body */}
       <main className="max-w-6xl mx-auto px-4 pt-6 space-y-6">
-        {/* ========================================================================= */}
-        {/* TAB 1: SHOPS DIRECTORY & SUSPENSION/RE-APPROVAL CONTROLS                 */}
-        {/* ========================================================================= */}
+        {/* SHOPS TAB */}
         {activeTab === 'shops' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center gap-4">
@@ -412,7 +466,6 @@ export const SuperAdminPage: React.FC = () => {
 
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {/* Suspend or Reactivate Button */}
                               {isSuspended ? (
                                 <button
                                   type="button"
@@ -433,7 +486,6 @@ export const SuperAdminPage: React.FC = () => {
                                 </button>
                               )}
 
-                              {/* Remote Shop Manager Trigger[cite: 24] */}
                               <button
                                 type="button"
                                 onClick={() => setEditingShop(shop)}
@@ -464,37 +516,77 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAB 2: INQUIRIES & NEW SHOP PROVISIONING                                   */}
-        {/* ========================================================================= */}
+        {/* INQUIRIES TAB WITH 1-CLICK APPROVAL */}
         {activeTab === 'inquiries' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-            <h2 className="text-base font-black text-white">Pending Partner Inquiries</h2>
-            <div className="divide-y divide-slate-800">
-              {inquiries.map((inq) => (
-                <div key={inq.id} className="py-4 flex justify-between items-center">
-                  <div>
-                    <h3 className="font-extrabold text-sm text-white">{inq.business_name} ({inq.owner_name})</h3>
-                    <p className="text-xs text-slate-400">{inq.phone} • {inq.email} • {inq.city}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved')}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs transition flex items-center gap-1"
-                    >
-                      <Mail className="w-3.5 h-3.5" />
-                      <span>Send Welcome Email</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <div className="flex justify-between items-center">
+              <h2 className="text-base font-black text-white">Pending Partner Inquiries</h2>
+              <span className="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full font-bold">
+                {inquiries.length} submitted
+              </span>
             </div>
+
+            {inquiries.length === 0 ? (
+              <div className="text-center py-10 text-slate-500 text-xs">
+                No inquiries submitted yet.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-800">
+                {inquiries.map((inq) => {
+                  const isAlreadyApproved = inq.status === 'approved';
+
+                  return (
+                    <div key={inq.id} className="py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-sm text-white">{inq.business_name}</h3>
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
+                            isAlreadyApproved ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                          }`}>
+                            {inq.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Owner: <span className="text-slate-200 font-bold">{inq.owner_name}</span> • Phone: {inq.phone} • {inq.email} • {inq.city}
+                        </p>
+                        {inq.printer_model && (
+                          <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            Printer: {inq.printer_model} • Plan: {inq.selected_plan}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {!isAlreadyApproved && (
+                          <button
+                            type="button"
+                            disabled={approvingInquiryId === inq.id}
+                            onClick={() => handleApproveAndCreateShop(inq)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs transition flex items-center gap-1.5 shadow-md shadow-emerald-600/30"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>{approvingInquiryId === inq.id ? 'Provisioning...' : 'Approve & Create Shop'}</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved')}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs transition flex items-center gap-1"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Resend Email</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAB 3: DYNAMIC PLATFORM PRICING & LAUNCH OFFERS                           */}
-        {/* ========================================================================= */}
+        {/* PRICING TAB */}
         {activeTab === 'pricing' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
@@ -588,9 +680,7 @@ export const SuperAdminPage: React.FC = () => {
         )}
       </main>
 
-      {/* ========================================================================= */}
-      {/* REMOTE SHOP MANAGER MODAL (WITH AUTO-DELETE & EMAIL)[cite: 24]                       */}
-      {/* ========================================================================= */}
+      {/* REMOTE SHOP MANAGER MODAL */}
       {editingShop && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
@@ -642,7 +732,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* AUTO-DELETE STORAGE SAVER DROPDOWN */}
               <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl space-y-1.5">
                 <label className="block font-bold text-emerald-400">
                   Auto-Delete Printed Files (Save Supabase Space)
@@ -657,9 +746,6 @@ export const SuperAdminPage: React.FC = () => {
                   <option value={12}>Auto-delete after 12 Hours</option>
                   <option value={24}>Auto-delete after 24 Hours (Max Limit)</option>
                 </select>
-                <p className="text-[10px] text-emerald-600">
-                  Files older than this duration are automatically purged to prevent disk space bloat.
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

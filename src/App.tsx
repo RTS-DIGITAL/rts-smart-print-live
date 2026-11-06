@@ -3,8 +3,8 @@ import AdminPage from '@/pages/AdminPage';
 import KioskPage from '@/pages/KioskPage';
 import OrderStatusPage from '@/pages/OrderStatusPage';
 import PartnerRegisterPage from '@/pages/PartnerRegisterPage';
-import BusinessLandingPage from '@/pages/BusinessLandingPage';
-import SuperAdminPage from '@/pages/SuperAdminPage';
+import { BusinessLandingPage } from '@/pages/BusinessLandingPage';
+import { SuperAdminPage } from '@/pages/SuperAdminPage';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
 
 export default function App() {
@@ -16,17 +16,15 @@ export default function App() {
       {/* Public Customer Kiosks */}
       <Route path="/shop/:shopSlug" element={<KioskPage />} />
 
-      {/* Order Status Confirmation (Shop-Specific and Global Fallback) */}
+      {/* Order Status Confirmation (Shop-Specific and Fallback) */}
       <Route path="/shop/:shopSlug/order/:orderId" element={<OrderStatusPage />} />
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
 
       {/* Shop-Specific Counter Admin Dashboards */}
       <Route path="/shop/:shopSlug/admin" element={<AdminPage />} />
-
-      {/* Default Shop Admin Dashboard */}
       <Route path="/admin" element={<AdminPage />} />
 
-      {/* Super Admin Master Panel (PIN Protected) */}
+      {/* Super Admin Master Panel */}
       <Route path="/super-admin" element={<SuperAdminPage />} />
 
       {/* Business Landing & Partner Registration */}

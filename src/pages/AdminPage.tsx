@@ -7,14 +7,16 @@ import {
   Printer, 
   Settings, 
   RefreshCw, 
-  Power, 
   CreditCard, 
   FileText, 
   CheckCircle2, 
   Clock, 
   ExternalLink,
   ShieldAlert,
-  Save
+  Save,
+  QrCode,
+  Banknote,
+  Smartphone
 } from 'lucide-react';
 
 interface ShopData {
@@ -60,18 +62,18 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Editable form state
+  // Form State
   const [shopName, setShopName] = useState('');
   const [phone, setPhone] = useState('');
   const [upiId, setUpiId] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
   const [counterNotice, setCounterNotice] = useState('');
   const [isAccepting, setIsAccepting] = useState(true);
+  const [requirePayment, setRequirePayment] = useState(true);
 
   const loadShopData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch shop profile
       const { data: shopRes, error: shopErr } = await supabase
         .from('shops')
         .select('*')
@@ -87,8 +89,8 @@ export default function AdminPage() {
       setTargetPrinter(shopRes.target_printer_name || '');
       setCounterNotice(shopRes.counter_notice || '');
       setIsAccepting(shopRes.is_accepting_orders ?? true);
+      setRequirePayment(shopRes.require_payment ?? true);
 
-      // 2. Fetch pairing code
       const { data: keyRes } = await supabase
         .from('shop_connector_keys')
         .select('pairing_code')
@@ -97,7 +99,6 @@ export default function AdminPage() {
 
       if (keyRes) setPairingCode(keyRes.pairing_code);
 
-      // 3. Fetch recent shop orders
       const { data: ordersRes } = await supabase
         .from('print_orders')
         .select('*')
@@ -107,7 +108,6 @@ export default function AdminPage() {
 
       if (ordersRes) setOrders(ordersRes);
 
-      // 4. Fetch pricing rules
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
         .select('*')
@@ -138,7 +138,8 @@ export default function AdminPage() {
           upi_id: upiId,
           target_printer_name: targetPrinter,
           counter_notice: counterNotice,
-          is_accepting_orders: isAccepting
+          is_accepting_orders: isAccepting,
+          require_payment: requirePayment
         })
         .eq('id', shop.id);
 
@@ -156,6 +157,127 @@ export default function AdminPage() {
   const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
     await supabase.from('pricing_rules').update({ price_per_page: newPrice }).eq('id', ruleId);
     loadShopData();
+  };
+
+  // Open Printable Counter Standee in a new clean window
+  const handlePrintStandee = () => {
+    if (!shop) return;
+    const kioskUrl = `${window.location.origin}/shop/${shop.slug}`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(kioskUrl)}`;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${shop.name} - Counter QR Standee</title>
+          <style>
+            @page { size: A4 portrait; margin: 0; }
+            body { 
+              font-family: system-ui, -apple-system, sans-serif;
+              margin: 0; 
+              padding: 40px 20px; 
+              display: flex; 
+              justify-content: center; 
+              align-items: center; 
+              min-height: 100vh;
+              background-color: #f8fafc;
+              -webkit-print-color-adjust: exact;
+            }
+            .card { 
+              width: 480px; 
+              background: white; 
+              border: 3px solid #059669; 
+              border-radius: 28px; 
+              padding: 40px 32px; 
+              text-align: center;
+              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            }
+            .header-tag {
+              display: inline-block;
+              background: #ecfdf5;
+              color: #059669;
+              font-weight: 800;
+              font-size: 13px;
+              padding: 6px 16px;
+              border-radius: 9999px;
+              text-transform: uppercase;
+              letter-spacing: 0.05em;
+              margin-bottom: 12px;
+            }
+            h1 { 
+              font-size: 28px; 
+              color: #0f172a; 
+              margin: 0 0 6px 0; 
+              font-weight: 900;
+            }
+            p.sub { 
+              color: #64748b; 
+              font-size: 14px; 
+              margin: 0 0 24px 0; 
+            }
+            .qr-box { 
+              background: white; 
+              padding: 16px; 
+              border: 2px dashed #cbd5e1; 
+              border-radius: 24px; 
+              display: inline-block;
+              margin-bottom: 24px;
+            }
+            .qr-box img { 
+              width: 250px; 
+              height: 250px; 
+              display: block; 
+            }
+            .steps { 
+              background: #f8fafc; 
+              border-radius: 16px; 
+              padding: 16px; 
+              text-align: left; 
+              font-size: 13px; 
+              color: #334155; 
+              line-height: 1.8;
+              margin-bottom: 20px;
+            }
+            .steps strong { color: #059669; }
+            .footer { 
+              font-size: 11px; 
+              color: #94a3b8; 
+              font-weight: 600; 
+            }
+            @media print {
+              body { background: transparent; padding: 0; }
+              .card { box-shadow: none; border-width: 2px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="header-tag">Self-Service Print Station</div>
+            <h1>${shop.name}</h1>
+            <p class="sub">Scan below to upload and print documents instantly</p>
+            
+            <div class="qr-box">
+              <img src="${qrImageUrl}" alt="Scan to Print" />
+            </div>
+
+            <div class="steps">
+              <div><strong>1. Scan QR</strong> using any smartphone camera or Google Lens</div>
+              <div><strong>2. Select & Upload</strong> your PDF, JPEG, or PNG files</div>
+              <div><strong>3. Collect Prints</strong> immediately from this counter</div>
+            </div>
+
+            <div class="footer">Powered by RTS Smart Print Automation</div>
+          </div>
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   if (loading) {
@@ -176,7 +298,7 @@ export default function AdminPage() {
           <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-lg font-black text-slate-900">Shop Not Found</h2>
           <p className="text-xs text-slate-500">
-            No registered store found with slug: <code className="font-mono text-emerald-700">{activeSlug}</code>
+            No store found with slug: <code className="font-mono text-emerald-700">{activeSlug}</code>
           </p>
           <Link to="/" className="inline-block mt-2 text-xs font-bold text-emerald-600 hover:underline">
             Return to Home
@@ -206,6 +328,13 @@ export default function AdminPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={handlePrintStandee}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 shadow-md shadow-emerald-600/30"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Print Counter Standee</span>
+          </button>
           <a
             href={`/shop/${shop.slug}`}
             target="_blank"
@@ -256,7 +385,7 @@ export default function AdminPage() {
               Counter Configuration
             </h2>
 
-            <form onSubmit={handleSaveSettings} className="space-y-3.5 text-xs">
+            <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Shop Display Name</label>
                 <input
@@ -277,22 +406,61 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Shop Direct UPI ID</label>
-                <input
-                  type="text"
-                  placeholder="e.g. shop@okhdfcbank"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-mono"
-                />
+              {/* PAYMENT MODE TOGGLE */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRequirePayment(true)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      requirePayment 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    Direct UPI QR
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRequirePayment(false)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      !requirePayment 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4" />
+                    Pay Cash at Counter
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-tight">
+                  {requirePayment 
+                    ? 'Customer must pay via UPI before pages start printing.'
+                    : 'Customer can click "Print" immediately and pay cash at your counter.'}
+                </p>
               </div>
+
+              {requirePayment && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Shop Direct UPI ID</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. shop@okhdfcbank"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-mono"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
                 <input
                   type="text"
-                  placeholder="e.g. Canon LBP2900"
+                  placeholder="e.g. Canon LBP2900 or Microsoft Print to PDF"
                   value={targetPrinter}
                   onChange={(e) => setTargetPrinter(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
@@ -310,8 +478,8 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between pt-2">
-                <span className="font-semibold text-slate-700">Accepting Orders</span>
+              <div className="flex items-center justify-between pt-1">
+                <span className="font-semibold text-slate-700">Counter Queue Status</span>
                 <button
                   type="button"
                   onClick={() => setIsAccepting(!isAccepting)}
@@ -319,17 +487,17 @@ export default function AdminPage() {
                     isAccepting ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
                   }`}
                 >
-                  {isAccepting ? 'Online' : 'Paused'}
+                  {isAccepting ? 'Accepting Orders' : 'Paused'}
                 </button>
               </div>
 
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 mt-2"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 mt-2 shadow"
               >
                 <Save className="w-3.5 h-3.5" />
-                {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Changes'}
+                {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Settings'}
               </button>
             </form>
           </div>
@@ -364,7 +532,7 @@ export default function AdminPage() {
                       <th className="py-2.5 px-4">Order #</th>
                       <th className="py-2.5 px-4">Document</th>
                       <th className="py-2.5 px-4">Copies</th>
-                      <th className="py-2.5 px-4">Paid</th>
+                      <th className="py-2.5 px-4">Amount</th>
                       <th className="py-2.5 px-4">Status</th>
                     </tr>
                   </thead>

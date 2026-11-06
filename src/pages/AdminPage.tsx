@@ -40,6 +40,7 @@ interface ShopData {
   is_pin_protected: boolean;
   counter_pin: string;
   auto_print_enabled: boolean;
+  auto_delete_hours?: number | null;
 }
 
 interface OrderRow {
@@ -78,6 +79,7 @@ export default function AdminPage() {
   const [phone, setPhone] = useState('');
   const [upiId, setUpiId] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
+  const [autoDeleteHours, setAutoDeleteHours] = useState<number>(24);
   const [counterNotice, setCounterNotice] = useState('');
   const [isAccepting, setIsAccepting] = useState(true);
   const [requirePayment, setRequirePayment] = useState(true);
@@ -100,6 +102,7 @@ export default function AdminPage() {
       setPhone(shopRes.phone || '');
       setUpiId(shopRes.upi_id || '');
       setTargetPrinter(shopRes.target_printer_name || '');
+      setAutoDeleteHours(shopRes.auto_delete_hours || 24);
       setCounterNotice(shopRes.counter_notice || '');
       setIsAccepting(shopRes.is_accepting_orders ?? true);
       setRequirePayment(shopRes.require_payment ?? true);
@@ -173,6 +176,7 @@ export default function AdminPage() {
           phone: phone,
           upi_id: upiId,
           target_printer_name: targetPrinter,
+          auto_delete_hours: autoDeleteHours,
           counter_notice: counterNotice,
           is_accepting_orders: isAccepting,
           require_payment: requirePayment,
@@ -613,6 +617,26 @@ export default function AdminPage() {
                 />
               </div>
 
+              {/* AUTO-DELETE CUSTOMER FILES SELECTOR */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Auto-Delete Customer Files</label>
+                <select
+                  value={autoDeleteHours}
+                  onChange={(e) => {
+                    const hours = Number(e.target.value);
+                    setAutoDeleteHours(hours);
+                    if (shop) setShop({ ...shop, auto_delete_hours: hours });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none text-xs font-bold"
+                >
+                  <option value={1}>Auto-delete after 1 Hour</option>
+                  <option value={4}>Auto-delete after 4 Hours</option>
+                  <option value={12}>Auto-delete after 12 Hours</option>
+                  <option value={24}>Auto-delete after 24 Hours (Max)</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">Uploaded files are cleared after this period to protect privacy and save space.</p>
+              </div>
+
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Counter Collection Notice</label>
                 <input
@@ -675,7 +699,6 @@ export default function AdminPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {orders.map((o) => {
-                      // An order needs action if it's waiting for counter approval or pending
                       const needsApproval = 
                         o.status === 'waiting_counter_approval' || 
                         o.status === 'pending' || 

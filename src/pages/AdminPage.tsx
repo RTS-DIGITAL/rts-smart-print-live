@@ -22,8 +22,7 @@ import {
   Play,
   Pause,
   Trash2,
-  Check,
-  Bell
+  Check
 } from 'lucide-react';
 
 interface ShopData {
@@ -40,7 +39,7 @@ interface ShopData {
   is_pin_protected: boolean;
   counter_pin: string;
   auto_print_enabled: boolean;
-  auto_delete_hours?: number | null;
+  auto_delete_hours: number;
 }
 
 interface OrderRow {
@@ -79,13 +78,13 @@ export default function AdminPage() {
   const [phone, setPhone] = useState('');
   const [upiId, setUpiId] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
-  const [autoDeleteHours, setAutoDeleteHours] = useState<number>(24);
   const [counterNotice, setCounterNotice] = useState('');
   const [isAccepting, setIsAccepting] = useState(true);
-  const [requirePayment, setRequirePayment] = useState(true);
+  const [requirePayment, setRequirePayment] = useState(false);
   const [isPinProtected, setIsPinProtected] = useState(false);
   const [counterPin, setCounterPin] = useState('1234');
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
+  const [autoDeleteHours, setAutoDeleteHours] = useState(24);
 
   const loadShopData = async () => {
     try {
@@ -102,22 +101,33 @@ export default function AdminPage() {
       setPhone(shopRes.phone || '');
       setUpiId(shopRes.upi_id || '');
       setTargetPrinter(shopRes.target_printer_name || '');
-      setAutoDeleteHours(shopRes.auto_delete_hours || 24);
       setCounterNotice(shopRes.counter_notice || '');
       setIsAccepting(shopRes.is_accepting_orders ?? true);
-      setRequirePayment(shopRes.require_payment ?? true);
+      setRequirePayment(shopRes.require_payment ?? false);
       setIsPinProtected(shopRes.is_pin_protected ?? false);
       setCounterPin(shopRes.counter_pin || '1234');
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
+      setAutoDeleteHours(shopRes.auto_delete_hours || 24);
 
+      // Load Pairing Code (Generate fallback if not exists)
       const { data: keyRes } = await supabase
         .from('shop_connector_keys')
         .select('pairing_code')
         .eq('shop_id', shopRes.id)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (keyRes) setPairingCode(keyRes.pairing_code);
+      if (keyRes && keyRes.length > 0) {
+        setPairingCode(keyRes[0].pairing_code);
+      } else {
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+        await supabase.from('shop_connector_keys').insert([
+          { shop_id: shopRes.id, pairing_code: newCode, is_active: true }
+        ]);
+        setPairingCode(newCode);
+      }
 
+      // Load orders
       const { data: ordersRes } = await supabase
         .from('print_orders')
         .select('*')
@@ -127,6 +137,7 @@ export default function AdminPage() {
 
       if (ordersRes) setOrders(ordersRes);
 
+      // Load pricing
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
         .select('*')
@@ -144,18 +155,14 @@ export default function AdminPage() {
     loadShopData();
   }, [activeSlug]);
 
-  // Realtime Live Subscription: Instantly show incoming customer orders
   useEffect(() => {
     if (!shop?.id) return;
-
     const channel = supabase
       .channel(`admin-queue-${shop.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'print_orders', filter: `shop_id=eq.${shop.id}` },
-        () => {
-          loadShopData();
-        }
+        () => loadShopData()
       )
       .subscribe();
 
@@ -176,13 +183,13 @@ export default function AdminPage() {
           phone: phone,
           upi_id: upiId,
           target_printer_name: targetPrinter,
-          auto_delete_hours: autoDeleteHours,
           counter_notice: counterNotice,
           is_accepting_orders: isAccepting,
           require_payment: requirePayment,
           is_pin_protected: isPinProtected,
           counter_pin: counterPin,
-          auto_print_enabled: autoPrintEnabled
+          auto_print_enabled: autoPrintEnabled,
+          auto_delete_hours: autoDeleteHours
         })
         .eq('id', shop.id);
 
@@ -197,31 +204,19 @@ export default function AdminPage() {
     }
   };
 
-  // Manual Approval Action: Changes status to 'paid' so Windows Print Agent picks it up
   const handleApproveOrder = async (orderNumber: string) => {
     try {
-      const { error } = await supabase
-        .from('print_orders')
-        .update({ status: 'paid' })
-        .eq('order_number', orderNumber);
-
-      if (error) throw error;
+      await supabase.from('print_orders').update({ status: 'paid' }).eq('order_number', orderNumber);
       loadShopData();
     } catch (err: any) {
       alert('Error approving order: ' + err.message);
     }
   };
 
-  // Reject Action: Discards order
   const handleRejectOrder = async (orderNumber: string) => {
     if (!window.confirm(`Discard order ${orderNumber}?`)) return;
     try {
-      const { error } = await supabase
-        .from('print_orders')
-        .update({ status: 'rejected' })
-        .eq('order_number', orderNumber);
-
-      if (error) throw error;
+      await supabase.from('print_orders').update({ status: 'rejected' }).eq('order_number', orderNumber);
       loadShopData();
     } catch (err: any) {
       alert('Error rejecting order: ' + err.message);
@@ -280,17 +275,8 @@ export default function AdminPage() {
               letter-spacing: 0.05em;
               margin-bottom: 12px;
             }
-            h1 { 
-              font-size: 28px; 
-              color: #0f172a; 
-              margin: 0 0 6px 0; 
-              font-weight: 900;
-            }
-            p.sub { 
-              color: #64748b; 
-              font-size: 14px; 
-              margin: 0 0 20px 0; 
-            }
+            h1 { font-size: 28px; color: #0f172a; margin: 0 0 6px 0; font-weight: 900; }
+            p.sub { color: #64748b; font-size: 14px; margin: 0 0 20px 0; }
             .qr-box { 
               background: white; 
               padding: 16px; 
@@ -299,11 +285,7 @@ export default function AdminPage() {
               display: inline-block;
               margin-bottom: 18px;
             }
-            .qr-box img { 
-              width: 240px; 
-              height: 240px; 
-              display: block; 
-            }
+            .qr-box img { width: 240px; height: 240px; display: block; }
             .pin-badge {
               background: #fef3c7;
               border: 2px solid #f59e0b;
@@ -326,15 +308,8 @@ export default function AdminPage() {
               margin-bottom: 20px;
             }
             .steps strong { color: #059669; }
-            .footer { 
-              font-size: 11px; 
-              color: #94a3b8; 
-              font-weight: 600; 
-            }
-            @media print {
-              body { background: transparent; padding: 0; }
-              .card { box-shadow: none; border-width: 2px; }
-            }
+            .footer { font-size: 11px; color: #94a3b8; font-weight: 600; }
+            @media print { body { background: transparent; padding: 0; } .card { box-shadow: none; border-width: 2px; } }
           </style>
         </head>
         <body>
@@ -342,27 +317,19 @@ export default function AdminPage() {
             <div class="header-tag">Self-Service Print Station</div>
             <h1>${shop.name}</h1>
             <p class="sub">Scan below to upload and print documents instantly</p>
-            
             <div class="qr-box">
               <img src="${qrImageUrl}" alt="Scan to Print" />
             </div>
-
-            <div class="pin-badge">
-              🔑 Counter Access PIN: ${counterPin}
-            </div>
-
+            <div class="pin-badge">🔑 Counter Access PIN: ${counterPin}</div>
             <div class="steps">
-              <div><strong>1. Scan QR</strong> using any smartphone camera or Google Lens</div>
+              <div><strong>1. Scan QR</strong> using phone camera or Google Lens</div>
               ${isPinProtected ? `<div><strong>2. Enter PIN (${counterPin})</strong> to unlock document upload</div>` : ''}
-              <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> your PDF, JPEG, or PNG files</div>
-              <div><strong>${isPinProtected ? '4' : '3'}. Collect Prints</strong> immediately from this counter</div>
+              <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> documents</div>
+              <div><strong>${isPinProtected ? '4' : '3'}. Collect Prints</strong> at this counter</div>
             </div>
-
             <div class="footer">Powered by RTS Smart Print Automation</div>
           </div>
-          <script>
-            window.onload = function() { window.print(); }
-          </script>
+          <script>window.onload = function() { window.print(); }</script>
         </body>
       </html>
     `);
@@ -372,10 +339,7 @@ export default function AdminPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex items-center gap-2 text-slate-500 font-semibold text-sm">
-          <RefreshCw className="w-5 h-5 animate-spin text-emerald-600" />
-          Loading shop dashboard...
-        </div>
+        <RefreshCw className="w-5 h-5 animate-spin text-emerald-600" />
       </div>
     );
   }
@@ -386,9 +350,6 @@ export default function AdminPage() {
         <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center max-w-sm space-y-3">
           <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto" />
           <h2 className="text-lg font-black text-slate-900">Shop Not Found</h2>
-          <p className="text-xs text-slate-500">
-            No store found with slug: <code className="font-mono text-emerald-700">{activeSlug}</code>
-          </p>
           <Link to="/" className="inline-block mt-2 text-xs font-bold text-emerald-600 hover:underline">
             Return to Home
           </Link>
@@ -399,7 +360,6 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
-      {/* Header */}
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-900 text-lg">
@@ -443,9 +403,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {/* Main Grid */}
       <main className="max-w-6xl mx-auto px-4 pt-6 grid md:grid-cols-3 gap-6">
-        {/* Left Column: Settings */}
         <div className="md:col-span-1 space-y-6">
           {/* Agent Pairing Code Card */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-2">
@@ -463,11 +421,11 @@ export default function AdminPage() {
               </span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
-              Enter this 6-digit code inside <code>RTS-Smart-Print-Agent.exe</code> on your counter computer to link printing.
+              Enter this 6-digit code inside <code>RTS-Smart-Print-Agent.exe</code> on your counter PC to link printing[cite: 16].
             </p>
           </div>
 
-          {/* Shop Settings Form */}
+          {/* Configuration Form */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
             <h2 className="text-sm font-extrabold text-slate-900 mb-4 flex items-center gap-2">
               <Settings className="w-4 h-4 text-emerald-600" />
@@ -493,6 +451,56 @@ export default function AdminPage() {
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
                 />
+              </div>
+
+              {/* ALWAYS VISIBLE UPI ID CUSTOMIZATION BOX */}
+              <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-1.5">
+                <label className="block font-bold text-emerald-950 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                  Shop Direct UPI ID (GPay / PhonePe / Paytm)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. yourname@okaxis, shop@okhdfcbank"
+                  value={upiId}
+                  onChange={(e) => setUpiId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-emerald-300 font-mono text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <p className="text-[10px] text-emerald-700 leading-tight">
+                  Customer mobile payments go 100% directly into this UPI ID.
+                </p>
+              </div>
+
+              {/* PAYMENT MODE TOGGLE */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRequirePayment(true)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      requirePayment 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    Direct UPI QR
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRequirePayment(false)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      !requirePayment 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4" />
+                    Pay Cash at Counter
+                  </button>
+                </div>
               </div>
 
               {/* ANTI-SPAM PIN GATE */}
@@ -561,51 +569,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* PAYMENT MODE */}
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-                <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRequirePayment(true)}
-                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
-                      requirePayment 
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Smartphone className="w-4 h-4" />
-                    Direct UPI QR
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setRequirePayment(false)}
-                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
-                      !requirePayment 
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Banknote className="w-4 h-4" />
-                    Pay Cash at Counter
-                  </button>
-                </div>
-              </div>
-
-              {requirePayment && (
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Shop Direct UPI ID</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. shop@okhdfcbank"
-                    value={upiId}
-                    onChange={(e) => setUpiId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-mono"
-                  />
-                </div>
-              )}
-
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
                 <input
@@ -617,31 +580,25 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* AUTO-DELETE CUSTOMER FILES SELECTOR */}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Auto-Delete Customer Files</label>
+                <label className="block font-semibold text-slate-700 mb-1">Auto-Delete Files</label>
                 <select
                   value={autoDeleteHours}
-                  onChange={(e) => {
-                    const hours = Number(e.target.value);
-                    setAutoDeleteHours(hours);
-                    if (shop) setShop({ ...shop, auto_delete_hours: hours });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none text-xs font-bold"
+                  onChange={(e) => setAutoDeleteHours(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-bold"
                 >
                   <option value={1}>Auto-delete after 1 Hour</option>
                   <option value={4}>Auto-delete after 4 Hours</option>
                   <option value={12}>Auto-delete after 12 Hours</option>
-                  <option value={24}>Auto-delete after 24 Hours (Max)</option>
+                  <option value={24}>Auto-delete after 24 Hours</option>
                 </select>
-                <p className="text-[10px] text-slate-400 mt-1">Uploaded files are cleared after this period to protect privacy and save space.</p>
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Counter Collection Notice</label>
                 <input
                   type="text"
-                  placeholder="e.g. Please collect prints at Counter 1"
+                  placeholder="e.g. Collect prints at Counter 1"
                   value={counterNotice}
                   onChange={(e) => setCounterNotice(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
@@ -660,7 +617,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Right Column: Live Queue with Manual Approval Controls */}
+        {/* Right Column: Live Queue */}
         <div className="md:col-span-2 space-y-6">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
@@ -730,7 +687,7 @@ export default function AdminPage() {
                                 <button
                                   type="button"
                                   onClick={() => handleApproveOrder(o.order_number)}
-                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30 active:scale-95"
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
                                   title="Approve & Send to Printer"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -739,7 +696,7 @@ export default function AdminPage() {
                                 <button
                                   type="button"
                                   onClick={() => handleRejectOrder(o.order_number)}
-                                  className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl transition active:scale-95"
+                                  className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl transition"
                                   title="Reject & Discard"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -762,22 +719,15 @@ export default function AdminPage() {
 
           {/* Pricing Rules */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
-            <div>
-              <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-emerald-600" />
-                Page Printing Rates
-              </h2>
-              <p className="text-[11px] text-slate-400">Set per-page pricing charged to kiosk customers</p>
-            </div>
-
+            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-emerald-600" />
+              Page Printing Rates
+            </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
               {pricing.map((rule) => (
                 <div key={rule.id} className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
                   <span className="text-[11px] font-bold text-slate-700 block">
                     {rule.paper_size} {rule.is_color ? 'Color' : 'B&W'}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block">
-                    {rule.is_double_sided ? 'Double-sided' : 'Single-sided'}
                   </span>
                   <div className="flex items-center gap-1 pt-1">
                     <span className="text-xs font-bold text-slate-600">₹</span>

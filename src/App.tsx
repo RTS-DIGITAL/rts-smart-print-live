@@ -4,6 +4,7 @@ import KioskPage from '@/pages/KioskPage';
 import OrderStatusPage from '@/pages/OrderStatusPage';
 import PartnerRegisterPage from '@/pages/PartnerRegisterPage';
 import { BusinessLandingPage } from '@/pages/BusinessLandingPage';
+import SuperAdminPage from '@/pages/SuperAdminPage';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/shop/:shopSlug" element={<KioskPage />} />
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
       <Route path="/admin" element={<AdminPage />} />
+      <Route path="/super-admin" element={<SuperAdminPage />} />
       <Route path="/partner-register" element={<PartnerRegisterPage />} />
       <Route path="/for-business" element={<BusinessLandingPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

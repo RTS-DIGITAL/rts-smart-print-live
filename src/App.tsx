@@ -10,13 +10,25 @@ import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
 export default function App() {
   return (
     <Routes>
+      {/* Default redirect to your main shop */}
       <Route path="/" element={<Navigate to={`/shop/${DEFAULT_SHOP_SLUG}`} replace />} />
+      
+      {/* Customer Kiosk */}
       <Route path="/shop/:shopSlug" element={<KioskPage />} />
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
+
+      {/* Individual Shop Admin Panels */}
+      <Route path="/shop/:shopSlug/admin" element={<AdminPage />} />
       <Route path="/admin" element={<AdminPage />} />
+
+      {/* Master Control Panel (Protected) */}
       <Route path="/super-admin" element={<SuperAdminPage />} />
-      <Route path="/partner-register" element={<PartnerRegisterPage />} />
+
+      {/* Public Pages */}
       <Route path="/for-business" element={<BusinessLandingPage />} />
+      <Route path="/partner-register" element={<PartnerRegisterPage />} />
+
+      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

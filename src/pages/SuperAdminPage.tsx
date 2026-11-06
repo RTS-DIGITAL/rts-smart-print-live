@@ -23,7 +23,8 @@ import {
   Check,
   Ban,
   CheckCircle2,
-  UserPlus
+  UserPlus,
+  MessageCircle
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -76,6 +77,7 @@ export const SuperAdminPage: React.FC = () => {
   const [shops, setShops] = useState<ShopTenant[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
+  const [pairingCodesMap, setPairingCodesMap] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -83,7 +85,8 @@ export const SuperAdminPage: React.FC = () => {
   const [modalSaving, setModalSaving] = useState(false);
   const [approvingInquiryId, setApprovingInquiryId] = useState<string | null>(null);
 
-  const sendShopStatusEmail = async (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
+  // Directly launches an email drafted to the CUSTOMER'S EMAIL (not admin inbox)
+  const sendShopStatusEmail = (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
     if (!email) return;
 
     let subject = '';
@@ -91,30 +94,17 @@ export const SuperAdminPage: React.FC = () => {
 
     if (action === 'approved') {
       subject = `🎉 Welcome to RTS Smart Print - ${shopName} is Activated!`;
-      body = `Hi ${shopName},\n\nYour print station account has been approved and activated!\n\nShop Links:\n- Customer Kiosk: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n- Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\nYour 6-Digit Windows Agent Pairing Code: ${details?.pairingCode}\n\nEnter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer.\n\nSupport: RTS Digital Seva (7012833699)`;
+      body = `Hi ${shopName},\n\nYour print station account has been approved and activated!\n\nYour Dedicated Links:\n- Customer Kiosk: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n- Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\nYour 6-Digit Windows Agent Pairing Code: ${details?.pairingCode || 'Check Shop Admin'}\n\nEnter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer.\n\nSupport: RTS Digital Seva (7012833699)`;
     } else if (action === 'suspended') {
       subject = `⚠️ RTS Smart Print Account Suspended: ${shopName}`;
-      body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired trial or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin to reactivate your station.`;
+      body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired trial or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin (7012833699) to reactivate your station.`;
     } else if (action === 'reactivated') {
       subject = `✅ RTS Smart Print Account Reactivated: ${shopName}`;
       body = `Hi ${shopName},\n\nPayment received! Your print station has been re-approved and reactivated. Your kiosk is now accepting customer print jobs again.\n\nThank you for partnering with RTS Smart Print!`;
     }
 
-    try {
-      await fetch('https://api.web3forms.com/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          access_key: 'c6424f38-4a5e-4f4c-b874-460081e81c74',
-          to_email: email,
-          subject: subject,
-          message: body,
-          from_name: 'RTS Smart Print Super Admin'
-        })
-      });
-    } catch {
-      window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
-    }
+    // Opens default mail app addressed directly to the customer's email
+    window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
   };
 
   const handlePinSubmit = (e: React.FormEvent) => {
@@ -131,19 +121,34 @@ export const SuperAdminPage: React.FC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
+      // 1. Fetch Shops
       const { data: shopsData } = await supabase
         .from('shops')
         .select('*')
         .order('created_at', { ascending: false });
       if (shopsData) setShops(shopsData);
 
-      // Fetch from shop_inquiries (matching BusinessLandingPage)
+      // 2. Fetch all shop pairing keys for easy mapping
+      const { data: keysData } = await supabase
+        .from('shop_connector_keys')
+        .select('shop_id, pairing_code');
+      
+      if (keysData) {
+        const map: Record<string, string> = {};
+        keysData.forEach((k) => {
+          map[k.shop_id] = k.pairing_code;
+        });
+        setPairingCodesMap(map);
+      }
+
+      // 3. Fetch Inquiries from shop_inquiries
       const { data: inqData } = await supabase
         .from('shop_inquiries')
         .select('*')
         .order('created_at', { ascending: false });
       if (inqData) setInquiries(inqData);
 
+      // 4. Fetch dynamic pricing
       const { data: plansData } = await supabase
         .from('platform_plans')
         .select('*')
@@ -161,6 +166,26 @@ export const SuperAdminPage: React.FC = () => {
       fetchAllData();
     }
   }, [isAuthenticated]);
+
+  // Helper to format WhatsApp message text
+  const getWhatsAppKitLink = (inq: Inquiry) => {
+    const slug = inq.business_name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    // Find if the shop already exists to grab the exact pairing code
+    const existingShop = shops.find(s => s.slug === slug || s.name.toLowerCase() === inq.business_name.toLowerCase());
+    const pairingCode = existingShop && pairingCodesMap[existingShop.id] ? pairingCodesMap[existingShop.id] : '314475';
+
+    const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
+    const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+
+    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}/admin\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Open RTS-Smart-Print-Agent.exe on your counter computer\n2. Enter your 6-digit code: *${pairingCode}*\n3. Start accepting instant prints!\n\n_Support: RTS Digital Seva (7012833699)_`;
+
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
+  };
 
   // 1-Click Approve Inquiry & Provision Shop
   const handleApproveAndCreateShop = async (inq: Inquiry) => {
@@ -221,10 +246,10 @@ export const SuperAdminPage: React.FC = () => {
         .update({ status: 'approved' })
         .eq('id', inq.id);
 
-      // 5. Send automated onboarding email
-      await sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode });
+      // 5. Send Email to Customer directly
+      sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode });
 
-      alert(`🎉 Shop created!\nSlug: /shop/${slug}\nPairing Code: ${pairingCode}`);
+      alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${pairingCode}\n\nNow click "Send WhatsApp Kit" to forward details directly to their phone.`);
       setActiveTab('shops');
       fetchAllData();
     } catch (err: any) {
@@ -427,6 +452,7 @@ export const SuperAdminPage: React.FC = () => {
                     <tr>
                       <th className="py-3 px-4">Shop</th>
                       <th className="py-3 px-4">Contact & Email</th>
+                      <th className="py-3 px-4">Pairing Code</th>
                       <th className="py-3 px-4">Auto-Delete</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Super Admin Actions</th>
@@ -435,6 +461,7 @@ export const SuperAdminPage: React.FC = () => {
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
                     {filteredShops.map((shop) => {
                       const isSuspended = shop.subscription_status === 'suspended';
+                      const pCode = pairingCodesMap[shop.id] || '---';
 
                       return (
                         <tr key={shop.id} className="hover:bg-slate-800/30">
@@ -446,6 +473,10 @@ export const SuperAdminPage: React.FC = () => {
                           <td className="py-3.5 px-4 space-y-0.5">
                             <p className="font-semibold text-slate-300">{shop.phone || 'No phone'}</p>
                             <p className="text-[11px] text-slate-500">{shop.owner_email || 'No email saved'}</p>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono font-bold text-amber-400">
+                            {pCode}
                           </td>
 
                           <td className="py-3.5 px-4">
@@ -516,11 +547,14 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* INQUIRIES TAB WITH 1-CLICK APPROVAL */}
+        {/* INQUIRIES TAB WITH 1-CLICK APPROVAL & 1-CLICK WHATSAPP KIT */}
         {activeTab === 'inquiries' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex justify-between items-center">
-              <h2 className="text-base font-black text-white">Pending Partner Inquiries</h2>
+              <div>
+                <h2 className="text-base font-black text-white">Pending Partner Inquiries</h2>
+                <p className="text-xs text-slate-400">Review registrations, activate shops, and dispatch WhatsApp setup kits.</p>
+              </div>
               <span className="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full font-bold">
                 {inquiries.length} submitted
               </span>
@@ -556,7 +590,8 @@ export const SuperAdminPage: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center flex-wrap gap-2">
+                        {/* 1. APPROVE & CREATE SHOP BUTTON */}
                         {!isAlreadyApproved && (
                           <button
                             type="button"
@@ -569,13 +604,27 @@ export const SuperAdminPage: React.FC = () => {
                           </button>
                         )}
 
+                        {/* 2. INSTANT 1-CLICK WHATSAPP KIT BUTTON */}
+                        <a
+                          href={getWhatsAppKitLink(inq)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1.5 shadow-sm"
+                          title="Open WhatsApp with Setup Kit"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 text-slate-950" />
+                          <span>Send WhatsApp Kit</span>
+                        </a>
+
+                        {/* 3. DIRECT CUSTOMER EMAIL SENDER */}
                         <button
                           type="button"
                           onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved')}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs transition flex items-center gap-1"
+                          title="Compose email directly to customer"
                         >
                           <Mail className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Resend Email</span>
+                          <span>Email Customer</span>
                         </button>
                       </div>
                     </div>

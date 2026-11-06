@@ -44,6 +44,9 @@ interface ShopData {
   pairing_code: string;
   admin_pin: string;
   admin_username: string;
+  created_at?: string;
+  approved_at?: string | null;
+  subscription_days?: number | null;
 }
 
 interface OrderRow {
@@ -448,13 +451,28 @@ export default function AdminPage() {
             S
           </div>
           <div>
-            <h1 className="font-black text-base flex items-center gap-2">
-              {shop.name}
-              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
-                Shop Admin
-              </span>
-            </h1>
-            <p className="text-[11px] text-slate-400 font-mono">/shop/{shop.slug}</p>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <h1 className="font-black text-white text-base">{shop.name}</h1>
+              {/* Live Reverse Countdown Pill */}
+              {(() => {
+                const approvalDate = shop.approved_at ? new Date(shop.approved_at).getTime() : new Date(shop.created_at || Date.now()).getTime();
+                const elapsedDays = Math.floor((new Date().getTime() - approvalDate) / (1000 * 60 * 60 * 24));
+                const remainingDays = Math.max(0, (shop.subscription_days || 7) - elapsedDays);
+                const isExpired = remainingDays <= 0;
+
+                return (
+                  <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full uppercase border ${
+                    isExpired ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                    remainingDays <= 2 ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                    'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  }`}>
+                    ⏳ {isExpired ? 'Expired' : `${remainingDays} Days Left`}
+                  </span>
+                );
+              })()}
+            </div>
+            <p className="text-[11px] text-slate-400">Self-Service Document Print Kiosk</p>
           </div>
         </div>
 
@@ -833,6 +851,9 @@ export default function AdminPage() {
                 <div key={rule.id} className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
                   <span className="text-[11px] font-bold text-slate-700 block">
                     {rule.paper_size} {rule.is_color ? 'Color' : 'B&W'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {rule.is_double_sided ? 'Double-sided' : 'Single-sided'}
                   </span>
                   <div className="flex items-center gap-1 pt-1">
                     <span className="text-xs font-bold text-slate-600">₹</span>

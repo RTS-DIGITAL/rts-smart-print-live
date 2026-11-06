@@ -3,14 +3,13 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { 
   CheckCircle2, 
-  Clock, 
   Printer, 
   AlertCircle, 
   ArrowLeft,
   FileText
 } from 'lucide-react';
 
-interface OrderDetail {
+interface OrderItem {
   id: string;
   order_number: string;
   file_name: string;
@@ -32,21 +31,20 @@ interface OrderDetail {
 }
 
 export default function OrderStatusPage() {
-  // Read both optional shopSlug and orderId from URL parameters
   const { shopSlug: paramShopSlug, orderId } = useParams<{ shopSlug?: string; orderId: string }>();
-  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchOrder = async () => {
     if (!orderId) return;
 
     try {
-      // Allow searching by either UUID `id` or short `order_number` (e.g. RTS-838515)
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
       
       let query = supabase
         .from('print_orders')
-        .select('*, shops(name, slug, phone, counter_notice)');
+        .select('*, shops(name, slug, phone, counter_notice)')
+        .order('created_at', { ascending: true });
 
       if (isUuid) {
         query = query.eq('id', orderId);
@@ -54,10 +52,13 @@ export default function OrderStatusPage() {
         query = query.eq('order_number', orderId);
       }
 
-      const { data, error } = await query.maybeSingle();
+      // Use .select() without .maybeSingle() so multiple files in one batch load properly
+      const { data, error } = await query;
 
       if (error) throw error;
-      if (data) setOrder(data as OrderDetail);
+      if (data && data.length > 0) {
+        setOrderItems(data as OrderItem[]);
+      }
     } catch (err) {
       console.error('Failed to load order status:', err);
     } finally {
@@ -68,7 +69,6 @@ export default function OrderStatusPage() {
   useEffect(() => {
     fetchOrder();
 
-    // Subscribe to live order status updates
     const channel = supabase
       .channel(`order-status-${orderId}`)
       .on(
@@ -76,7 +76,9 @@ export default function OrderStatusPage() {
         { event: 'UPDATE', schema: 'public', table: 'print_orders' },
         (payload) => {
           if (payload.new && (payload.new.id === orderId || payload.new.order_number === orderId)) {
-            setOrder((prev) => (prev ? { ...prev, ...payload.new } : null));
+            setOrderItems((prev) =>
+              prev.map((item) => (item.id === payload.new.id ? { ...item, ...payload.new } : item))
+            );
           }
         }
       )
@@ -87,11 +89,11 @@ export default function OrderStatusPage() {
     };
   }, [orderId]);
 
-  // Determine active shop slug with fallback hierarchy
-  const activeShopSlug = paramShopSlug || order?.shops?.slug || 'rts-digital-seva';
-  const shopName = order?.shops?.name || 'Smart Print Station';
-  const shopPhone = order?.shops?.phone || '7012833699';
-  const counterNotice = order?.shops?.counter_notice || 'Please collect prints at Counter 1';
+  const primaryItem = orderItems[0];
+  const activeShopSlug = paramShopSlug || primaryItem?.shops?.slug || (window.location.pathname.includes('/raju-shop') ? 'raju-shop' : 'rts-digital-seva');
+  const shopName = primaryItem?.shops?.name || (activeShopSlug === 'raju-shop' ? 'RAJU SHOP' : 'Smart Print Station');
+  const shopPhone = primaryItem?.shops?.phone || '7025916338';
+  const counterNotice = primaryItem?.shops?.counter_notice || 'Please collect prints at Counter 1';
 
   if (loading) {
     return (
@@ -101,7 +103,7 @@ export default function OrderStatusPage() {
     );
   }
 
-  if (!order) {
+  if (orderItems.length === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center max-w-sm space-y-3 shadow-sm">
@@ -115,26 +117,28 @@ export default function OrderStatusPage() {
             className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:underline pt-2"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Shop Kiosk
+            Back to {shopName}
           </Link>
         </div>
       </div>
     );
   }
 
-  const isCompleted = order.status === 'completed';
-  const isPrinting = order.status === 'printing';
+  const allCompleted = orderItems.every((item) => item.status === 'completed');
+  const anyPrinting = orderItems.some((item) => item.status === 'printing');
+  const grandTotal = orderItems.reduce((sum, item) => sum + (item.total_amount || 0), 0);
+  const totalPages = orderItems.reduce((sum, item) => sum + ((item.page_count || 1) * (item.copies || 1)), 0);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
-      {/* Top Header */}
+      {/* Header */}
       <header className="bg-slate-900 text-white py-4 px-6 sticky top-0 z-40 flex justify-between items-center shadow-md">
         <div>
           <h1 className="font-extrabold text-sm flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
             {shopName}
           </h1>
-          <p className="text-[10px] text-slate-400 font-mono">Order: {order.order_number}</p>
+          <p className="text-[10px] text-slate-400 font-mono">Order: {primaryItem.order_number}</p>
         </div>
         <Link
           to={`/shop/${activeShopSlug}`}
@@ -149,13 +153,13 @@ export default function OrderStatusPage() {
         {/* Status Card */}
         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm text-center space-y-4">
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto transition ${
-            isCompleted 
+            allCompleted 
               ? 'bg-emerald-100 text-emerald-600' 
-              : isPrinting 
+              : anyPrinting 
               ? 'bg-blue-100 text-blue-600 animate-pulse' 
               : 'bg-emerald-100 text-emerald-600'
           }`}>
-            {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Printer className="w-7 h-7" />}
+            {allCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Printer className="w-7 h-7" />}
           </div>
 
           <div>
@@ -163,77 +167,60 @@ export default function OrderStatusPage() {
               Live Order Status
             </span>
             <h2 className="text-2xl font-black text-slate-900">
-              {isCompleted ? 'Ready for Pickup' : isPrinting ? 'Printing Document...' : 'Queued for Printing'}
+              {allCompleted ? 'Ready for Pickup' : anyPrinting ? 'Printing Documents...' : 'Queued for Printing'}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              {isCompleted 
-                ? 'Your document has finished printing at the counter!' 
-                : isPrinting 
-                ? 'Pages are actively spooling from the counter printer.' 
-                : 'Payment received. Waiting its turn in the counter queue.'}
+              {allCompleted 
+                ? 'All documents have finished printing at the counter!' 
+                : anyPrinting 
+                ? 'Your batch is actively spooling from the counter printer.' 
+                : 'Job registered. Waiting its turn in the counter queue.'}
             </p>
           </div>
 
-          {/* Collection Notice Box */}
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-left text-xs space-y-1.5 text-emerald-900">
             <p className="font-bold">{counterNotice}</p>
             <p className="text-[11px] text-emerald-700">
               Shop Contact: <strong>{shopPhone}</strong>
             </p>
           </div>
-
-          {/* Stepper Display */}
-          <div className="space-y-2 pt-2 text-left text-xs">
-            <div className="flex items-center gap-2.5 text-emerald-700 font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Queued & Paid</span>
-            </div>
-            <div className={`flex items-center gap-2.5 font-bold ${
-              isPrinting || isCompleted ? 'text-emerald-700' : 'text-slate-400'
-            }`}>
-              <CheckCircle2 className={`w-4 h-4 ${isPrinting || isCompleted ? 'text-emerald-600' : 'text-slate-300'}`} />
-              <span>Printing to Machine</span>
-            </div>
-            <div className={`flex items-center gap-2.5 font-bold ${
-              isCompleted ? 'text-emerald-700' : 'text-slate-400'
-            }`}>
-              <CheckCircle2 className={`w-4 h-4 ${isCompleted ? 'text-emerald-600' : 'text-slate-300'}`} />
-              <span>Ready for Counter Collection</span>
-            </div>
-          </div>
         </div>
 
-        {/* Receipt Details Card */}
+        {/* Multi-Item Breakdown */}
         <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3 text-xs">
           <div className="flex justify-between pb-2 border-b border-slate-100">
-            <span className="text-slate-500">Order Number</span>
-            <span className="font-mono font-bold text-slate-900">{order.order_number}</span>
+            <span className="font-bold text-slate-800">Files in this Order ({orderItems.length})</span>
+            <span className="font-mono font-bold text-slate-900">{primaryItem.order_number}</span>
           </div>
 
-          <div className="flex justify-between pb-2 border-b border-slate-100">
-            <span className="text-slate-500">File Name</span>
-            <span className="font-medium text-slate-800 truncate max-w-[200px]">{order.file_name}</span>
+          <div className="divide-y divide-slate-100">
+            {orderItems.map((item) => (
+              <div key={item.id} className="py-2.5 flex justify-between items-center gap-2">
+                <div className="truncate">
+                  <p className="font-bold text-slate-900 truncate max-w-[210px]">{item.file_name}</p>
+                  <p className="text-[10px] text-slate-400">
+                    {item.page_count || 1} pgs × {item.copies} {item.copies === 1 ? 'copy' : 'copies'} • {item.is_color ? 'Color' : 'B&W'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="font-bold text-slate-900">₹{item.total_amount?.toFixed(2)}</span>
+                  <span className={`block text-[9px] font-extrabold uppercase ${
+                    item.status === 'completed' ? 'text-emerald-600' : 'text-blue-600'
+                  }`}>
+                    {item.status}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="flex justify-between pb-2 border-b border-slate-100">
-            <span className="text-slate-500">Setup</span>
-            <span className="font-medium text-slate-800">
-              {order.paper_size || 'A4'}, {order.is_color ? 'Color' : 'B&W'}, {order.is_double_sided ? '2-Sided' : '1-Sided'}
-            </span>
-          </div>
-
-          <div className="flex justify-between pb-2 border-b border-slate-100">
-            <span className="text-slate-500">Pages × Copies</span>
-            <span className="font-medium text-slate-800">{order.page_count || 1} × {order.copies}</span>
-          </div>
-
-          <div className="flex justify-between pt-1 text-sm font-extrabold">
-            <span className="text-slate-900">Total Paid</span>
-            <span className="text-emerald-600">₹{order.total_amount?.toFixed(2)}</span>
+          <div className="flex justify-between pt-2 border-t border-slate-100 text-sm font-black">
+            <span className="text-slate-900">Total Bill ({totalPages} pages)</span>
+            <span className="text-emerald-600">₹{grandTotal.toFixed(2)}</span>
           </div>
         </div>
 
-        {/* Back Button Preserving Specific Shop */}
+        {/* Action Button */}
         <div className="text-center pt-2">
           <Link
             to={`/shop/${activeShopSlug}`}

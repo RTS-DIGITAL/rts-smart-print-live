@@ -221,7 +221,7 @@ export default function KioskPage() {
       }
 
       // Navigate to confirmation page
-      navigate(`/order/${orderNumber}`);
+      navigate(`/order/${orderNumber}`, { state: { shopSlug: shop.slug } });
     } catch (err: any) {
       alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
     } finally {

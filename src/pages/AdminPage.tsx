@@ -1,228 +1,614 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, LogOut } from 'lucide-react';
-import { BrandMark } from '@/components/BrandMark';
-import { AdminLogin } from '@/components/admin/AdminLogin';
-import { ConnectorCard } from '@/components/admin/ConnectorCard';
-import { CounterQrPanel } from '@/components/admin/CounterQrPanel';
-import { OrdersPanel } from '@/components/admin/OrdersPanel';
-import { OverviewPanel } from '@/components/admin/OverviewPanel';
-import { PricingPanel } from '@/components/admin/PricingPanel';
-import { PrintersPanel } from '@/components/admin/PrintersPanel';
-import { SettingsPanel } from '@/components/admin/SettingsPanel';
-import { getErrorMessage } from '@/lib/errors';
-import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
-import type { AdminUser, Shop } from '@/lib/types';
-import { printService } from '@/services/printService';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { 
+  Store, 
+  Calendar, 
+  CheckCircle2, 
+  RefreshCw, 
+  Plus, 
+  Phone, 
+  Mail, 
+  Search,
+  ExternalLink,
+  Edit,
+  Tag,
+  Save,
+  X
+} from 'lucide-react';
 
-export default function AdminPage() {
-  const [user, setUser] = useState<AdminUser | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const unsubscribe = printService.subscribeAuth((next) => {
-      if (!active) return;
-      setUser(next);
-      setAuthReady(true);
-    });
-    printService
-      .getUser()
-      .then((next) => {
-        if (!active) return;
-        setUser(next);
-        setAuthReady(true);
-      })
-      .catch(() => {
-        if (active) setAuthReady(true);
-      });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, []);
-
-  if (!authReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" aria-label="Loading" />
-      </div>
-    );
-  }
-
-  if (!user) return <AdminLogin />;
-
-  return <ShopGate user={user} />;
+interface ShopRow {
+  id: string;
+  slug: string;
+  name: string;
+  phone: string | null;
+  upi_id: string | null;
+  target_printer_name: string | null;
+  counter_notice: string | null;
+  subscription_status: string;
+  subscription_plan: string;
+  subscription_expires_at: string;
+  created_at: string;
+  pairing_code?: string;
 }
 
-function ShopGate({ user }: { user: AdminUser }) {
-  const [shop, setShop] = useState<Shop | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'unclaimed' | 'error'>('loading');
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState(false);
+interface InquiryRow {
+  id: string;
+  business_name: string;
+  owner_name: string;
+  phone: string;
+  email: string;
+  city: string;
+  selected_plan: string;
+  printer_model: string | null;
+  message: string | null;
+  status: string;
+  created_at: string;
+}
 
-  const fetchShop = useCallback(() => {
-    printService
-      .getOwnedShop()
-      .then((found) => {
-        setShop(found);
-        setStatus(found ? 'ready' : 'unclaimed');
-      })
-      .catch((caught: unknown) => {
-        setClaimError(getErrorMessage(caught));
-        setStatus('error');
-      });
-  }, []);
+export const SuperAdminPage: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'inquiries' | 'shops' | 'settings'>('inquiries');
+  const [shops, setShops] = useState<ShopRow[]>([]);
+  const [inquiries, setInquiries] = useState<InquiryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const loadShop = useCallback(() => {
-    setStatus('loading');
-    fetchShop();
-  }, [fetchShop]);
+  // Edit Shop Modal State
+  const [editingShop, setEditingShop] = useState<ShopRow | null>(null);
 
-  useEffect(() => {
-    loadShop();
-  }, [loadShop]);
+  // New Provisioning State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [activeInquiryId, setActiveInquiryId] = useState<string | null>(null);
+  const [newShop, setNewShop] = useState({
+    name: '',
+    slug: '',
+    phone: '',
+    plan: 'starter',
+    expiryMonths: 12,
+  });
 
-  async function claim() {
-    setClaiming(true);
-    setClaimError(null);
+  const [provisionResult, setProvisionResult] = useState<{
+    slug: string;
+    pairingCode: string;
+  } | null>(null);
+
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const claimed = await printService.claimShop(DEFAULT_SHOP_SLUG);
-      if (claimed) loadShop();
-      else setClaimError('This shop already has an owner. Ask the owner to add you.');
-    } catch (caught) {
-      setClaimError(getErrorMessage(caught));
+      const [shopsRes, keysRes, inqRes] = await Promise.all([
+        supabase.from('shops').select('*').order('created_at', { ascending: false }),
+        supabase.from('shop_connector_keys').select('shop_id, pairing_code'),
+        supabase.from('shop_inquiries').select('*').order('created_at', { ascending: false })
+      ]);
+
+      const keyMap = new Map((keysRes.data || []).map(k => [k.shop_id, k.pairing_code]));
+
+      if (shopsRes.data) {
+        const enrichedShops = (shopsRes.data as ShopRow[]).map(s => ({
+          ...s,
+          pairing_code: keyMap.get(s.id) || '---'
+        }));
+        setShops(enrichedShops);
+      }
+      if (inqRes.data) setInquiries(inqRes.data as InquiryRow[]);
+    } catch (err) {
+      console.error('Failed to load Super-Admin data:', err);
     } finally {
-      setClaiming(false);
+      setLoading(false);
     }
-  }
+  };
 
-  if (status === 'loading') {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" aria-label="Loading shop" />
-      </div>
-    );
-  }
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  if (status === 'unclaimed' || status === 'error' || !shop) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-sm space-y-4 rounded-3xl bg-white p-8 text-center shadow-sm">
-          <p className="font-semibold text-slate-900">
-            {status === 'error' ? 'We could not load your shop' : 'Your shop is not connected yet'}
-          </p>
-          <p className="text-sm text-slate-500">
-            {claimError ?? 'Connect this admin account to RTS Digital Seva to manage its orders.'}
-          </p>
-          {status === 'unclaimed' && (
-            <button
-              type="button"
-              onClick={claim}
-              disabled={claiming}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-70"
-            >
-              {claiming && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              Connect shop
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void printService.signOut()}
-            className="text-sm font-medium text-slate-600 hover:text-slate-900"
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const handleUpdateInquiryStatus = async (id: string, status: string) => {
+    await supabase.from('shop_inquiries').update({ status }).eq('id', id);
+    loadData();
+  };
 
-  return <AdminDashboard shop={shop} user={user} onShopChanged={fetchShop} />;
-}
+  const handleStartApprove = (inq: InquiryRow) => {
+    const slug = inq.business_name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
 
-const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'orders', label: 'Orders' },
-  { id: 'pricing', label: 'Pricing' },
-  { id: 'printers', label: 'Printers' },
-  { id: 'counter', label: 'Counter QR' },
-  { id: 'settings', label: 'Settings' },
-] as const;
+    setActiveInquiryId(inq.id);
+    setNewShop({
+      name: inq.business_name,
+      slug: slug || 'shop-kiosk',
+      phone: inq.phone,
+      plan: inq.selected_plan === 'trial' ? 'starter' : inq.selected_plan || 'starter',
+      expiryMonths: inq.selected_plan === 'trial' ? 0 : 12
+    });
+    setProvisionResult(null);
+    setShowAddModal(true);
+  };
 
-type TabId = (typeof TABS)[number]['id'];
+  const handleCreateShop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const cleanSlug = newShop.slug.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
+      
+      const { data, error } = await supabase.rpc('provision_new_tenant', {
+        p_name: newShop.name,
+        p_slug: cleanSlug,
+        p_phone: newShop.phone,
+        p_plan: newShop.plan,
+        p_expiry_months: Number(newShop.expiryMonths)
+      });
 
-function AdminDashboard({
-  shop,
-  user,
-  onShopChanged,
-}: {
-  shop: Shop;
-  user: AdminUser;
-  onShopChanged: () => void;
-}) {
-  const [tab, setTab] = useState<TabId>('overview');
+      if (error) throw error;
+
+      if (activeInquiryId) {
+        await supabase.from('shop_inquiries').update({ status: 'approved' }).eq('id', activeInquiryId);
+      }
+
+      setProvisionResult({
+        slug: cleanSlug,
+        pairingCode: data.pairing_code
+      });
+
+      loadData();
+    } catch (err: any) {
+      alert('Error creating shop: ' + err.message);
+    }
+  };
+
+  const handleSaveShopEdits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingShop) return;
+
+    try {
+      const { error } = await supabase.from('shops').update({
+        name: editingShop.name,
+        phone: editingShop.phone,
+        upi_id: editingShop.upi_id,
+        target_printer_name: editingShop.target_printer_name,
+        counter_notice: editingShop.counter_notice,
+        subscription_status: editingShop.subscription_status,
+      }).eq('id', editingShop.id);
+
+      if (error) throw error;
+      setEditingShop(null);
+      loadData();
+    } catch (err: any) {
+      alert('Failed to update shop: ' + err.message);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 text-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4 md:px-8">
-          <div className="flex items-center gap-3">
-            <BrandMark className="h-9 w-9" />
-            <div>
-              <p className="text-sm font-semibold leading-tight">{shop.name}</p>
-              <p className="text-xs text-slate-400">{user.email}</p>
-            </div>
+    <div className="min-h-screen bg-slate-50 text-slate-800">
+      {/* Top Banner */}
+      <header className="bg-slate-900 text-white px-8 py-5 border-b border-slate-800 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-xl text-slate-900">
+            Ω
           </div>
+          <div>
+            <h1 className="font-extrabold text-lg flex items-center gap-2">
+              RTS Smart Print <span className="bg-emerald-500/20 text-emerald-400 text-xs px-2.5 py-0.5 rounded-full border border-emerald-500/30">Super Admin</span>
+            </h1>
+            <p className="text-xs text-slate-400">Master Client Provisioning & Direct Shop Settings Override</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
           <button
-            type="button"
-            onClick={() => void printService.signOut()}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white"
+            onClick={loadData}
+            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition text-xs flex items-center gap-1.5"
           >
-            <LogOut className="h-4 w-4" aria-hidden="true" />
-            Sign out
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => {
+              setActiveInquiryId(null);
+              setProvisionResult(null);
+              setShowAddModal(true);
+            }}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+          >
+            <Plus className="w-4 h-4" />
+            Provision New Shop
           </button>
         </div>
-        <nav className="mx-auto max-w-6xl overflow-x-auto px-3 md:px-6" aria-label="Admin sections">
-          <ul className="flex gap-1">
-            {TABS.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => setTab(item.id)}
-                  aria-current={tab === item.id ? 'page' : undefined}
-                  className={`whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition ${
-                    tab === item.id
-                      ? 'border-emerald-500 text-white'
-                      : 'border-transparent text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
       </header>
 
-      {printService.mode === 'demo' && (
-        <div className="bg-amber-50 px-5 py-2 text-center text-xs font-medium text-amber-800">
-          Demo data: changes are not saved after the page reloads.
+      {/* Tabs */}
+      <div className="max-w-7xl mx-auto px-6 pt-6">
+        <div className="flex gap-4 border-b border-slate-200 pb-3">
+          <button
+            onClick={() => setActiveTab('inquiries')}
+            className={`text-sm font-bold pb-2 transition ${
+              activeTab === 'inquiries' ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Inquiries ({inquiries.filter(i => i.status === 'new').length} New)
+          </button>
+          <button
+            onClick={() => setActiveTab('shops')}
+            className={`text-sm font-bold pb-2 transition ${
+              activeTab === 'shops' ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Tenant Shops ({shops.length})
+          </button>
         </div>
-      )}
+      </div>
 
-      <main className="mx-auto max-w-6xl px-5 py-8 md:px-8">
-        {tab === 'overview' && <OverviewPanel shop={shop} />}
-        {tab === 'orders' && <OrdersPanel shopId={shop.id} />}
-        {tab === 'pricing' && <PricingPanel shopId={shop.id} />}
-        {tab === 'printers' && <PrintersPanel shop={shop} onSaved={onShopChanged} />}
-        {tab === 'counter' && <CounterQrPanel shop={shop} />}
-        {tab === 'settings' && (
-          <div className="space-y-6">
-            <SettingsPanel shop={shop} onSaved={onShopChanged} />
-            <ConnectorCard shopId={shop.id} />
+      <main className="max-w-7xl mx-auto px-6 py-6">
+        {/* INQUIRIES TAB */}
+        {activeTab === 'inquiries' && (
+          <div className="space-y-4">
+            {inquiries.map((inq) => (
+              <div key={inq.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-slate-900 text-base">{inq.business_name}</span>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                      {inq.selected_plan}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                      inq.status === 'new' ? 'bg-amber-100 text-amber-800' :
+                      inq.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {inq.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Owner: <strong className="text-slate-700">{inq.owner_name}</strong> • City: {inq.city}
+                  </p>
+                  <div className="flex items-center gap-4 pt-1 text-xs text-slate-600">
+                    <span className="inline-flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-emerald-600" /> {inq.phone}</span>
+                    <span className="inline-flex items-center gap-1"><Mail className="w-3.5 h-3.5 text-emerald-600" /> {inq.email}</span>
+                    {inq.printer_model && <span>Printer: {inq.printer_model}</span>}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`https://wa.me/91${inq.phone.replace(/\D/g, '')}?text=Hello%20${encodeURIComponent(inq.owner_name)},%20this%20is%20Rajaneesh%20from%20RTS%20Smart%20Print.`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs transition"
+                  >
+                    WhatsApp
+                  </a>
+                  <button
+                    onClick={() => handleUpdateInquiryStatus(inq.id, 'contacted')}
+                    className="px-3 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs"
+                  >
+                    Mark Contacted
+                  </button>
+                  <button
+                    onClick={() => handleStartApprove(inq)}
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white font-semibold rounded-xl text-xs"
+                  >
+                    Approve & Provision
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* SHOPS TAB */}
+        {activeTab === 'shops' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="relative w-72">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Filter shops..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <span className="text-xs text-slate-400 font-medium">{shops.length} total registered kiosks</span>
+            </div>
+
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+                <tr>
+                  <th className="py-3 px-4">Shop Name</th>
+                  <th className="py-3 px-4">Slug</th>
+                  <th className="py-3 px-4">Pairing Code</th>
+                  <th className="py-3 px-4">Printer</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Expiry Date</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {shops
+                  .filter(s => s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.slug?.toLowerCase().includes(searchTerm.toLowerCase()))
+                  .map((shop) => (
+                    <tr key={shop.id} className="hover:bg-slate-50/60 transition">
+                      <td className="py-3 px-4 font-bold text-slate-900">{shop.name}</td>
+                      <td className="py-3 px-4">
+                        <a
+                          href={`/shop/${shop.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-700 hover:underline flex items-center gap-1 font-mono"
+                        >
+                          /{shop.slug}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-800">
+                        <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          {shop.pairing_code}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-500 truncate max-w-[150px]">
+                        {shop.target_printer_name || 'System Default'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                          shop.subscription_status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                          shop.subscription_status === 'trial' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {shop.subscription_status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {new Date(shop.subscription_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="py-3 px-4 text-right space-x-1.5">
+                        <button
+                          onClick={() => setEditingShop(shop)}
+                          className="px-2.5 py-1.5 bg-slate-900 hover:bg-black text-white font-semibold rounded-lg text-[11px] inline-flex items-center gap-1"
+                        >
+                          <Edit className="w-3 h-3" />
+                          Edit Settings
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
           </div>
         )}
       </main>
+
+      {/* FULL REMOTE SHOP SETTINGS MODAL */}
+      {editingShop && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">Edit Shop: {editingShop.name}</h3>
+                <p className="text-[11px] text-slate-400 font-mono">Slug: /shop/{editingShop.slug}</p>
+              </div>
+              <button onClick={() => setEditingShop(null)} className="p-1 hover:bg-slate-100 rounded-lg">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveShopEdits} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Display Shop Name</label>
+                <input
+                  type="text"
+                  value={editingShop.name}
+                  onChange={(e) => setEditingShop({ ...editingShop, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={editingShop.phone || ''}
+                    onChange={(e) => setEditingShop({ ...editingShop, phone: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Target Printer Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Canon LBP2900"
+                    value={editingShop.target_printer_name || ''}
+                    onChange={(e) => setEditingShop({ ...editingShop, target_printer_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Shop UPI ID (for direct payouts)</label>
+                <input
+                  type="text"
+                  value={editingShop.upi_id || ''}
+                  onChange={(e) => setEditingShop({ ...editingShop, upi_id: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Counter Notice / Instructions</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Please collect prints at Counter 1"
+                  value={editingShop.counter_notice || ''}
+                  onChange={(e) => setEditingShop({ ...editingShop, counter_notice: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Subscription Status</label>
+                <select
+                  value={editingShop.subscription_status}
+                  onChange={(e) => setEditingShop({ ...editingShop, subscription_status: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none bg-white"
+                >
+                  <option value="active">Active (Paid)</option>
+                  <option value="trial">7-Day Free Trial</option>
+                  <option value="suspended">Suspended / Inactive</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingShop(null)}
+                  className="w-1/2 py-2.5 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow"
+                >
+                  Save Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PROVISION NEW SHOP MODAL */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            {provisionResult ? (
+              <div className="text-center py-4 space-y-4">
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="font-extrabold text-slate-900 text-xl">Shop Activated Successfully!</h3>
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-left space-y-2 text-xs">
+                  <div>
+                    <span className="text-slate-400 block font-medium">Customer Kiosk Link:</span>
+                    <a
+                      href={`/shop/${provisionResult.slug}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-700 font-bold hover:underline break-all"
+                    >
+                      {window.location.origin}/shop/{provisionResult.slug}
+                    </a>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-medium">6-Digit Agent Pairing Code:</span>
+                    <span className="text-2xl font-mono font-black text-slate-900 tracking-wider">
+                      {provisionResult.pairingCode}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setProvisionResult(null);
+                  }}
+                  className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl text-xs hover:bg-black transition"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleCreateShop} className="space-y-3.5">
+                <h3 className="font-extrabold text-slate-900 text-lg mb-1">Provision New Tenant Shop</h3>
+                <p className="text-xs text-slate-400 mb-3">Creates their kiosk URL and generates their agent pairing code.</p>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Business / Shop Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Metro Xerox"
+                    value={newShop.name}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      const autoSlug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+                      setNewShop({ ...newShop, name, slug: autoSlug });
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Kiosk URL Slug</label>
+                  <input
+                    type="text"
+                    required
+                    value={newShop.slug}
+                    onChange={(e) => setNewShop({ ...newShop, slug: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Will be: <code>/shop/{newShop.slug || 'slug'}</code></p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
+                  <input
+                    type="tel"
+                    placeholder="Mobile number"
+                    value={newShop.phone}
+                    onChange={(e) => setNewShop({ ...newShop, phone: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Plan</label>
+                    <select
+                      value={newShop.plan}
+                      onChange={(e) => setNewShop({ ...newShop, plan: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none"
+                    >
+                      <option value="starter">Starter</option>
+                      <option value="pro">Pro</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Validity</label>
+                    <select
+                      value={newShop.expiryMonths}
+                      onChange={(e) => setNewShop({ ...newShop, expiryMonths: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none"
+                    >
+                      <option value={0}>7-Day Free Trial (₹0)</option>
+                      <option value={12}>1 Year (12 Mo)</option>
+                      <option value={24}>2 Years (24 Mo)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl text-xs text-white shadow-md"
+                  >
+                    Create & Activate
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default SuperAdminPage;

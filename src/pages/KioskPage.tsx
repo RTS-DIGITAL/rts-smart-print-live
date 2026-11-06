@@ -17,11 +17,11 @@ import {
   Check,
   Lock,
   KeyRound,
-  ShieldCheck
+  ShieldCheck,
+  ExternalLink
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Client-side page count worker configuration
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface ShopConfig {
@@ -69,22 +69,18 @@ export default function KioskPage() {
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
   const [loadingShop, setLoadingShop] = useState(true);
 
-  // Counter Access PIN Gate State
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // File Queue State
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
 
-  // Checkout Modal State
   const [showCheckout, setShowCheckout] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
   const [copiedUpi, setCopiedUpi] = useState(false);
 
-  // Load Shop details & pricing rules
   useEffect(() => {
     async function init() {
       setLoadingShop(true);
@@ -97,8 +93,6 @@ export default function KioskPage() {
 
         if (shopData) {
           setShop(shopData);
-
-          // If the shop does NOT have PIN protection turned on, unlock right away
           if (!shopData.is_pin_protected) {
             setIsUnlocked(true);
           }
@@ -119,7 +113,6 @@ export default function KioskPage() {
     init();
   }, [activeSlug]);
 
-  // Verify PIN entered by customer
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -133,7 +126,6 @@ export default function KioskPage() {
     }
   };
 
-  // Safe client-side page count extraction
   const getPageCount = async (file: File): Promise<number> => {
     if (file.type === 'application/pdf') {
       try {
@@ -144,10 +136,9 @@ export default function KioskPage() {
         return 1;
       }
     }
-    return 1; // Images count as 1 page
+    return 1;
   };
 
-  // Multi-File Selection
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -186,7 +177,6 @@ export default function KioskPage() {
     );
   };
 
-  // Pricing calculation
   const calculateItemPrice = (item: UploadedItem): number => {
     const rule = pricingRules.find(
       (r) =>
@@ -201,7 +191,11 @@ export default function KioskPage() {
   const totalAmount = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
   const totalPages = items.reduce((sum, item) => sum + item.pages * item.copies, 0);
 
-  // Submit Order
+  // Direct UPI Deep Link for Mobile Users
+  const upiDeepLink = shop?.upi_id
+    ? `upi://pay?pa=${shop.upi_id}&pn=${encodeURIComponent(shop.name)}&am=${totalAmount.toFixed(2)}&cu=INR`
+    : '';
+
   const handleProceedOrder = async () => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
@@ -210,7 +204,6 @@ export default function KioskPage() {
       const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
       const isCashMode = !shop.require_payment;
 
-      // Status determined by payment mode & auto-pilot configuration
       let targetStatus = 'pending';
       if (isCashMode) {
         targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
@@ -251,7 +244,6 @@ export default function KioskPage() {
         if (orderError) throw orderError;
       }
 
-      // Navigate preserving the shop slug
       navigate(`/shop/${shop.slug}/order/${orderNumber}`);
     } catch (err: any) {
       alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
@@ -284,7 +276,6 @@ export default function KioskPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
-      {/* Top Counter Bar */}
       <header className="bg-white border-b border-slate-200 py-4 px-6 sticky top-0 z-40 shadow-sm flex justify-between items-center">
         <div>
           <div className="flex items-center gap-2">
@@ -305,9 +296,7 @@ export default function KioskPage() {
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="max-w-xl mx-auto px-4 pt-6 space-y-5">
-        {/* Notice from Counter Operator */}
         {shop.counter_notice && (
           <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2">
             <Printer className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -315,7 +304,6 @@ export default function KioskPage() {
           </div>
         )}
 
-        {/* 1. LOCKED STATE: COUNTER ACCESS PIN PROMPT */}
         {!isUnlocked && shop.is_pin_protected ? (
           <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-sm text-center space-y-4">
             <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
@@ -356,7 +344,6 @@ export default function KioskPage() {
             </form>
           </div>
         ) : (
-          /* 2. UNLOCKED STATE: MULTI-FILE UPLOAD ZONE */
           <>
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -381,7 +368,6 @@ export default function KioskPage() {
               </p>
             </div>
 
-            {/* Selected Documents Queue */}
             {items.length > 0 && (
               <div className="space-y-3">
                 <div className="flex justify-between items-center px-1">
@@ -430,9 +416,7 @@ export default function KioskPage() {
                           </button>
                         </div>
 
-                        {/* Per-Item Controls: Copies & Color */}
                         <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
-                          {/* Copies Stepper */}
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] text-slate-500">Copies:</span>
                             <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
@@ -454,7 +438,6 @@ export default function KioskPage() {
                             </div>
                           </div>
 
-                          {/* Color Toggle */}
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
@@ -476,7 +459,6 @@ export default function KioskPage() {
                             </button>
                           </div>
 
-                          {/* Item Total */}
                           <div className="font-extrabold text-slate-900 text-xs">
                             ₹{itemTotal.toFixed(2)}
                           </div>
@@ -486,7 +468,6 @@ export default function KioskPage() {
                   })}
                 </div>
 
-                {/* Total Summary Card */}
                 <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-3">
                   <div className="flex justify-between items-center text-xs text-slate-400">
                     <span>Total Output Pages:</span>
@@ -497,14 +478,13 @@ export default function KioskPage() {
                     <span className="text-2xl font-black text-emerald-400">₹{totalAmount.toFixed(2)}</span>
                   </div>
 
-                  {/* Checkout Trigger */}
                   <button
                     type="button"
                     onClick={() => {
                       if (!shop.require_payment) {
-                        handleProceedOrder(); // Cash mode proceeds directly
+                        handleProceedOrder();
                       } else {
-                        setShowCheckout(true); // Online mode opens UPI modal
+                        setShowCheckout(true);
                       }
                     }}
                     disabled={submittingOrder}
@@ -525,7 +505,6 @@ export default function KioskPage() {
           </>
         )}
 
-        {/* Footer */}
         <footer className="mt-14 pb-8 text-center border-t border-slate-200/70 pt-6">
           <p className="text-xs text-slate-400">
             Own a printing or digital service shop?{' '}
@@ -541,21 +520,37 @@ export default function KioskPage() {
         </footer>
       </main>
 
-      {/* Online UPI Payment Modal */}
+      {/* Online UPI Payment Modal (with Mobile 1-Tap Payment Link) */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
-            <h3 className="font-extrabold text-slate-900 text-base">Scan & Pay via UPI</h3>
-            <p className="text-xs text-slate-500">Scan using Google Pay, PhonePe, or Paytm</p>
+            <h3 className="font-extrabold text-slate-900 text-base">Payment for {shop.name}</h3>
+
+            {/* DIRECT MOBILE 1-TAP PAYMENT BUTTON */}
+            {upiDeepLink && (
+              <a
+                href={upiDeepLink}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Pay ₹{totalAmount.toFixed(2)} via UPI App</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+
+            <div className="relative flex items-center justify-center">
+              <div className="border-t border-slate-200 w-full"></div>
+              <span className="bg-white px-2 text-[10px] font-bold text-slate-400 uppercase absolute">
+                Or scan QR on another phone
+              </span>
+            </div>
 
             {shop.upi_id && (
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 inline-block mx-auto">
+              <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 inline-block mx-auto">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                    `upi://pay?pa=${shop.upi_id}&pn=${encodeURIComponent(shop.name)}&am=${totalAmount.toFixed(2)}&cu=INR`
-                  )}`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiDeepLink)}`}
                   alt="UPI QR Code"
-                  className="w-48 h-48 mx-auto"
+                  className="w-40 h-40 mx-auto"
                 />
               </div>
             )}

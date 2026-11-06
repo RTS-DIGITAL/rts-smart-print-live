@@ -25,7 +25,8 @@ import {
   CheckCircle2,
   UserPlus,
   MessageCircle,
-  Calendar
+  Calendar,
+  Hourglass
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -38,6 +39,8 @@ interface ShopTenant {
   target_printer_name: string | null;
   counter_notice: string | null;
   subscription_status: string;
+  selected_plan: string;
+  subscription_days: number;
   is_accepting_orders: boolean;
   auto_delete_hours: number;
   pairing_code: string;
@@ -89,6 +92,19 @@ export const SuperAdminPage: React.FC = () => {
   const [modalSaving, setModalSaving] = useState(false);
   const [approvingInquiryId, setApprovingInquiryId] = useState<string | null>(null);
 
+  // Countdown Helper: Calculates remaining days from approval timestamp
+  const calculateDaysRemaining = (approvedAt: string | null, totalDays: number): { days: number; isExpired: boolean } => {
+    if (!approvedAt) return { days: totalDays, isExpired: false };
+    const approvalDate = new Date(approvedAt).getTime();
+    const currentDate = new Date().getTime();
+    const elapsedDays = Math.floor((currentDate - approvalDate) / (1000 * 60 * 60 * 24));
+    const remaining = totalDays - elapsedDays;
+    return {
+      days: Math.max(0, remaining),
+      isExpired: remaining <= 0
+    };
+  };
+
   const sendShopStatusEmail = (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
     if (!email) return;
 
@@ -100,7 +116,7 @@ export const SuperAdminPage: React.FC = () => {
       body = `Hi ${shopName},\n\nYour print station account has been approved and activated!\n\nYour Dedicated Links:\n- Customer Kiosk: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n- Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\nYour 6-Digit Windows Agent Pairing Code: ${details?.pairingCode || 'Check Shop Admin'}\n\nEnter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer.\n\nSupport: RTS Digital Seva (7012833699)`;
     } else if (action === 'suspended') {
       subject = `⚠️ RTS Smart Print Account Suspended: ${shopName}`;
-      body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired trial or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin (7012833699) to reactivate your station.`;
+      body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired period or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin (7012833699) to reactivate your station.`;
     } else if (action === 'reactivated') {
       subject = `✅ RTS Smart Print Account Reactivated: ${shopName}`;
       body = `Hi ${shopName},\n\nPayment received! Your print station has been re-approved and reactivated. Your kiosk is now accepting customer print jobs again.\n\nThank you for partnering with RTS Smart Print!`;
@@ -171,7 +187,7 @@ export const SuperAdminPage: React.FC = () => {
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
 
-  // 1-Click Approve Inquiry & Provision Shop with GUARANTEED UNIQUE PAIRING CODE
+  // 1-Click Approve Inquiry & Provision Shop
   const handleApproveAndCreateShop = async (inq: Inquiry) => {
     if (!window.confirm(`Approve ${inq.business_name} and generate counter station?`)) return;
     setApprovingInquiryId(inq.id);
@@ -183,11 +199,12 @@ export const SuperAdminPage: React.FC = () => {
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '') || `shop-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      // Generate a distinct 6-digit code
       const uniquePairingCode = Math.floor(100000 + Math.random() * 900000).toString();
       const shortUsername = slug.split('-')[0] || slug;
 
-      // 1. Create shop in shops table WITH pairing_code and approved_at
+      // Determine initial subscription period (default to 7-day trial)
+      const initialDays = inq.selected_plan === 'trial_14' ? 14 : inq.selected_plan === 'yearly' ? 365 : 7;
+
       const { data: newShop, error: shopErr } = await supabase
         .from('shops')
         .insert([
@@ -196,7 +213,9 @@ export const SuperAdminPage: React.FC = () => {
             slug: slug,
             phone: inq.phone,
             owner_email: inq.email,
-            subscription_status: 'active',
+            subscription_status: 'trial',
+            selected_plan: inq.selected_plan || 'starter_monthly',
+            subscription_days: initialDays,
             is_accepting_orders: true,
             require_payment: false,
             target_printer_name: inq.printer_model || 'Microsoft Print to PDF',
@@ -215,7 +234,6 @@ export const SuperAdminPage: React.FC = () => {
 
       if (shopErr) throw shopErr;
 
-      // 2. Also register in connector table
       await supabase.from('shop_connector_keys').insert([
         {
           shop_id: newShop.id,
@@ -224,13 +242,11 @@ export const SuperAdminPage: React.FC = () => {
         }
       ]);
 
-      // 3. Setup default pricing rules
       await supabase.from('pricing_rules').insert([
         { shop_id: newShop.id, paper_size: 'A4', is_color: false, is_double_sided: false, price_per_page: 2.0 },
         { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 }
       ]);
 
-      // 4. Mark inquiry approved
       await supabase
         .from('shop_inquiries')
         .update({ status: 'approved' })
@@ -238,7 +254,7 @@ export const SuperAdminPage: React.FC = () => {
 
       sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode: uniquePairingCode });
 
-      alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${uniquePairingCode}\nLogin ID: ${shortUsername}\nDefault PIN: 123456`);
+      alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${uniquePairingCode}\nLogin ID: ${shortUsername}`);
       setActiveTab('shops');
       fetchAllData();
     } catch (err: any) {
@@ -248,30 +264,48 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // HARD PERMANENT DELETE SHOP
+  // HARD PERMANENT DELETE SHOP (AND AUTOMATICALLY REMOVE INQUIRY LEAD)
   const handleDeleteShop = async (shop: ShopTenant) => {
-    const confirmation = window.prompt(`⚠️ PERMANENT DELETE\n\nType the shop name "${shop.name}" to delete this store and all its data permanently:`);
+    const confirmation = window.prompt(`⚠️ PERMANENT DELETE\n\nType the shop name "${shop.name}" to delete this store, all files, and inquiries:`);
     if (confirmation !== shop.name) {
       if (confirmation !== null) alert('Shop name did not match. Deletion cancelled.');
       return;
     }
 
     try {
-      // 1. Delete associated files from storage
+      // 1. Clear files from storage
       const { data: files } = await supabase.storage.from('print-files').list(shop.id);
       if (files && files.length > 0) {
         const filePaths = files.map(f => `${shop.id}/${f.name}`);
         await supabase.storage.from('print-files').remove(filePaths);
       }
 
-      // 2. Delete shop from table (cascades to orders, rules, keys)
+      // 2. Cascade delete from shop_inquiries table
+      await supabase
+        .from('shop_inquiries')
+        .delete()
+        .or(`business_name.ilike.%${shop.name}%,email.eq.${shop.owner_email || ''}`);
+
+      // 3. Delete shop from table (cascades to orders, rules, keys)
       const { error } = await supabase.from('shops').delete().eq('id', shop.id);
       if (error) throw error;
 
-      alert(`Shop "${shop.name}" has been permanently deleted.`);
+      alert(`Shop "${shop.name}" and associated inquiries were permanently deleted.`);
       fetchAllData();
     } catch (err: any) {
       alert('Failed to delete shop: ' + err.message);
+    }
+  };
+
+  // DELETE SINGLE INQUIRY
+  const handleDeleteInquiry = async (inq: Inquiry) => {
+    if (!window.confirm(`Delete inquiry for "${inq.business_name}"?`)) return;
+    try {
+      const { error } = await supabase.from('shop_inquiries').delete().eq('id', inq.id);
+      if (error) throw error;
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to delete inquiry: ' + err.message);
     }
   };
 
@@ -335,6 +369,8 @@ export const SuperAdminPage: React.FC = () => {
           target_printer_name: editingShop.target_printer_name,
           counter_notice: editingShop.counter_notice,
           subscription_status: editingShop.subscription_status,
+          selected_plan: editingShop.selected_plan,
+          subscription_days: Number(editingShop.subscription_days || 7),
           auto_delete_hours: Number(editingShop.auto_delete_hours || 24),
           is_accepting_orders: editingShop.subscription_status !== 'suspended'
         })
@@ -452,7 +488,7 @@ export const SuperAdminPage: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* SHOPS TAB */}
+        {/* SHOPS TAB WITH REVERSE COUNTDOWN */}
         {activeTab === 'shops' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center gap-4">
@@ -475,8 +511,8 @@ export const SuperAdminPage: React.FC = () => {
                     <tr>
                       <th className="py-3 px-4">Shop & ID</th>
                       <th className="py-3 px-4">Pairing Code</th>
-                      <th className="py-3 px-4">Contact</th>
-                      <th className="py-3 px-4">Subscription Period (Dates)</th>
+                      <th className="py-3 px-4">Subscribed Plan</th>
+                      <th className="py-3 px-4">Reverse Countdown (Days Left)</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Super Admin Actions</th>
                     </tr>
@@ -484,8 +520,7 @@ export const SuperAdminPage: React.FC = () => {
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
                     {filteredShops.map((shop) => {
                       const isSuspended = shop.subscription_status === 'suspended';
-                      const appliedDate = new Date(shop.created_at).toLocaleDateString();
-                      const approvedDate = shop.approved_at ? new Date(shop.approved_at).toLocaleDateString() : 'Pending';
+                      const { days, isExpired } = calculateDaysRemaining(shop.approved_at, shop.subscription_days || 7);
 
                       return (
                         <tr key={shop.id} className="hover:bg-slate-800/30">
@@ -502,25 +537,30 @@ export const SuperAdminPage: React.FC = () => {
                           </td>
 
                           <td className="py-3.5 px-4 space-y-0.5">
-                            <p className="font-semibold text-slate-300">{shop.phone || 'No phone'}</p>
-                            <p className="text-[11px] text-slate-500 truncate max-w-[140px]">{shop.owner_email || 'No email'}</p>
+                            <span className="text-xs font-bold text-white capitalize block">
+                              {shop.selected_plan === 'starter_yearly' ? 'Starter Yearly (₹1,499)' : 'Starter Monthly (₹299)'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">{shop.phone || 'No phone'}</span>
                           </td>
 
-                          <td className="py-3.5 px-4 space-y-0.5">
-                            <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                              <Calendar className="w-3 h-3 text-slate-500" />
-                              <span>Applied: {appliedDate}</span>
+                          {/* REVERSE COUNTDOWN COLUMN */}
+                          <td className="py-3.5 px-4">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border font-mono font-black text-xs">
+                              <Hourglass className={`w-3.5 h-3.5 ${isExpired ? 'text-rose-500' : 'text-emerald-400'}`} />
+                              <span className={isExpired ? 'text-rose-400' : days <= 2 ? 'text-amber-400' : 'text-emerald-400'}>
+                                {isExpired ? 'EXPIRED (0 Days)' : `${days} Days Left`}
+                              </span>
                             </div>
-                            <div className="text-[11px] text-emerald-400 font-semibold">
-                              Approved: {approvedDate}
-                            </div>
+                            <span className="text-[10px] text-slate-500 block mt-0.5">
+                              Approved: {shop.approved_at ? new Date(shop.approved_at).toLocaleDateString() : 'Pending'}
+                            </span>
                           </td>
 
                           <td className="py-3.5 px-4">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
-                              shop.subscription_status === 'active' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                              shop.subscription_status === 'suspended' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
-                              'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              isSuspended ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                              shop.subscription_status === 'trial' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                              'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                             }`}>
                               {shop.subscription_status}
                             </span>
@@ -561,7 +601,7 @@ export const SuperAdminPage: React.FC = () => {
                                 type="button"
                                 onClick={() => handleDeleteShop(shop)}
                                 className="p-1.5 bg-rose-950/50 hover:bg-rose-900 text-rose-400 rounded-xl border border-rose-900/60 transition"
-                                title="Permanently Delete Shop"
+                                title="Permanently Delete Shop & Inquiry"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -587,13 +627,13 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* INQUIRIES TAB */}
+        {/* INQUIRIES TAB WITH INDEPENDENT DELETE ACTION */}
         {activeTab === 'inquiries' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-base font-black text-white">Pending Partner Inquiries</h2>
-                <p className="text-xs text-slate-400">Review registrations and dispatch setup kits.</p>
+                <p className="text-xs text-slate-400">Review registrations, activate shops, and manage leads.</p>
               </div>
               <span className="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full font-bold">
                 {inquiries.length} submitted
@@ -625,11 +665,9 @@ export const SuperAdminPage: React.FC = () => {
                         <p className="text-xs text-slate-400 mt-0.5">
                           Owner: <span className="text-slate-200 font-bold">{inq.owner_name}</span> • Phone: {inq.phone} • {inq.email} • {inq.city}
                         </p>
-                        {inq.printer_model && (
-                          <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            Printer: {inq.printer_model} • Plan: {inq.selected_plan}
-                          </p>
-                        )}
+                        <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
+                          Plan: <span className="uppercase font-bold">{inq.selected_plan || 'starter'}</span> {inq.printer_model ? `• Printer: ${inq.printer_model}` : ''}
+                        </p>
                       </div>
 
                       <div className="flex items-center flex-wrap gap-2">
@@ -661,7 +699,16 @@ export const SuperAdminPage: React.FC = () => {
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs transition flex items-center gap-1"
                         >
                           <Mail className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Email Customer</span>
+                          <span>Email</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteInquiry(inq)}
+                          className="p-1.5 bg-rose-950/50 hover:bg-rose-900 text-rose-400 rounded-xl border border-rose-900/60 transition"
+                          title="Delete Inquiry Lead"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -672,7 +719,7 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* PRICING TAB */}
+        {/* PRICING TAB (With Starter Monthly & Yearly Offer Settings) */}
         {activeTab === 'pricing' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
@@ -724,7 +771,6 @@ export const SuperAdminPage: React.FC = () => {
                           className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2 py-1.5 text-white outline-none"
                         >
                           <option value="monthly">Monthly</option>
-                          <option value="quarterly">Quarterly</option>
                           <option value="yearly">Yearly</option>
                         </select>
                       </div>
@@ -760,14 +806,14 @@ export const SuperAdminPage: React.FC = () => {
         )}
       </main>
 
-      {/* REMOTE SHOP MANAGER MODAL (WITH SHOP ID, PAIRING CODE, UPI & PIN)[cite: 32] */}
+      {/* REMOTE SHOP MANAGER MODAL (WITH TRIAL EXTENSION CONTROLS) */}
       {editingShop && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div>
                 <h3 className="text-base font-black text-white">Remote Shop Manager: {editingShop.name}</h3>
-                <p className="text-[11px] text-slate-400">Configure credentials, subscription, and printer</p>
+                <p className="text-[11px] text-slate-400">Configure credentials, subscription duration, and printer</p>
               </div>
               <button
                 type="button"
@@ -857,20 +903,57 @@ export const SuperAdminPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Subscription Status</label>
-                  <select
-                    value={editingShop.subscription_status}
-                    onChange={(e) => setEditingShop({ ...editingShop, subscription_status: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
-                  >
-                    <option value="trial">7-Day Free Trial</option>
-                    <option value="active">Active (Paid)</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
+              {/* DYNAMIC SUBSCRIPTION STATUS & REVERSE DURATION CONTROLS */}
+              <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Subscription Status</label>
+                    <select
+                      value={editingShop.subscription_status}
+                      onChange={(e) => setEditingShop({ ...editingShop, subscription_status: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none font-bold"
+                    >
+                      <option value="trial">Free Trial</option>
+                      <option value="active">Active (Paid)</option>
+                      <option value="suspended">Suspended (Paused)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-emerald-400 font-bold mb-1">Subscription Period</label>
+                    <select
+                      value={editingShop.selected_plan || 'starter_monthly'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const days = val === 'starter_yearly' ? 365 : val === 'trial_14' ? 14 : 30;
+                        setEditingShop({ ...editingShop, selected_plan: val, subscription_days: days });
+                      }}
+                      className="w-full bg-slate-950 border border-emerald-800/60 rounded-xl px-3 py-2 text-white outline-none font-bold"
+                    >
+                      <option value="starter_monthly">Starter Monthly (₹299/mo - 30 Days)</option>
+                      <option value="starter_yearly">Starter Yearly (₹1,499/yr - 365 Days)</option>
+                      <option value="trial_7">7-Day Free Trial</option>
+                      <option value="trial_14">14-Day Free Trial</option>
+                    </select>
+                  </div>
                 </div>
 
+                <div className="flex justify-between items-center pt-1 border-t border-emerald-800/30">
+                  <span className="text-[11px] text-slate-400">Total Valid Duration: <strong>{editingShop.subscription_days || 7} Days</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({ 
+                      ...editingShop, 
+                      subscription_days: (editingShop.subscription_days || 7) + 7 
+                    })}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] transition"
+                  >
+                    + Extend 7 Days
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Target Printer Name</label>
                   <input
@@ -880,22 +963,20 @@ export const SuperAdminPage: React.FC = () => {
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                   />
                 </div>
-              </div>
 
-              <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl">
-                <label className="block font-bold text-emerald-400 mb-1">
-                  Auto-Delete Printed Files
-                </label>
-                <select
-                  value={editingShop.auto_delete_hours || 24}
-                  onChange={(e) => setEditingShop({ ...editingShop, auto_delete_hours: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-emerald-800/60 rounded-xl px-3 py-1.5 text-white outline-none font-bold"
-                >
-                  <option value={1}>Auto-delete after 1 Hour</option>
-                  <option value={4}>Auto-delete after 4 Hours</option>
-                  <option value={12}>Auto-delete after 12 Hours</option>
-                  <option value={24}>Auto-delete after 24 Hours</option>
-                </select>
+                <div>
+                  <label className="block text-slate-400 mb-1">Auto-Delete Files</label>
+                  <select
+                    value={editingShop.auto_delete_hours || 24}
+                    onChange={(e) => setEditingShop({ ...editingShop, auto_delete_hours: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
+                  >
+                    <option value={1}>Auto-delete after 1 Hour</option>
+                    <option value={4}>Auto-delete after 4 Hours</option>
+                    <option value={12}>Auto-delete after 12 Hours</option>
+                    <option value={24}>Auto-delete after 24 Hours</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">

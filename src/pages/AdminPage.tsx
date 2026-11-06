@@ -16,7 +16,13 @@ import {
   Save,
   QrCode,
   Banknote,
-  Smartphone
+  Smartphone,
+  Lock,
+  Unlock,
+  Play,
+  Pause,
+  Trash2,
+  Check
 } from 'lucide-react';
 
 interface ShopData {
@@ -30,6 +36,9 @@ interface ShopData {
   is_accepting_orders: boolean;
   require_payment: boolean;
   subscription_status: string;
+  is_pin_protected: boolean;
+  counter_pin: string;
+  auto_print_enabled: boolean;
 }
 
 interface OrderRow {
@@ -70,6 +79,9 @@ export default function AdminPage() {
   const [counterNotice, setCounterNotice] = useState('');
   const [isAccepting, setIsAccepting] = useState(true);
   const [requirePayment, setRequirePayment] = useState(true);
+  const [isPinProtected, setIsPinProtected] = useState(false);
+  const [counterPin, setCounterPin] = useState('1234');
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
 
   const loadShopData = async () => {
     setLoading(true);
@@ -90,6 +102,9 @@ export default function AdminPage() {
       setCounterNotice(shopRes.counter_notice || '');
       setIsAccepting(shopRes.is_accepting_orders ?? true);
       setRequirePayment(shopRes.require_payment ?? true);
+      setIsPinProtected(shopRes.is_pin_protected ?? false);
+      setCounterPin(shopRes.counter_pin || '1234');
+      setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
 
       const { data: keyRes } = await supabase
         .from('shop_connector_keys')
@@ -104,7 +119,7 @@ export default function AdminPage() {
         .select('*')
         .eq('shop_id', shopRes.id)
         .order('created_at', { ascending: false })
-        .limit(15);
+        .limit(20);
 
       if (ordersRes) setOrders(ordersRes);
 
@@ -139,7 +154,10 @@ export default function AdminPage() {
           target_printer_name: targetPrinter,
           counter_notice: counterNotice,
           is_accepting_orders: isAccepting,
-          require_payment: requirePayment
+          require_payment: requirePayment,
+          is_pin_protected: isPinProtected,
+          counter_pin: counterPin,
+          auto_print_enabled: autoPrintEnabled
         })
         .eq('id', shop.id);
 
@@ -154,12 +172,38 @@ export default function AdminPage() {
     }
   };
 
+  // Queue Approval / Reject Actions
+  const handleApproveOrder = async (orderId: string) => {
+    try {
+      await supabase
+        .from('print_orders')
+        .update({ status: 'paid' })
+        .eq('id', orderId);
+      loadShopData();
+    } catch (err: any) {
+      alert('Error approving order: ' + err.message);
+    }
+  };
+
+  const handleRejectOrder = async (orderId: string) => {
+    if (!window.confirm('Are you sure you want to discard this print job?')) return;
+    try {
+      await supabase
+        .from('print_orders')
+        .update({ status: 'rejected' })
+        .eq('id', orderId);
+      loadShopData();
+    } catch (err: any) {
+      alert('Error rejecting order: ' + err.message);
+    }
+  };
+
   const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
     await supabase.from('pricing_rules').update({ price_per_page: newPrice }).eq('id', ruleId);
     loadShopData();
   };
 
-  // Open Printable Counter Standee in a new clean window
+  // Dynamic Standee Generator with Counter PIN
   const handlePrintStandee = () => {
     if (!shop) return;
     const kioskUrl = `${window.location.origin}/shop/${shop.slug}`;
@@ -216,7 +260,7 @@ export default function AdminPage() {
             p.sub { 
               color: #64748b; 
               font-size: 14px; 
-              margin: 0 0 24px 0; 
+              margin: 0 0 20px 0; 
             }
             .qr-box { 
               background: white; 
@@ -224,12 +268,23 @@ export default function AdminPage() {
               border: 2px dashed #cbd5e1; 
               border-radius: 24px; 
               display: inline-block;
-              margin-bottom: 24px;
+              margin-bottom: 18px;
             }
             .qr-box img { 
-              width: 250px; 
-              height: 250px; 
+              width: 240px; 
+              height: 240px; 
               display: block; 
+            }
+            .pin-badge {
+              background: #fef3c7;
+              border: 2px solid #f59e0b;
+              color: #92400e;
+              padding: 8px 16px;
+              border-radius: 14px;
+              font-size: 14px;
+              font-weight: 900;
+              margin-bottom: 20px;
+              display: ${isPinProtected ? 'inline-block' : 'none'};
             }
             .steps { 
               background: #f8fafc; 
@@ -263,10 +318,15 @@ export default function AdminPage() {
               <img src="${qrImageUrl}" alt="Scan to Print" />
             </div>
 
+            <div class="pin-badge">
+              🔑 Counter Access PIN: ${counterPin}
+            </div>
+
             <div class="steps">
               <div><strong>1. Scan QR</strong> using any smartphone camera or Google Lens</div>
-              <div><strong>2. Select & Upload</strong> your PDF, JPEG, or PNG files</div>
-              <div><strong>3. Collect Prints</strong> immediately from this counter</div>
+              ${isPinProtected ? `<div><strong>2. Enter PIN (${counterPin})</strong> to unlock document upload</div>` : ''}
+              <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> your PDF, JPEG, or PNG files</div>
+              <div><strong>${isPinProtected ? '4' : '3'}. Collect Prints</strong> immediately from this counter</div>
             </div>
 
             <div class="footer">Powered by RTS Smart Print Automation</div>
@@ -356,7 +416,7 @@ export default function AdminPage() {
 
       {/* Main Grid */}
       <main className="max-w-6xl mx-auto px-4 pt-6 grid md:grid-cols-3 gap-6">
-        {/* Left Column: Settings & Printer */}
+        {/* Left Column: Settings */}
         <div className="md:col-span-1 space-y-6">
           {/* Agent Pairing Code Card */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-2">
@@ -406,6 +466,80 @@ export default function AdminPage() {
                 />
               </div>
 
+              {/* ANTI-SPAM 4-DIGIT PIN GATE TOGGLE */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Counter PIN Protection</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsPinProtected(!isPinProtected)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      isPinProtected ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {isPinProtected ? 'ENABLED' : 'DISABLED'}
+                  </button>
+                </div>
+
+                {isPinProtected && (
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-semibold text-amber-900 mb-1">
+                      Set 4-Digit Access PIN:
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={counterPin}
+                      onChange={(e) => setCounterPin(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-xl border border-amber-300 font-mono font-bold text-amber-950 text-center tracking-widest text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <p className="text-[10px] text-amber-700 mt-1 leading-tight">
+                      Customers must type this PIN before they can upload files. Stops remote spam completely.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* PRINT EXECUTION MODE (AUTO-PILOT VS MANUAL) */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <span className="font-bold text-slate-800 block text-xs">Print Execution Mode</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAutoPrintEnabled(true)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      autoPrintEnabled 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    Auto-Pilot
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAutoPrintEnabled(false)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      !autoPrintEnabled 
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Pause className="w-3.5 h-3.5" />
+                    Manual Approval
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-tight">
+                  {autoPrintEnabled 
+                    ? 'Orders spool to printer automatically as soon as submitted.'
+                    : 'Jobs are held in queue until you click "Approve & Print" on this screen.'}
+                </p>
+              </div>
+
               {/* PAYMENT MODE TOGGLE */}
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
@@ -436,11 +570,6 @@ export default function AdminPage() {
                     Pay Cash at Counter
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  {requirePayment 
-                    ? 'Customer must pay via UPI before pages start printing.'
-                    : 'Customer can click "Print" immediately and pay cash at your counter.'}
-                </p>
               </div>
 
               {requirePayment && (
@@ -460,7 +589,7 @@ export default function AdminPage() {
                 <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
                 <input
                   type="text"
-                  placeholder="e.g. Canon LBP2900 or Microsoft Print to PDF"
+                  placeholder="e.g. Canon LBP2900"
                   value={targetPrinter}
                   onChange={(e) => setTargetPrinter(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
@@ -505,7 +634,7 @@ export default function AdminPage() {
 
         {/* Right Column: Live Queue & Pricing */}
         <div className="md:col-span-2 space-y-6">
-          {/* Live Orders Table */}
+          {/* Live Orders Table with Manual Release Buttons */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <div>
@@ -534,25 +663,56 @@ export default function AdminPage() {
                       <th className="py-2.5 px-4">Copies</th>
                       <th className="py-2.5 px-4">Amount</th>
                       <th className="py-2.5 px-4">Status</th>
+                      <th className="py-2.5 px-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {orders.map((o) => (
-                      <tr key={o.id} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-4 font-mono font-bold text-slate-900">{o.order_number}</td>
-                        <td className="py-3 px-4 truncate max-w-[160px]">{o.file_name}</td>
-                        <td className="py-3 px-4">{o.copies}</td>
-                        <td className="py-3 px-4 font-semibold text-slate-900">₹{o.total_amount?.toFixed(2)}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
-                            o.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
-                            o.status === 'printing' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {o.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {orders.map((o) => {
+                      const isPending = o.status === 'pending' || o.status === 'waiting_counter_approval';
+
+                      return (
+                        <tr key={o.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4 font-mono font-bold text-slate-900">{o.order_number}</td>
+                          <td className="py-3 px-4 truncate max-w-[140px]">{o.file_name}</td>
+                          <td className="py-3 px-4">{o.copies}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-900">₹{o.total_amount?.toFixed(2)}</td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                              o.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                              o.status === 'printing' ? 'bg-blue-100 text-blue-800' : 
+                              o.status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {o.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isPending ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveOrder(o.id)}
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition flex items-center gap-1 shadow-sm"
+                                  title="Approve & Send to Printer"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Print</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectOrder(o.id)}
+                                  className="p-1 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition"
+                                  title="Reject & Discard"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-mono">Synced</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -112,8 +112,21 @@ export const SuperAdminPage: React.FC = () => {
     let body = '';
 
     if (action === 'approved') {
-      subject = `🎉 Welcome to RTS Smart Print - ${shopName} is Activated!`;
-      body = `Hi ${shopName},\n\nYour print station account has been approved and activated!\n\nYour Dedicated Links:\n- Customer Kiosk: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n- Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\nYour 6-Digit Windows Agent Pairing Code: ${details?.pairingCode || 'Check Shop Admin'}\n\nEnter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer.\n\nSupport: RTS Digital Seva (7012833699)`;
+      subject = `🎉 Official Activation: Welcome to RTS Smart Print - ${shopName}`;
+      body = `Dear Shop Owner,\n\n` +
+        `Congratulations! Your print station account for "${shopName}" has been officially approved and activated by RTS Digital Seva.\n\n` +
+        `--- Your Dedicated Access Links ---\n` +
+        `• Customer Kiosk Portal: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n` +
+        `• Shop Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\n` +
+        `--- Windows Agent Pairing Code ---\n` +
+        `Your Permanent 6-Digit Pairing Code: [ ${details?.pairingCode} ]\n` +
+        `Enter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer securely.\n\n` +
+        `--- Safe, Secure & Trusted Technology ---\n` +
+        `RTS Smart Print is built with enterprise-grade SSL encryption and automated file purging. Customer documents are transferred securely and wiped automatically after printing to protect customer privacy and prevent workstation clutter. All payments settle 100% directly into your bank account with zero middlemen.\n\n` +
+        `Support & Assistance:\n` +
+        `RTS Digital Seva, Kannur, Kerala\n` +
+        `WhatsApp / Direct Call: 7012833699\n` +
+        `Email: info@rtsdigitalseva.online`;
     } else if (action === 'suspended') {
       subject = `⚠️ RTS Smart Print Account Suspended: ${shopName}`;
       body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired period or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin (7012833699) to reactivate your station.`;

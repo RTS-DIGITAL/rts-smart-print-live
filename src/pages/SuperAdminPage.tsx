@@ -105,37 +105,33 @@ export const SuperAdminPage: React.FC = () => {
     };
   };
 
-  const sendShopStatusEmail = (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
+  const sendShopStatusEmail = async (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
     if (!email) return;
 
-    let subject = '';
-    let body = '';
-
     if (action === 'approved') {
-      subject = `🎉 Official Activation: Welcome to RTS Smart Print - ${shopName}`;
-      body = `Dear Shop Owner,\n\n` +
-        `Congratulations! Your print station account for "${shopName}" has been officially approved and activated by RTS Digital Seva.\n\n` +
-        `--- Your Dedicated Access Links ---\n` +
-        `• Customer Kiosk Portal: https://rts-smart-print-live.vercel.app/shop/${details?.slug}\n` +
-        `• Shop Admin Dashboard: https://rts-smart-print-live.vercel.app/shop/${details?.slug}/admin\n\n` +
-        `--- Windows Agent Pairing Code ---\n` +
-        `Your Permanent 6-Digit Pairing Code: [ ${details?.pairingCode} ]\n` +
-        `Enter this code into RTS-Smart-Print-Agent.exe on your counter PC to link your printer securely.\n\n` +
-        `--- Safe, Secure & Trusted Technology ---\n` +
-        `RTS Smart Print is built with enterprise-grade SSL encryption and automated file purging. Customer documents are transferred securely and wiped automatically after printing to protect customer privacy and prevent workstation clutter. All payments settle 100% directly into your bank account with zero middlemen.\n\n` +
-        `Support & Assistance:\n` +
-        `RTS Digital Seva, Kannur, Kerala\n` +
-        `WhatsApp / Direct Call: 7012833699\n` +
-        `Email: info@rtsdigitalseva.online`;
-    } else if (action === 'suspended') {
-      subject = `⚠️ RTS Smart Print Account Suspended: ${shopName}`;
-      body = `Hi ${shopName},\n\nYour shop subscription has been suspended due to an expired period or pending payment. Customer uploads to your kiosk have been paused.\n\nPlease contact RTS Smart Print Super Admin (7012833699) to reactivate your station.`;
-    } else if (action === 'reactivated') {
-      subject = `✅ RTS Smart Print Account Reactivated: ${shopName}`;
-      body = `Hi ${shopName},\n\nPayment received! Your print station has been re-approved and reactivated. Your kiosk is now accepting customer print jobs again.\n\nThank you for partnering with RTS Smart Print!`;
+      try {
+        await fetch('https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec', {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'approve',
+            email: email,
+            shopName: shopName,
+            slug: details?.slug,
+            pairingCode: details?.pairingCode
+          })
+        });
+        alert(`📧 Official activation email sent successfully to ${email}!`);
+      } catch (err) {
+        console.error('Email dispatch failed:', err);
+        alert('Failed to send automated email.');
+      }
+    } else {
+      let subject = action === 'suspended' ? `⚠️ RTS Smart Print Account Suspended: ${shopName}` : `✅ RTS Smart Print Account Reactivated: ${shopName}`;
+      let body = `Hi ${shopName},\n\nYour account status has been updated to: ${action}. Please contact RTS Digital Seva (7012833699) for assistance.`;
+      window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
     }
-
-    window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
   };
 
   const handlePinSubmit = (e: React.FormEvent) => {
@@ -265,7 +261,7 @@ export const SuperAdminPage: React.FC = () => {
         .update({ status: 'approved' })
         .eq('id', inq.id);
 
-      sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode: uniquePairingCode });
+      await sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode: uniquePairingCode });
 
       alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${uniquePairingCode}\nLogin ID: ${shortUsername}`);
       setActiveTab('shops');

@@ -130,20 +130,25 @@ export const BusinessLandingPage: React.FC = () => {
         }
       ]);
 
-      // 2. Dispatch email to info@rtsdigitalseva.online via Web3Forms
-      fetch('https://api.web3forms.com/submit', {
+      // 2. Dispatch data to Google Apps Script Web App URL
+      await fetch('https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec', {
         method: 'POST',
+        mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          access_key: 'c6424f38-4a5e-4f4c-b874-460081e81c74',
-          subject: `New Shop Registration: ${formData.businessName}`,
-          from_name: 'RTS Smart Print Inquiries',
-          ...formData
+          businessName: formData.businessName,
+          ownerName: formData.ownerName,
+          phone: formData.phone,
+          email: formData.email,
+          city: formData.city,
+          selectedPlan: formData.selectedPlan,
+          printerModel: formData.printerModel
         })
-      }).catch(() => {});
+      });
 
       setSubmitted(true);
-    } catch {
+    } catch (err) {
+      console.error('Submission error:', err);
       alert('Error submitting inquiry. Please call RTS Digital Seva at 7012833699.');
     } finally {
       setLoading(false);
@@ -235,7 +240,6 @@ export const BusinessLandingPage: React.FC = () => {
 
         <div className="grid md:grid-cols-2 gap-6">
           {dbPlans.length > 0 ? (
-            // Dynamic Plans pulled from Super Admin platform_plans table
             dbPlans.map((plan) => {
               const isPro = plan.plan_slug.includes('pro');
 
@@ -314,7 +318,6 @@ export const BusinessLandingPage: React.FC = () => {
               );
             })
           ) : (
-            // Default Starter Station (Monthly & Yearly) and Coming Soon Pro Pack
             <>
               {/* Starter Station */}
               <div className="bg-white border-2 border-emerald-500 rounded-3xl p-6 shadow-md relative flex flex-col justify-between">

@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Search,
   Lock,
+  Unlock,
   Mail,
   Send,
   Phone,
@@ -26,7 +27,10 @@ import {
   UserPlus,
   MessageCircle,
   Calendar,
-  Hourglass
+  Hourglass,
+  Download,
+  Bell,
+  Megaphone
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -48,6 +52,12 @@ interface ShopTenant {
   admin_pin: string;
   created_at: string;
   approved_at: string | null;
+  // Software Download & Admin Messaging Fields
+  download_count?: number;
+  download_allowed?: boolean;
+  max_downloads?: number;
+  download_requested?: boolean;
+  admin_message?: string | null;
 }
 
 interface PlatformPlan {
@@ -75,6 +85,28 @@ interface Inquiry {
   created_at: string;
 }
 
+const AGENT_DOWNLOAD_URL = "https://drive.google.com/file/d/1oThEJgGUMJjQPaYfvJJAyRiKNuHB2i-2/view?usp=sharing";
+
+const COMMON_PRINTERS = [
+  "Microsoft Print to PDF",
+  "Canon LBP2900",
+  "Brother DCP-T730DW Printer",
+  "Brother DCP-T720DW",
+  "Brother DCP-T426W",
+  "Brother HL-L2321D series",
+  "HP LaserJet Professional P1108",
+  "HP LaserJet M1005",
+  "HP Ink Tank 310 series",
+  "HP Smart Tank 580 series",
+  "Epson L3110 Series",
+  "Epson L3210 Series",
+  "Epson L3250 Series",
+  "Canon G2010 series",
+  "Canon G3010 series",
+  "POS-58-Series",
+  "POS-80-Printer"
+];
+
 export const SuperAdminPage: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -89,8 +121,13 @@ export const SuperAdminPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const [editingShop, setEditingShop] = useState<ShopTenant | null>(null);
+  const [isCustomPrinterModal, setIsCustomPrinterModal] = useState(false);
   const [modalSaving, setModalSaving] = useState(false);
   const [approvingInquiryId, setApprovingInquiryId] = useState<string | null>(null);
+
+  // Global Broadcast Message State
+  const [broadcastText, setBroadcastText] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   // Countdown Helper: Calculates remaining days from approval timestamp
   const calculateDaysRemaining = (approvedAt: string | null, totalDays: number): { days: number; isExpired: boolean } => {
@@ -119,7 +156,8 @@ export const SuperAdminPage: React.FC = () => {
             email: email,
             shopName: shopName,
             slug: details?.slug,
-            pairingCode: details?.pairingCode
+            pairingCode: details?.pairingCode,
+            downloadUrl: AGENT_DOWNLOAD_URL
           })
         });
         alert(`📧 Official activation email sent successfully to ${email}!`);
@@ -178,6 +216,37 @@ export const SuperAdminPage: React.FC = () => {
     }
   }, [isAuthenticated]);
 
+  // Realtime listener for shop download unlock requests
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const channel = supabase
+      .channel('superadmin-shops-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shops' },
+        () => fetchAllData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAuthenticated]);
+
+  const openManageModal = (shop: ShopTenant) => {
+    const savedPrinter = shop.target_printer_name || 'Microsoft Print to PDF';
+    setIsCustomPrinterModal(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
+    setEditingShop({
+      ...shop,
+      target_printer_name: savedPrinter,
+      download_count: shop.download_count ?? 0,
+      max_downloads: shop.max_downloads ?? 3,
+      download_allowed: shop.download_allowed ?? true,
+      download_requested: shop.download_requested ?? false,
+      admin_message: shop.admin_message ?? ''
+    });
+  };
+
   const getWhatsAppKitLink = (inq: Inquiry) => {
     const slug = inq.business_name
       .toLowerCase()
@@ -191,7 +260,7 @@ export const SuperAdminPage: React.FC = () => {
     const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
-    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}/admin\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Open RTS-Smart-Print-Agent.exe on your counter computer\n2. Enter your 6-digit code: *${pairingCode}*\n3. Start accepting instant prints!\n\n_Support: RTS Digital Seva (7012833699)_`;
+    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Digital Seva (7012833699)_`;
 
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
@@ -235,7 +304,11 @@ export const SuperAdminPage: React.FC = () => {
             pairing_code: uniquePairingCode,
             admin_username: shortUsername,
             admin_pin: '123456',
-            approved_at: new Date().toISOString()
+            approved_at: new Date().toISOString(),
+            download_count: 0,
+            max_downloads: 3,
+            download_allowed: true,
+            download_requested: false
           }
         ])
         .select()
@@ -270,6 +343,55 @@ export const SuperAdminPage: React.FC = () => {
       alert('Failed to approve shop: ' + err.message);
     } finally {
       setApprovingInquiryId(null);
+    }
+  };
+
+  // QUICK 1-CLICK UNLOCK DOWNLOAD FOR A SHOP
+  const handleQuickUnlockDownload = async (shop: ShopTenant) => {
+    try {
+      const { error } = await supabase
+        .from('shops')
+        .update({
+          download_count: 0,
+          download_allowed: true,
+          download_requested: false
+        })
+        .eq('id', shop.id);
+
+      if (error) throw error;
+      alert(`✅ Software download unlocked and reset (0/${shop.max_downloads || 3}) for ${shop.name}!`);
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to unlock download: ' + err.message);
+    }
+  };
+
+  // GLOBAL BROADCAST MESSAGE TO ALL SHOPS
+  const handleSendGlobalBroadcast = async (clear: boolean = false) => {
+    const messageToSend = clear ? null : broadcastText.trim();
+    if (!clear && !messageToSend) {
+      alert('Please enter a message to broadcast to all shops.');
+      return;
+    }
+    if (!window.confirm(clear ? 'Clear broadcast notice from all shops?' : `Send this notice to ALL ${shops.length} shops?`)) return;
+
+    setSendingBroadcast(true);
+    try {
+      const shopIds = shops.map(s => s.id);
+      if (shopIds.length > 0) {
+        const { error } = await supabase
+          .from('shops')
+          .update({ admin_message: messageToSend })
+          .in('id', shopIds);
+        if (error) throw error;
+      }
+      if (clear) setBroadcastText('');
+      alert(clear ? 'Broadcast notice cleared from all shops!' : '📢 Important notice sent to all shop admin panels!');
+      fetchAllData();
+    } catch (err: any) {
+      alert('Broadcast failed: ' + err.message);
+    } finally {
+      setSendingBroadcast(false);
     }
   };
 
@@ -365,6 +487,9 @@ export const SuperAdminPage: React.FC = () => {
     if (!editingShop) return;
     setModalSaving(true);
     try {
+      const cleanPairingCode = (editingShop.pairing_code || '').trim();
+      const cleanPrinter = (editingShop.target_printer_name || '').trim() || 'Microsoft Print to PDF';
+
       const { error } = await supabase
         .from('shops')
         .update({
@@ -373,19 +498,34 @@ export const SuperAdminPage: React.FC = () => {
           owner_email: editingShop.owner_email,
           admin_username: editingShop.admin_username,
           admin_pin: editingShop.admin_pin,
-          pairing_code: editingShop.pairing_code,
+          pairing_code: cleanPairingCode,
           upi_id: editingShop.upi_id,
-          target_printer_name: editingShop.target_printer_name,
+          target_printer_name: cleanPrinter,
           counter_notice: editingShop.counter_notice,
           subscription_status: editingShop.subscription_status,
           selected_plan: editingShop.selected_plan,
           subscription_days: Number(editingShop.subscription_days || 7),
           auto_delete_hours: Number(editingShop.auto_delete_hours || 24),
-          is_accepting_orders: editingShop.subscription_status !== 'suspended'
+          is_accepting_orders: editingShop.subscription_status !== 'suspended',
+          // Save Download Limits & Admin Notice
+          download_count: Number(editingShop.download_count ?? 0),
+          max_downloads: Number(editingShop.max_downloads ?? 3),
+          download_allowed: Boolean(editingShop.download_allowed ?? true),
+          download_requested: Boolean(editingShop.download_requested ?? false),
+          admin_message: editingShop.admin_message?.trim() || null
         })
         .eq('id', editingShop.id);
 
       if (error) throw error;
+
+      // Also keep shop_connector_keys in sync if pairing_code was edited
+      if (cleanPairingCode) {
+        await supabase
+          .from('shop_connector_keys')
+          .update({ pairing_code: cleanPairingCode })
+          .eq('shop_id', editingShop.id);
+      }
+
       setEditingShop(null);
       fetchAllData();
     } catch (err: any) {
@@ -439,8 +579,11 @@ export const SuperAdminPage: React.FC = () => {
 
   const filteredShops = shops.filter((s) => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    s.slug.toLowerCase().includes(searchQuery.toLowerCase())
+    s.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.pairing_code && s.pairing_code.includes(searchQuery.trim()))
   );
+
+  const pendingUnlockRequests = shops.filter(s => s.download_requested).length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
@@ -455,6 +598,11 @@ export const SuperAdminPage: React.FC = () => {
               <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 PROD
               </span>
+              {pendingUnlockRequests > 0 && (
+                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 animate-pulse">
+                  🔔 {pendingUnlockRequests} Download Unlock Request{pendingUnlockRequests > 1 ? 's' : ''}
+                </span>
+              )}
             </h1>
             <p className="text-[11px] text-slate-400 font-mono">Central Multi-Tenant Controller</p>
           </div>
@@ -497,15 +645,49 @@ export const SuperAdminPage: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* SHOPS TAB WITH REVERSE COUNTDOWN */}
+        {/* SHOPS TAB WITH GLOBAL MESSAGE BROADCAST & DOWNLOAD TRACKER */}
         {activeTab === 'shops' && (
           <div className="space-y-4">
+            {/* GLOBAL SUPER ADMIN MESSAGE BROADCAST BOX */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
+              <div className="flex items-center gap-2.5 text-xs font-extrabold text-amber-400 shrink-0">
+                <Megaphone className="w-4 h-4" />
+                <span>Broadcast Important Update (All Shops):</span>
+              </div>
+              <input
+                type="text"
+                placeholder="Type an announcement, update notice, or maintenance alert for all shop admin panels..."
+                value={broadcastText}
+                onChange={(e) => setBroadcastText(e.target.value)}
+                className="flex-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-amber-500"
+              />
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={sendingBroadcast}
+                  onClick={() => handleSendGlobalBroadcast(false)}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send to All</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingBroadcast}
+                  onClick={() => handleSendGlobalBroadcast(true)}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+
             <div className="flex justify-between items-center gap-4">
               <div className="relative flex-1 max-w-sm">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search shops by name or slug..."
+                  placeholder="Search by shop name, slug, or pairing code..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-2 text-xs text-white outline-none focus:border-emerald-500"
@@ -520,8 +702,9 @@ export const SuperAdminPage: React.FC = () => {
                     <tr>
                       <th className="py-3 px-4">Shop & ID</th>
                       <th className="py-3 px-4">Pairing Code</th>
+                      <th className="py-3 px-4">Software Downloads</th>
                       <th className="py-3 px-4">Subscribed Plan</th>
-                      <th className="py-3 px-4">Reverse Countdown (Days Left)</th>
+                      <th className="py-3 px-4">Reverse Countdown</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Super Admin Actions</th>
                     </tr>
@@ -530,19 +713,58 @@ export const SuperAdminPage: React.FC = () => {
                     {filteredShops.map((shop) => {
                       const isSuspended = shop.subscription_status === 'suspended';
                       const { days, isExpired } = calculateDaysRemaining(shop.approved_at, shop.subscription_days || 7);
+                      const usedDl = shop.download_count || 0;
+                      const maxDl = shop.max_downloads || 3;
+                      const dlLocked = !(shop.download_allowed ?? true) || usedDl >= maxDl;
 
                       return (
-                        <tr key={shop.id} className="hover:bg-slate-800/30">
+                        <tr key={shop.id} className={`hover:bg-slate-800/30 ${shop.download_requested ? 'bg-amber-950/20' : ''}`}>
                           <td className="py-3.5 px-4">
                             <span className="font-extrabold text-white text-sm block">{shop.name}</span>
                             <span className="text-[11px] font-mono text-emerald-400">/shop/{shop.slug}</span>
                             <span className="text-[10px] text-slate-500 block font-mono">ID: {shop.admin_username || shop.slug}</span>
+                            {shop.admin_message && (
+                              <span className="inline-block mt-1 text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md truncate max-w-[180px]" title={shop.admin_message}>
+                                💬 {shop.admin_message}
+                              </span>
+                            )}
                           </td>
 
                           <td className="py-3.5 px-4">
                             <span className="font-mono font-black text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/20 text-xs">
                               {shop.pairing_code || '---'}
                             </span>
+                          </td>
+
+                          {/* SOFTWARE DOWNLOAD LIMIT & UNLOCK REQUEST COLUMN */}
+                          <td className="py-3.5 px-4 space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`font-mono font-black px-2 py-0.5 rounded-lg text-[11px] border ${
+                                dlLocked
+                                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                  : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                              }`}>
+                                {usedDl} / {maxDl} Used
+                              </span>
+                              {dlLocked && (
+                                <span className="text-[10px] font-bold text-rose-400 uppercase">Paused</span>
+                              )}
+                            </div>
+
+                            {shop.download_requested && (
+                              <div className="flex items-center gap-1.5 pt-0.5">
+                                <span className="text-[10px] font-black bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md animate-pulse">
+                                  🔔 UNLOCK REQUESTED
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickUnlockDownload(shop)}
+                                  className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-md text-[10px] transition"
+                                >
+                                  Unlock
+                                </button>
+                              </div>
+                            )}
                           </td>
 
                           <td className="py-3.5 px-4 space-y-0.5">
@@ -599,7 +821,7 @@ export const SuperAdminPage: React.FC = () => {
 
                               <button
                                 type="button"
-                                onClick={() => setEditingShop(shop)}
+                                onClick={() => openManageModal(shop)}
                                 className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-[10px] transition flex items-center gap-1"
                               >
                                 <Settings className="w-3.5 h-3.5 text-emerald-400" />
@@ -815,14 +1037,14 @@ export const SuperAdminPage: React.FC = () => {
         )}
       </main>
 
-      {/* REMOTE SHOP MANAGER MODAL (WITH TRIAL EXTENSION CONTROLS) */}
+      {/* REMOTE SHOP MANAGER MODAL (WITH DOWNLOAD UNLOCK, PRINTER LIST & MESSAGE BOX) */}
       {editingShop && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl my-8 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div>
                 <h3 className="text-base font-black text-white">Remote Shop Manager: {editingShop.name}</h3>
-                <p className="text-[11px] text-slate-400">Configure credentials, subscription duration, and printer</p>
+                <p className="text-[11px] text-slate-400">Configure credentials, downloads, printer, and shop notices</p>
               </div>
               <button
                 type="button"
@@ -844,7 +1066,7 @@ export const SuperAdminPage: React.FC = () => {
                 />
               </div>
 
-              {/* CREDENTIALS SECTION */}
+              {/* CREDENTIALS SECTION (INCLUDING EDITABLE PAIRING CODE) */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] text-slate-400 font-bold mb-1">Shop ID (Login ID)</label>
@@ -868,14 +1090,100 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-slate-400 font-bold mb-1">Windows Pairing Code</label>
+                  <label className="block text-[10px] text-amber-400 font-bold mb-1">Windows Pairing Code</label>
                   <input
                     type="text"
                     maxLength={6}
                     value={editingShop.pairing_code || ''}
                     onChange={(e) => setEditingShop({ ...editingShop, pairing_code: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white font-mono text-center text-xs font-bold outline-none"
+                    className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-white font-mono text-center text-xs font-bold outline-none focus:border-amber-400"
                   />
+                </div>
+              </div>
+
+              {/* SOFTWARE DOWNLOAD LIMIT & UNLOCK CONTROL BOX */}
+              <div className="p-3 bg-blue-950/20 border border-blue-800/40 rounded-2xl space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-[11px] font-extrabold text-blue-400 flex items-center gap-1.5">
+                    <Download className="w-3.5 h-3.5" />
+                    PC Agent Download Control (Code: {editingShop.pairing_code})
+                  </span>
+                  {editingShop.download_requested && (
+                    <span className="text-[10px] font-black bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full animate-pulse">
+                      🔔 Shop Requested Re-Download
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Downloads Used</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={editingShop.download_count ?? 0}
+                      onChange={(e) => setEditingShop({ ...editingShop, download_count: Number(e.target.value) })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white font-mono font-bold outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Max Limit Allowed</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={editingShop.max_downloads ?? 3}
+                      onChange={(e) => setEditingShop({ ...editingShop, max_downloads: Number(e.target.value) })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-emerald-400 font-mono font-bold outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Download Status</label>
+                    <button
+                      type="button"
+                      onClick={() => setEditingShop({
+                        ...editingShop,
+                        download_allowed: !(editingShop.download_allowed ?? true),
+                        download_requested: false
+                      })}
+                      className={`w-full py-1.5 px-2 rounded-xl font-black text-[10px] uppercase transition flex items-center justify-center gap-1 ${
+                        (editingShop.download_allowed ?? true) && (editingShop.download_count ?? 0) < (editingShop.max_downloads ?? 3)
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-rose-950 text-rose-400 border border-rose-800'
+                      }`}
+                    >
+                      {(editingShop.download_allowed ?? true) && (editingShop.download_count ?? 0) < (editingShop.max_downloads ?? 3) ? (
+                        <>
+                          <Unlock className="w-3 h-3" />
+                          <span>Allowed</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-3 h-3" />
+                          <span>Paused</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-1 border-t border-blue-800/30">
+                  <span className="text-[10px] text-slate-400">
+                    Resetting sets count to 0 and enables the Shop Admin download button.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({
+                      ...editingShop,
+                      download_count: 0,
+                      download_allowed: true,
+                      download_requested: false
+                    })}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-[10px] transition shrink-0"
+                  >
+                    Reset to 0 & Unlock
+                  </button>
                 </div>
               </div>
 
@@ -962,15 +1270,40 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* TARGET PRINTER DROPDOWN + CUSTOM TEXT INPUT & AUTO-DELETE */}
               <div className="grid grid-cols-2 gap-3">
-                <div>
+                <div className="space-y-1.5">
                   <label className="block text-slate-400 mb-1">Target Printer Name</label>
-                  <input
-                    type="text"
-                    value={editingShop.target_printer_name || ''}
-                    onChange={(e) => setEditingShop({ ...editingShop, target_printer_name: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
-                  />
+                  <select
+                    value={isCustomPrinterModal ? 'CUSTOM' : (editingShop.target_printer_name || 'Microsoft Print to PDF')}
+                    onChange={(e) => {
+                      if (e.target.value === 'CUSTOM') {
+                        setIsCustomPrinterModal(true);
+                        setEditingShop({ ...editingShop, target_printer_name: '' });
+                      } else {
+                        setIsCustomPrinterModal(false);
+                        setEditingShop({ ...editingShop, target_printer_name: e.target.value });
+                      }
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none font-bold"
+                  >
+                    {COMMON_PRINTERS.map((pName) => (
+                      <option key={pName} value={pName}>
+                        {pName}
+                      </option>
+                    ))}
+                    <option value="CUSTOM">➕ Other Printer (Custom)</option>
+                  </select>
+
+                  {isCustomPrinterModal && (
+                    <input
+                      type="text"
+                      placeholder="Type exact printer name..."
+                      value={editingShop.target_printer_name || ''}
+                      onChange={(e) => setEditingShop({ ...editingShop, target_printer_name: e.target.value })}
+                      className="w-full bg-slate-950 border border-emerald-500 rounded-xl px-3 py-1.5 text-emerald-400 font-bold outline-none"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -986,6 +1319,32 @@ export const SuperAdminPage: React.FC = () => {
                     <option value={24}>Auto-delete after 24 Hours</option>
                   </select>
                 </div>
+              </div>
+
+              {/* IMPORTANT UPDATE / MESSAGE BOX FOR THIS SHOP */}
+              <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-2xl space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-extrabold text-amber-400 flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5" />
+                    Important Update / Notice for Shop Admin Panel
+                  </label>
+                  {editingShop.admin_message && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingShop({ ...editingShop, admin_message: '' })}
+                      className="text-[10px] text-rose-400 hover:underline font-bold"
+                    >
+                      Clear Notice
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="Type a message to display at the top of this shop's admin dashboard (leave empty for none)..."
+                  value={editingShop.admin_message || ''}
+                  onChange={(e) => setEditingShop({ ...editingShop, admin_message: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none focus:border-amber-500 text-xs"
+                />
               </div>
 
               <div className="flex gap-2 pt-2">

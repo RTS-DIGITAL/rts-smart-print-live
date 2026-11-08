@@ -22,7 +22,10 @@ import {
   Check, 
   KeyRound, 
   LogOut, 
-  Mail 
+  Mail,
+  Download,
+  Bell,
+  Send
 } from 'lucide-react';
 
 interface ShopData {
@@ -47,6 +50,12 @@ interface ShopData {
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
+  // Software Download & Super Admin Notice Fields
+  download_count?: number;
+  download_allowed?: boolean;
+  max_downloads?: number;
+  download_requested?: boolean;
+  admin_message?: string | null;
 }
 
 interface OrderRow {
@@ -69,6 +78,29 @@ interface PricingRule {
   price_per_page: number;
 }
 
+// PASTE YOUR GOOGLE DRIVE OR DIRECT DOWNLOAD LINK FOR RTS-Print-Setup.exe HERE:
+const AGENT_DOWNLOAD_URL = "https://drive.google.com/file/d/1oThEJgGUMJjQPaYfvJJAyRiKNuHB2i-2/view?usp=sharing";
+
+const COMMON_PRINTERS = [
+  "Microsoft Print to PDF",
+  "Canon LBP2900",
+  "Brother DCP-T730DW Printer",
+  "Brother DCP-T720DW",
+  "Brother DCP-T426W",
+  "Brother HL-L2321D series",
+  "HP LaserJet Professional P1108",
+  "HP LaserJet M1005",
+  "HP Ink Tank 310 series",
+  "HP Smart Tank 580 series",
+  "Epson L3110 Series",
+  "Epson L3210 Series",
+  "Epson L3250 Series",
+  "Canon G2010 series",
+  "Canon G3010 series",
+  "POS-58-Series",
+  "POS-80-Printer"
+];
+
 export default function AdminPage() {
   const { shopSlug } = useParams<{ shopSlug: string }>();
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
@@ -79,6 +111,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [requestingUnlock, setRequestingUnlock] = useState(false);
 
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -93,6 +127,7 @@ export default function AdminPage() {
   const [ownerEmail, setOwnerEmail] = useState('');
   const [upiId, setUpiId] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
+  const [isCustomPrinter, setIsCustomPrinter] = useState(false);
   const [counterNotice, setCounterNotice] = useState('');
   const [isAccepting, setIsAccepting] = useState(true);
   const [requirePayment, setRequirePayment] = useState(false);
@@ -154,7 +189,11 @@ export default function AdminPage() {
       setPhone(shopRes.phone || '');
       setOwnerEmail(shopRes.owner_email || '');
       setUpiId(shopRes.upi_id || '');
-      setTargetPrinter(shopRes.target_printer_name || '');
+      
+      const savedPrinter = shopRes.target_printer_name || 'Microsoft Print to PDF';
+      setTargetPrinter(savedPrinter);
+      setIsCustomPrinter(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
+
       setCounterNotice(shopRes.counter_notice || '');
       setIsAccepting(shopRes.is_accepting_orders ?? true);
       setRequirePayment(shopRes.require_payment ?? false);
@@ -192,7 +231,7 @@ export default function AdminPage() {
     loadShopData();
   }, [activeSlug]);
 
-  // Realtime Live Subscription
+  // Realtime Live Subscription (Orders + Shop Settings/Download Unlocks)
   useEffect(() => {
     if (!shop?.id) return;
     const channel = supabase
@@ -200,6 +239,11 @@ export default function AdminPage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'print_orders', filter: `shop_id=eq.${shop.id}` },
+        () => loadShopData()
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'shops', filter: `id=eq.${shop.id}` },
         () => loadShopData()
       )
       .subscribe();
@@ -244,6 +288,67 @@ export default function AdminPage() {
     setForgotSent(true);
   };
 
+  // =========================================================================
+  // SOFTWARE DOWNLOAD & UNLOCK REQUEST HANDLERS
+  // =========================================================================
+  const handleDownloadSetup = async () => {
+    if (!shop) return;
+    const used = shop.download_count || 0;
+    const max = shop.max_downloads || 3;
+    const allowed = shop.download_allowed ?? true;
+
+    if (!allowed || used >= max) {
+      alert(`Download limit reached (${used}/${max}) or paused by Super Admin. Please click "Request Re-Download Approval" below.`);
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      const newCount = used + 1;
+      const stillAllowed = newCount < max;
+
+      const { error } = await supabase
+        .from('shops')
+        .update({
+          download_count: newCount,
+          download_allowed: stillAllowed,
+          download_requested: false
+        })
+        .eq('id', shop.id);
+
+      if (error) throw error;
+
+      // Open download URL
+      window.open(AGENT_DOWNLOAD_URL, '_blank');
+      await loadShopData();
+    } catch (err: any) {
+      alert('Failed to process download: ' + err.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleRequestDownloadUnlock = async () => {
+    if (!shop) return;
+    setRequestingUnlock(true);
+    try {
+      const { error } = await supabase
+        .from('shops')
+        .update({
+          download_requested: true
+        })
+        .eq('id', shop.id);
+
+      if (error) throw error;
+      alert(`Re-download request for Shop Code (${shop.pairing_code}) sent to Super Admin!`);
+      await loadShopData();
+    } catch (err: any) {
+      alert('Failed to send unlock request: ' + err.message);
+    } finally {
+      setRequestingUnlock(false);
+    }
+  };
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -256,7 +361,7 @@ export default function AdminPage() {
           phone: phone,
           owner_email: ownerEmail,
           upi_id: upiId,
-          target_printer_name: targetPrinter,
+          target_printer_name: targetPrinter.trim() || 'Microsoft Print to PDF',
           counter_notice: counterNotice,
           is_accepting_orders: isAccepting,
           require_payment: requirePayment,
@@ -475,6 +580,10 @@ export default function AdminPage() {
     );
   }
 
+  const downloadsUsed = shop.download_count || 0;
+  const maxDownloads = shop.max_downloads || 3;
+  const isDownloadLocked = !(shop.download_allowed ?? true) || downloadsUsed >= maxDownloads;
+
   // =========================================================================
   // LOGGED-IN SHOP ADMIN DASHBOARD
   // =========================================================================
@@ -547,6 +656,25 @@ export default function AdminPage() {
         </div>
       </header>
 
+      {/* SUPER ADMIN IMPORTANT UPDATE / MESSAGE BANNER */}
+      {shop.admin_message && (
+        <div className="max-w-6xl mx-auto px-4 pt-4">
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+            <div className="p-2 bg-amber-500 text-white rounded-xl shrink-0 mt-0.5">
+              <Bell className="w-4 h-4 animate-bounce" />
+            </div>
+            <div className="flex-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 block">
+                Important Notice from RTS Super Admin
+              </span>
+              <p className="text-xs font-bold text-slate-900 mt-0.5 leading-relaxed">
+                {shop.admin_message}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-6xl mx-auto px-4 pt-6 grid md:grid-cols-3 gap-6">
         <div className="md:col-span-1 space-y-6">
           {/* PERMANENT AGENT PAIRING CODE CARD */}
@@ -565,7 +693,77 @@ export default function AdminPage() {
               </span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
-              Enter this permanent 6-digit code in <code>RTS-Smart-Print-Agent.exe</code>. Never changes on refresh!
+              Enter this permanent 6-digit code in <code>RTS-Print-Setup.exe</code>. Never changes on refresh!
+            </p>
+          </div>
+
+          {/* WINDOWS PRINT AGENT DOWNLOAD CARD (WITH 3-TIME LIMIT & UNLOCK REQUEST) */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
+                PC Print Agent Software
+              </span>
+              <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full ${
+                isDownloadLocked ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {downloadsUsed} / {maxDownloads} Downloads
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadSetup}
+              disabled={isDownloadLocked || downloading}
+              className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm ${
+                isDownloadLocked
+                  ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
+              }`}
+            >
+              {isDownloadLocked ? (
+                <>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Download Paused ({downloadsUsed}/{maxDownloads} Used)</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{downloading ? 'Preparing...' : 'Download RTS-Print-Setup.exe'}</span>
+                </>
+              )}
+            </button>
+
+            {isDownloadLocked && (
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                {shop.download_requested ? (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                    <p className="text-[11px] font-bold text-amber-900">
+                      ⏳ Unlock Request Sent (Shop Code: {shop.pairing_code})
+                    </p>
+                    <p className="text-[10px] text-amber-700 mt-0.5">
+                      Waiting for Super Admin approval to re-enable download.
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleRequestDownloadUnlock}
+                    disabled={requestingUnlock}
+                    className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-[11px] transition flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>
+                      {requestingUnlock
+                        ? 'Sending Request...'
+                        : `Request Re-Download (Code: ${shop.pairing_code})`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Maximum {maxDownloads} downloads allowed per shop for security. Request admin unlock if reinstalling on a new PC.
             </p>
           </div>
 
@@ -731,15 +929,42 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div>
+              {/* TARGET COUNTER PRINTER DROPDOWN + CUSTOM INPUT */}
+              <div className="space-y-2">
                 <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Canon LBP2900"
-                  value={targetPrinter}
-                  onChange={(e) => setTargetPrinter(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
-                />
+                <select
+                  value={isCustomPrinter ? 'CUSTOM' : targetPrinter}
+                  onChange={(e) => {
+                    if (e.target.value === 'CUSTOM') {
+                      setIsCustomPrinter(true);
+                      setTargetPrinter('');
+                    } else {
+                      setIsCustomPrinter(false);
+                      setTargetPrinter(e.target.value);
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-bold bg-white"
+                >
+                  {COMMON_PRINTERS.map((printerName) => (
+                    <option key={printerName} value={printerName}>
+                      {printerName}
+                    </option>
+                  ))}
+                  <option value="CUSTOM">➕ Other Printer (Type Custom Name)</option>
+                </select>
+
+                {isCustomPrinter && (
+                  <input
+                    type="text"
+                    placeholder="Type exact Windows printer name (e.g. Canon LBP2900)"
+                    value={targetPrinter}
+                    onChange={(e) => setTargetPrinter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50/30 outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                  />
+                )}
+                <p className="text-[10px] text-slate-400">
+                  Select from list or choose "Other Printer" to type your exact Windows printer name.
+                </p>
               </div>
 
               <div>

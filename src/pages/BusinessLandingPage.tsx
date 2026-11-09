@@ -224,7 +224,7 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* DETAILED MALAYALAM EXPLANATION SECTIONS (Added as requested) */}
+      {/* DETAILED MALAYALAM EXPLANATION SECTIONS WITH STEP IMAGES */}
       <section className="max-w-4xl mx-auto px-4 py-10 space-y-12">
         
         {/* Section 1: How it Works */}
@@ -237,29 +237,65 @@ export const BusinessLandingPage: React.FC = () => {
             കടകളിൽ വരുന്ന പ്രിന്റിംഗ് ഓർഡറുകൾ മൊബൈൽ വഴി സ്വീകരിക്കാനും, കമ്പ്യൂട്ടർ ഉപയോഗിച്ച് നേരിട്ട് പ്രിന്റ് ചെയ്യാനും സഹായിക്കുന്ന ഒരു സ്മാർട്ട് പ്രിന്റിംഗ് സംവിധാനമാണ് RTS Smart Print. ഇതിലൂടെ ഉപഭോക്താക്കൾക്ക് കടയിൽ നേരിട്ട് വരുന്നതിന് മുമ്പുതന്നെ മൊബൈൽ ഉപയോഗിച്ച് പ്രിന്റ് ഓർഡർ നൽകാം. കടയുടമയ്ക്ക് ഓർഡറുകൾ കമ്പ്യൂട്ടറിൽ ലഭിക്കുകയും പ്രിന്റ് ചെയ്യുകയും ചെയ്യാം.
           </p>
 
-          <div className="grid md:grid-cols-2 gap-4 pt-2">
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 1</span>
-              <h4 className="font-bold text-sm text-slate-900">QR Code സ്കാൻ ചെയ്യുക</h4>
-              <p className="text-xs text-slate-500">കടയിൽ സ്ഥാപിക്കുന്ന QR Code ഉപഭോക്താവ് മൊബൈൽ ക്യാമറ ഉപയോഗിച്ച് സ്കാൻ ചെയ്യുന്നു. അതിലൂടെ നിങ്ങളുടെ കടയുടെ ഓൺലൈൻ പ്രിന്റിംഗ് പേജ് തുറക്കും.</p>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+            {/* Step 1 */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 flex flex-col justify-between">
+              <div>
+                <div className="w-full h-32 bg-white rounded-xl mb-3 overflow-hidden border border-slate-200 flex items-center justify-center p-1">
+                  <img src="/step1_scan_qr_code.png" alt="Scan QR Code" className="max-h-full max-w-full object-contain rounded-lg" />
+                </div>
+                <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 1</span>
+                <h4 className="font-bold text-sm text-slate-900 mt-1">QR Code സ്കാൻ ചെയ്യുക</h4>
+                <p className="text-xs text-slate-500 mt-1">കടയിൽ സ്ഥാപിക്കുന്ന QR Code ഉപഭോക്താവ് മൊബൈൽ ക്യാമറ ഉപയോഗിച്ച് സ്കാൻ ചെയ്യുന്നു. അതിലൂടെ നിങ്ങളുടെ കടയുടെ ഓൺലൈൻ പ്രിന്റിംഗ് പേജ് തുറക്കും.</p>
+              </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 2</span>
-              <h4 className="font-bold text-sm text-slate-900">ഫയൽ അപ്‌ലോഡ് ചെയ്യുക</h4>
-              <p className="text-xs text-slate-500">PDF അല്ലെങ്കിൽ പിന്തുണയ്ക്കുന്ന ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാം. ആവശ്യമായ കോപ്പികളുടെ എണ്ണം, കളർ അല്ലെങ്കിൽ ബ്ലാക്ക് ആൻഡ് വൈറ്റ് എന്നിവ തിരഞ്ഞെടുക്കാം.</p>
+            {/* Step 2 */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 flex flex-col justify-between">
+              <div>
+                <div className="w-full h-32 bg-white rounded-xl mb-3 overflow-hidden border border-slate-200 flex items-center justify-center p-1">
+                  <img src="/step2_upload_file.png" alt="Upload File" className="max-h-full max-w-full object-contain rounded-lg" />
+                </div>
+                <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 2</span>
+                <h4 className="font-bold text-sm text-slate-900 mt-1">ഫയൽ അപ്‌ലോഡ് ചെയ്യുക</h4>
+                <p className="text-xs text-slate-500 mt-1">PDF അല്ലെങ്കിൽ പിന്തുണയ്ക്കുന്ന ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാം. ആവശ്യമായ കോപ്പികളുടെ എണ്ണം, കളർ അല്ലെങ്കിൽ ബ്ലാക്ക് ആൻഡ് വൈറ്റ് എന്നിവ തിരഞ്ഞെടുക്കാം.</p>
+              </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 3</span>
-              <h4 className="font-bold text-sm text-slate-900">തുക അറിയുകയും പേയ്‌മെന്റ് നടത്തുകയും ചെയ്യുക</h4>
-              <p className="text-xs text-slate-500">തിരഞ്ഞെടുത്ത പ്രിന്റിംഗ് ഓപ്ഷനുകൾ അനുസരിച്ച് തുക കാണിക്കും. കടയിൽ ലഭ്യമായ Cash/UPI പേയ്‌മെന്റ് രീതികൾ ഉപയോഗിക്കാം.</p>
+            {/* Step 3 */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 flex flex-col justify-between">
+              <div>
+                <div className="w-full h-32 bg-white rounded-xl mb-3 overflow-hidden border border-slate-200 flex items-center justify-center p-1">
+                  <img src="/step3_pay_amount.png" alt="Pay Amount" className="max-h-full max-w-full object-contain rounded-lg" />
+                </div>
+                <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 3</span>
+                <h4 className="font-bold text-sm text-slate-900 mt-1">തുകയും പേയ്‌മെന്റും</h4>
+                <p className="text-xs text-slate-500 mt-1">തിരഞ്ഞെടുത്ത പ്രിന്റിംഗ് ഓപ്ഷനുകൾ അനുസരിച്ച് തുക കാണിക്കും. കടയിൽ ലഭ്യമായ Cash/UPI പേയ്‌മെന്റ് രീതികൾ ഉപയോഗിക്കാം.</p>
+              </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 4 & 5</span>
-              <h4 className="font-bold text-sm text-slate-900">ഓട്ടോമാറ്റിക്കായി പ്രിന്റ് ചെയ്യുക</h4>
-              <p className="text-xs text-slate-500">ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിലെ RTS Smart Print Agent-ലും Shop Admin Dashboard-ലും ലഭിക്കും. പണം ലഭിച്ചെന്ന് ഉറപ്പാക്കിയ ശേഷം പ്രിന്റ് ചെയ്യാം.</p>
+            {/* Step 4 */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 flex flex-col justify-between">
+              <div>
+                <div className="w-full h-32 bg-white rounded-xl mb-3 overflow-hidden border border-slate-200 flex items-center justify-center p-1">
+                  <img src="/step4_order_received.png" alt="Order Received" className="max-h-full max-w-full object-contain rounded-lg" />
+                </div>
+                <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 4</span>
+                <h4 className="font-bold text-sm text-slate-900 mt-1">ഓർഡർ ലഭിക്കുന്നു</h4>
+                <p className="text-xs text-slate-500 mt-1">ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിലെ RTS Smart Print Agent-ലും Shop Admin Dashboard-ലും തൽക്ഷണം ലഭിക്കുന്നു.</p>
+              </div>
+            </div>
+
+            {/* Step 5 */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 flex flex-col justify-between md:col-span-2 lg:col-span-1">
+              <div>
+                <div className="w-full h-32 bg-white rounded-xl mb-3 overflow-hidden border border-slate-200 flex items-center justify-center p-1">
+                  <img src="/step5_auto_print.png" alt="Auto Print" className="max-h-full max-w-full object-contain rounded-lg" />
+                </div>
+                <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 5</span>
+                <h4 className="font-bold text-sm text-slate-900 mt-1">ഓട്ടോമാറ്റിക് പ്രിന്റ്</h4>
+                <p className="text-xs text-slate-500 mt-1">പണം ലഭിച്ചെന്ന് ഉറപ്പാക്കിയ ശേഷം ഒറ്റ ക്ലിക്കിൽ പ്രിന്റ് എടുക്കാം.</p>
+              </div>
             </div>
           </div>
         </div>
@@ -304,7 +340,7 @@ export const BusinessLandingPage: React.FC = () => {
 
       </section>
 
-      {/* Pricing Cards (Starter Station vs Pro / Dynamic Plans) */}
+      {/* Pricing Cards */}
       <section className="max-w-4xl mx-auto px-4 py-8" id="pricing-section">
         <div className="text-center mb-8 space-y-1">
           <span className="text-[11px] font-extrabold uppercase bg-amber-100 text-amber-800 px-3 py-0.5 rounded-full inline-flex items-center gap-1">

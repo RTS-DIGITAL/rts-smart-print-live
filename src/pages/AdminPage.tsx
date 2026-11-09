@@ -79,7 +79,7 @@ interface PricingRule {
 }
 
 // PASTE YOUR GOOGLE DRIVE OR DIRECT DOWNLOAD LINK FOR RTS-Print-Setup.exe HERE:
-const AGENT_DOWNLOAD_URL = "https://drive.google.com/file/d/1oThEJgGUMJjQPaYfvJJAyRiKNuHB2i-2/view?usp=sharing";
+const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.zip";
 
 const COMMON_PRINTERS = [
   "Microsoft Print to PDF",

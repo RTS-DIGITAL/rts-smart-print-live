@@ -5,33 +5,32 @@ import OrderStatusPage from '@/pages/OrderStatusPage';
 import PartnerRegisterPage from '@/pages/PartnerRegisterPage';
 import { BusinessLandingPage } from '@/pages/BusinessLandingPage';
 import { SuperAdminPage } from '@/pages/SuperAdminPage';
-import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
 
 export default function App() {
   return (
     <Routes>
-      {/* Root domain (https://rtsprint.online) now opens your professional Business Landing Page */}
+      {/* 1. Super Admin Master Panel (Must be at the top so it never gets blocked) */}
+      <Route path="/super-admin" element={<SuperAdminPage />} />
+
+      {/* 2. Root domain (https://rtsprint.online) opens your professional Business Landing Page */}
       <Route path="/" element={<BusinessLandingPage />} />
       <Route path="/for-business" element={<BusinessLandingPage />} />
 
-      {/* Super Admin Master Panel (Placed before shop routes so it never gets blocked) */}
-      <Route path="/super-admin" element={<SuperAdminPage />} />
-
-      {/* Public Customer Kiosks */}
+      {/* 3. Public Customer Kiosks */}
       <Route path="/shop/:shopSlug" element={<KioskPage />} />
 
-      {/* Order Status Confirmation (Shop-Specific and Fallback) */}
+      {/* 4. Order Status Confirmation */}
       <Route path="/shop/:shopSlug/order/:orderId" element={<OrderStatusPage />} />
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
 
-      {/* Shop-Specific Counter Admin Dashboards */}
+      {/* 5. Shop-Specific Counter Admin Dashboards */}
       <Route path="/shop/:shopSlug/admin" element={<AdminPage />} />
       <Route path="/admin" element={<AdminPage />} />
 
-      {/* Partner Registration */}
+      {/* 6. Partner Registration */}
       <Route path="/partner-register" element={<PartnerRegisterPage />} />
 
-      {/* Catch-all Fallback */}
+      {/* 7. Catch-all Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -52,7 +52,6 @@ interface ShopTenant {
   admin_pin: string;
   created_at: string;
   approved_at: string | null;
-  // Software Download & Admin Messaging Fields
   download_count?: number;
   download_allowed?: boolean;
   max_downloads?: number;
@@ -125,11 +124,9 @@ export const SuperAdminPage: React.FC = () => {
   const [modalSaving, setModalSaving] = useState(false);
   const [approvingInquiryId, setApprovingInquiryId] = useState<string | null>(null);
 
-  // Global Broadcast Message State
   const [broadcastText, setBroadcastText] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
-  // Countdown Helper: Calculates remaining days from approval timestamp
   const calculateDaysRemaining = (approvedAt: string | null, totalDays: number): { days: number; isExpired: boolean } => {
     if (!approvedAt) return { days: totalDays, isExpired: false };
     const approvalDate = new Date(approvedAt).getTime();
@@ -147,6 +144,9 @@ export const SuperAdminPage: React.FC = () => {
 
     if (action === 'approved') {
       try {
+        const generatedSlug = details?.slug || shopName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const generatedCode = details?.pairingCode || 'Check Admin';
+
         await fetch('https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec', {
           method: 'POST',
           mode: 'no-cors',
@@ -155,8 +155,8 @@ export const SuperAdminPage: React.FC = () => {
             action: 'approve',
             email: email,
             shopName: shopName,
-            slug: details?.slug,
-            pairingCode: details?.pairingCode,
+            slug: generatedSlug,
+            pairingCode: generatedCode,
             downloadUrl: AGENT_DOWNLOAD_URL
           })
         });
@@ -216,7 +216,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   }, [isAuthenticated]);
 
-  // Realtime listener for shop download unlock requests
   useEffect(() => {
     if (!isAuthenticated) return;
     const channel = supabase
@@ -260,12 +259,11 @@ export const SuperAdminPage: React.FC = () => {
     const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
-    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rts-smart-print-live.vercel.app/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Digital Seva (7012833699)_`;
+    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rtsprint.online/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rtsprint.online/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Digital Seva (7012833699)_`;
 
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
 
-  // 1-Click Approve Inquiry & Provision Shop
   const handleApproveAndCreateShop = async (inq: Inquiry) => {
     if (!window.confirm(`Approve ${inq.business_name} and generate counter station?`)) return;
     setApprovingInquiryId(inq.id);
@@ -280,7 +278,6 @@ export const SuperAdminPage: React.FC = () => {
       const uniquePairingCode = Math.floor(100000 + Math.random() * 900000).toString();
       const shortUsername = slug.split('-')[0] || slug;
 
-      // Determine initial subscription period (default to 7-day trial)
       const initialDays = inq.selected_plan === 'trial_14' ? 14 : inq.selected_plan === 'yearly' ? 365 : 7;
 
       const { data: newShop, error: shopErr } = await supabase
@@ -346,7 +343,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // QUICK 1-CLICK UNLOCK DOWNLOAD FOR A SHOP
   const handleQuickUnlockDownload = async (shop: ShopTenant) => {
     try {
       const { error } = await supabase
@@ -366,7 +362,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // GLOBAL BROADCAST MESSAGE TO ALL SHOPS
   const handleSendGlobalBroadcast = async (clear: boolean = false) => {
     const messageToSend = clear ? null : broadcastText.trim();
     if (!clear && !messageToSend) {
@@ -395,7 +390,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // HARD PERMANENT DELETE SHOP (AND AUTOMATICALLY REMOVE INQUIRY LEAD)
   const handleDeleteShop = async (shop: ShopTenant) => {
     const confirmation = window.prompt(`⚠️ PERMANENT DELETE\n\nType the shop name "${shop.name}" to delete this store, all files, and inquiries:`);
     if (confirmation !== shop.name) {
@@ -404,20 +398,17 @@ export const SuperAdminPage: React.FC = () => {
     }
 
     try {
-      // 1. Clear files from storage
       const { data: files } = await supabase.storage.from('print-files').list(shop.id);
       if (files && files.length > 0) {
         const filePaths = files.map(f => `${shop.id}/${f.name}`);
         await supabase.storage.from('print-files').remove(filePaths);
       }
 
-      // 2. Cascade delete from shop_inquiries table
       await supabase
         .from('shop_inquiries')
         .delete()
         .or(`business_name.ilike.%${shop.name}%,email.eq.${shop.owner_email || ''}`);
 
-      // 3. Delete shop from table (cascades to orders, rules, keys)
       const { error } = await supabase.from('shops').delete().eq('id', shop.id);
       if (error) throw error;
 
@@ -428,7 +419,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // DELETE SINGLE INQUIRY
   const handleDeleteInquiry = async (inq: Inquiry) => {
     if (!window.confirm(`Delete inquiry for "${inq.business_name}"?`)) return;
     try {
@@ -507,7 +497,6 @@ export const SuperAdminPage: React.FC = () => {
           subscription_days: Number(editingShop.subscription_days || 7),
           auto_delete_hours: Number(editingShop.auto_delete_hours || 24),
           is_accepting_orders: editingShop.subscription_status !== 'suspended',
-          // Save Download Limits & Admin Notice
           download_count: Number(editingShop.download_count ?? 0),
           max_downloads: Number(editingShop.max_downloads ?? 3),
           download_allowed: Boolean(editingShop.download_allowed ?? true),
@@ -518,7 +507,6 @@ export const SuperAdminPage: React.FC = () => {
 
       if (error) throw error;
 
-      // Also keep shop_connector_keys in sync if pairing_code was edited
       if (cleanPairingCode) {
         await supabase
           .from('shop_connector_keys')
@@ -645,10 +633,8 @@ export const SuperAdminPage: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* SHOPS TAB WITH GLOBAL MESSAGE BROADCAST & DOWNLOAD TRACKER */}
         {activeTab === 'shops' && (
           <div className="space-y-4">
-            {/* GLOBAL SUPER ADMIN MESSAGE BROADCAST BOX */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
               <div className="flex items-center gap-2.5 text-xs font-extrabold text-amber-400 shrink-0">
                 <Megaphone className="w-4 h-4" />
@@ -736,7 +722,6 @@ export const SuperAdminPage: React.FC = () => {
                             </span>
                           </td>
 
-                          {/* SOFTWARE DOWNLOAD LIMIT & UNLOCK REQUEST COLUMN */}
                           <td className="py-3.5 px-4 space-y-1">
                             <div className="flex items-center gap-1.5">
                               <span className={`font-mono font-black px-2 py-0.5 rounded-lg text-[11px] border ${
@@ -774,7 +759,6 @@ export const SuperAdminPage: React.FC = () => {
                             <span className="text-[10px] text-slate-400 font-mono">{shop.phone || 'No phone'}</span>
                           </td>
 
-                          {/* REVERSE COUNTDOWN COLUMN */}
                           <td className="py-3.5 px-4">
                             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border font-mono font-black text-xs">
                               <Hourglass className={`w-3.5 h-3.5 ${isExpired ? 'text-rose-500' : 'text-emerald-400'}`} />
@@ -858,7 +842,6 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* INQUIRIES TAB WITH INDEPENDENT DELETE ACTION */}
         {activeTab === 'inquiries' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex justify-between items-center">
@@ -880,6 +863,11 @@ export const SuperAdminPage: React.FC = () => {
                 {inquiries.map((inq) => {
                   const isAlreadyApproved = inq.status === 'approved';
                   const appliedDate = new Date(inq.created_at).toLocaleDateString();
+
+                  // Find matching shop slug and pairing code if already approved or exists
+                  const matchingShop = shops.find(s => s.name.toLowerCase() === inq.business_name.toLowerCase() || s.owner_email === inq.email);
+                  const generatedSlug = matchingShop?.slug || inq.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+                  const generatedPairingCode = matchingShop?.pairing_code || '919056';
 
                   return (
                     <div key={inq.id} className="py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -924,9 +912,10 @@ export const SuperAdminPage: React.FC = () => {
                           <span>Send WhatsApp Kit</span>
                         </a>
 
+                        {/* FIXED: Passing slug and pairingCode so email never shows undefined */}
                         <button
                           type="button"
-                          onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved')}
+                          onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug: generatedSlug, pairingCode: generatedPairingCode })}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs transition flex items-center gap-1"
                         >
                           <Mail className="w-3.5 h-3.5 text-emerald-400" />
@@ -950,7 +939,6 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* PRICING TAB (With Starter Monthly & Yearly Offer Settings) */}
         {activeTab === 'pricing' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
@@ -1037,7 +1025,6 @@ export const SuperAdminPage: React.FC = () => {
         )}
       </main>
 
-      {/* REMOTE SHOP MANAGER MODAL (WITH DOWNLOAD UNLOCK, PRINTER LIST & MESSAGE BOX) */}
       {editingShop && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl my-8 max-h-[92vh] overflow-y-auto">
@@ -1066,7 +1053,6 @@ export const SuperAdminPage: React.FC = () => {
                 />
               </div>
 
-              {/* CREDENTIALS SECTION (INCLUDING EDITABLE PAIRING CODE) */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] text-slate-400 font-bold mb-1">Shop ID (Login ID)</label>
@@ -1101,7 +1087,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* SOFTWARE DOWNLOAD LIMIT & UNLOCK CONTROL BOX */}
               <div className="p-3 bg-blue-950/20 border border-blue-800/40 rounded-2xl space-y-2.5">
                 <div className="flex justify-between items-center">
                   <span className="text-[11px] font-extrabold text-blue-400 flex items-center gap-1.5">
@@ -1220,7 +1205,6 @@ export const SuperAdminPage: React.FC = () => {
                 />
               </div>
 
-              {/* DYNAMIC SUBSCRIPTION STATUS & REVERSE DURATION CONTROLS */}
               <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl space-y-2">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1270,7 +1254,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* TARGET PRINTER DROPDOWN + CUSTOM TEXT INPUT & AUTO-DELETE */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="block text-slate-400 mb-1">Target Printer Name</label>
@@ -1321,7 +1304,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* IMPORTANT UPDATE / MESSAGE BOX FOR THIS SHOP */}
               <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-2xl space-y-1.5">
                 <div className="flex justify-between items-center">
                   <label className="text-[11px] font-extrabold text-amber-400 flex items-center gap-1.5">

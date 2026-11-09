@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Zap, CheckCircle2, Phone, Mail, Lock, Languages, Tag, Clock } from 'lucide-react';
+import { ShieldCheck, Zap, CheckCircle2, Phone, Mail, Lock, Languages, Tag, Clock, Store, Cpu, Printer, CreditCard } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 interface PlatformPlan {
@@ -76,7 +76,6 @@ export const BusinessLandingPage: React.FC = () => {
   const [lang, setLang] = useState<'en' | 'ml'>('ml');
   const t = TEXTS[lang];
 
-  // Dynamic Plans from Supabase
   const [dbPlans, setDbPlans] = useState<PlatformPlan[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -91,7 +90,6 @@ export const BusinessLandingPage: React.FC = () => {
     message: ''
   });
 
-  // Load platform plans configured in Super Admin
   useEffect(() => {
     async function loadPlans() {
       try {
@@ -116,7 +114,6 @@ export const BusinessLandingPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // 1. Save inquiry to Supabase
       await supabase.from('shop_inquiries').insert([
         {
           business_name: formData.businessName,
@@ -130,7 +127,6 @@ export const BusinessLandingPage: React.FC = () => {
         }
       ]);
 
-      // 2. Dispatch data to Google Apps Script Web App URL
       await fetch('https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec', {
         method: 'POST',
         mode: 'no-cors',
@@ -160,7 +156,7 @@ export const BusinessLandingPage: React.FC = () => {
       {/* Top Navbar */}
       <header className="bg-white border-b border-slate-200 py-3.5 px-6 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-black text-lg">
+          <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-md shadow-emerald-600/30">
             R
           </div>
           <div>
@@ -228,8 +224,88 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Pricing Cards: Starter Station vs Pro (Paused with Coming Soon) */}
-      <section className="max-w-4xl mx-auto px-4 py-8">
+      {/* DETAILED MALAYALAM EXPLANATION SECTIONS (Added as requested) */}
+      <section className="max-w-4xl mx-auto px-4 py-10 space-y-12">
+        
+        {/* Section 1: How it Works */}
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+          <h3 className="text-xl md:text-2xl font-black text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+            <Cpu className="w-6 h-6 text-emerald-600" />
+            <span>1. RTS Smart Print എങ്ങനെ പ്രവർത്തിക്കുന്നു?</span>
+          </h3>
+          <p className="text-xs md:text-sm text-slate-600 leading-relaxed">
+            കടകളിൽ വരുന്ന പ്രിന്റിംഗ് ഓർഡറുകൾ മൊബൈൽ വഴി സ്വീകരിക്കാനും, കമ്പ്യൂട്ടർ ഉപയോഗിച്ച് നേരിട്ട് പ്രിന്റ് ചെയ്യാനും സഹായിക്കുന്ന ഒരു സ്മാർട്ട് പ്രിന്റിംഗ് സംവിധാനമാണ് RTS Smart Print. ഇതിലൂടെ ഉപഭോക്താക്കൾക്ക് കടയിൽ നേരിട്ട് വരുന്നതിന് മുമ്പുതന്നെ മൊബൈൽ ഉപയോഗിച്ച് പ്രിന്റ് ഓർഡർ നൽകാം. കടയുടമയ്ക്ക് ഓർഡറുകൾ കമ്പ്യൂട്ടറിൽ ലഭിക്കുകയും പ്രിന്റ് ചെയ്യുകയും ചെയ്യാം.
+          </p>
+
+          <div className="grid md:grid-cols-2 gap-4 pt-2">
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 1</span>
+              <h4 className="font-bold text-sm text-slate-900">QR Code സ്കാൻ ചെയ്യുക</h4>
+              <p className="text-xs text-slate-500">കടയിൽ സ്ഥാപിക്കുന്ന QR Code ഉപഭോക്താവ് മൊബൈൽ ക്യാമറ ഉപയോഗിച്ച് സ്കാൻ ചെയ്യുന്നു. അതിലൂടെ നിങ്ങളുടെ കടയുടെ ഓൺലൈൻ പ്രിന്റിംഗ് പേജ് തുറക്കും.</p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 2</span>
+              <h4 className="font-bold text-sm text-slate-900">ഫയൽ അപ്‌ലോഡ് ചെയ്യുക</h4>
+              <p className="text-xs text-slate-500">PDF അല്ലെങ്കിൽ പിന്തുണയ്ക്കുന്ന ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാം. ആവശ്യമായ കോപ്പികളുടെ എണ്ണം, കളർ അല്ലെങ്കിൽ ബ്ലാക്ക് ആൻഡ് വൈറ്റ് എന്നിവ തിരഞ്ഞെടുക്കാം.</p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 3</span>
+              <h4 className="font-bold text-sm text-slate-900">തുക അറിയുകയും പേയ്‌മെന്റ് നടത്തുകയും ചെയ്യുക</h4>
+              <p className="text-xs text-slate-500">തിരഞ്ഞെടുത്ത പ്രിന്റിംഗ് ഓപ്ഷനുകൾ അനുസരിച്ച് തുക കാണിക്കും. കടയിൽ ലഭ്യമായ Cash/UPI പേയ്‌മെന്റ് രീതികൾ ഉപയോഗിക്കാം.</p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">ഘട്ടം 4 & 5</span>
+              <h4 className="font-bold text-sm text-slate-900">ഓട്ടോമാറ്റിക്കായി പ്രിന്റ് ചെയ്യുക</h4>
+              <p className="text-xs text-slate-500">ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിലെ RTS Smart Print Agent-ലും Shop Admin Dashboard-ലും ലഭിക്കും. പണം ലഭിച്ചെന്ന് ഉറപ്പാക്കിയ ശേഷം പ്രിന്റ് ചെയ്യാം.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Shop Owner Facilities */}
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-xl md:text-2xl font-black text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+            <Store className="w-6 h-6 text-emerald-600" />
+            <span>2. കടയുടമയ്ക്ക് ലഭിക്കുന്ന സൗകര്യങ്ങൾ</span>
+          </h3>
+          <ul className="grid md:grid-cols-2 gap-3 text-xs md:text-sm text-slate-700">
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> സ്വന്തം കടയുടെ പേരിൽ പ്രത്യേക Online Printing Page.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> QR Code Standee – ഉപഭോക്താക്കൾക്ക് എളുപ്പത്തിൽ ഓർഡർ നൽകാം.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> PDF, ചിത്രങ്ങൾ തുടങ്ങിയ ഫയലുകൾ സ്വീകരിക്കാം.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> കോപ്പികളുടെ എണ്ണം, കളർ/B&W എന്നിവ തിരഞ്ഞെടുക്കാം.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> പ്രിന്റിംഗ് നിരക്ക് കടയുടമയ്ക്ക് ക്രമീകരിക്കാം.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Cash, UPI ഓർഡറുകൾ കൈകാര്യം ചെയ്യാം.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Manual Mode, Auto-Pilot Mode സൗകര്യങ്ങൾ.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Shop Admin Dashboard വഴി ഓർഡറുകൾ നിയന്ത്രിക്കാം.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> Windows കമ്പ്യൂട്ടറിലെ RTS Smart Print Agent വഴി പ്രിന്റിംഗ്.</li>
+            <li className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> ഇന്റർനെറ്റ് ഇല്ലാത്ത സമയത്ത് ഡൗൺലോഡ് ചെയ്തിട്ടുള്ള ഓർഡറുകൾ പ്രിന്റ് ചെയ്യാം.</li>
+          </ul>
+        </div>
+
+        {/* Section 3: How to Install */}
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-xl md:text-2xl font-black text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
+            <Printer className="w-6 h-6 text-emerald-600" />
+            <span>3. കടയിൽ എങ്ങനെ ഇൻസ്റ്റാൾ ചെയ്യാം?</span>
+          </h3>
+          <div className="space-y-3 text-xs md:text-sm text-slate-700">
+            <p><strong>1. കട രജിസ്ട്രേഷൻ:</strong> RTS Smart Print-ൽ നിങ്ങളുടെ കടയുടെ വിവരങ്ങൾ നൽകി രജിസ്റ്റർ ചെയ്യുക.</p>
+            <p><strong>2. അക്കൗണ്ട് ആക്ടിവേഷൻ:</strong> RTS ടീം നിങ്ങളുടെ കടയുടെ അക്കൗണ്ട് പരിശോധിച്ച് ആക്ടിവേറ്റ് ചെയ്യും.</p>
+            <p><strong>3. QR Code & Dashboard:</strong> നിങ്ങളുടെ കടയ്ക്ക് പ്രത്യേകമായ Online Printing Page, Admin Dashboard, QR Code എന്നിവ ലഭിക്കും.</p>
+            <p><strong>4. കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്യുക:</strong> നൽകുന്ന RTS Smart Print Agent Setup ഫയൽ Windows കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്യുക.</p>
+            <p><strong>5. Pairing & Testing:</strong> ലഭിക്കുന്ന Pairing Code ഉപയോഗിച്ച് കമ്പ്യൂട്ടറിനെ നിങ്ങളുടെ കടയുടെ അക്കൗണ്ടുമായി ബന്ധിപ്പിക്കുക.</p>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-500">
+            <strong>ആവശ്യമായ അടിസ്ഥാന സൗകര്യങ്ങൾ:</strong> Windows കമ്പ്യൂട്ടർ/ലാപ്‌ടോപ്പ്, കണക്റ്റ് ചെയ്ത പ്രിന്റർ, ഇന്റർനെറ്റ് കണക്ഷൻ, ഉപഭോക്താക്കൾക്ക് സ്മാർട്ട്ഫോൺ.
+          </div>
+        </div>
+
+      </section>
+
+      {/* Pricing Cards (Starter Station vs Pro / Dynamic Plans) */}
+      <section className="max-w-4xl mx-auto px-4 py-8" id="pricing-section">
         <div className="text-center mb-8 space-y-1">
           <span className="text-[11px] font-extrabold uppercase bg-amber-100 text-amber-800 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
             <Tag className="w-3 h-3" /> {t.trialBadge}
@@ -325,22 +401,22 @@ export const BusinessLandingPage: React.FC = () => {
                   Popular Choice
                 </span>
                 <div>
-                  <h4 className="font-bold text-lg text-slate-900">Starter Station</h4>
+                  <h4 className="font-bold text-lg text-slate-900">Starter Monthly / Yearly</h4>
                   <div className="mt-3 mb-4">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black text-slate-900">₹299</span>
+                      <span className="text-3xl font-black text-slate-900">₹499</span>
                       <span className="text-xs text-slate-400 line-through">₹999</span>
                       <span className="text-xs text-slate-500">/Monthly</span>
                     </div>
                     <p className="text-[11px] text-emerald-700 font-semibold mt-1">
-                      7 or 14-Day Free Trial Available • Yearly at ₹1,499/yr
+                      Yearly Plan: ₹2,499 / വർഷം (ഏകദേശം ₹208/മാസം)
                     </p>
                   </div>
                   <ul className="space-y-2 text-xs text-slate-600">
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Counter Printer Connection</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> QR Standee Generator with PIN</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Online Printing Page & QR Standee</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Shop Admin Dashboard & Print Agent</li>
                     <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Cash & Direct UPI Support (0% Commission)</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Live Realtime Print Queue & Spooler</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Auto/Manual Printing & Order Queue</li>
                   </ul>
                 </div>
                 <button
@@ -351,43 +427,70 @@ export const BusinessLandingPage: React.FC = () => {
                   }}
                   className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
                 >
-                  Select Starter Station
+                  Select Starter Plan
                 </button>
               </div>
 
-              {/* Pro Digital Seva (Paused with Coming Soon) */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between relative opacity-85">
+              {/* Yearly Plan Box */}
+              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-between relative">
                 <span className="absolute top-4 right-4 bg-amber-500 text-slate-950 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                  Coming Soon
+                  കൂടുതൽ ലാഭകരം
                 </span>
                 <div>
-                  <h4 className="font-bold text-lg text-slate-900">Pro Digital Seva</h4>
+                  <h4 className="font-bold text-lg text-slate-900">Yearly Plan (വാർഷികം)</h4>
                   <div className="mt-3 mb-4">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black text-slate-400">₹1,999</span>
-                      <span className="text-xs text-slate-400 line-through">₹5,999</span>
-                      <span className="text-xs text-slate-400">/Yearly</span>
+                      <span className="text-3xl font-black text-slate-900">₹2,499</span>
+                      <span className="text-xs text-slate-500">/Yearly</span>
                     </div>
-                    <p className="text-[11px] text-slate-400 font-semibold mt-1">
-                      Advanced Multi-Printer Automation (Coming Soon)
+                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                      മാസത്തിൽ ശരാശരി ₹208 മാത്രം (₹990 ലാഭം)
                     </p>
                   </div>
-                  <ul className="space-y-2 text-xs text-slate-400">
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-slate-300" /> Multi-Printer Auto-Routing (B&W + Color)</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-slate-300" /> Advanced Anti-Spam PIN & Priority Queue</li>
-                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-slate-300" /> Custom Standee Branding & Remote Support</li>
+                  <ul className="space-y-2 text-xs text-slate-600">
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> ഒരു വർഷത്തെ മുഴുവൻ സബ്സ്ക്രിപ്ഷൻ</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> എല്ലാ മാസപ്ലാൻ സൗകര്യങ്ങളും ലഭ്യമാണ്</li>
+                    <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> മുൻഗണനാ സാങ്കേതിക പിന്തുണ</li>
                   </ul>
                 </div>
                 <button
                   type="button"
-                  disabled
-                  className="mt-6 w-full py-2.5 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed border border-slate-200"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, selectedPlan: 'starter_yearly' }));
+                    document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="mt-6 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
                 >
-                  Pro Plan Coming Soon
+                  Select Yearly Plan
                 </button>
               </div>
             </>
           )}
+        </div>
+      </section>
+
+      {/* Section 5 & 6: Benefits & Important Notes */}
+      <section className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-lg md:text-xl font-black text-slate-900 border-b border-slate-100 pb-2">
+            5. കടയുടമയ്ക്ക് ലഭിക്കുന്ന പ്രധാന നേട്ടങ്ങൾ
+          </h3>
+          <ul className="grid md:grid-cols-2 gap-2 text-xs md:text-sm text-slate-700">
+            <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> ഉപഭോക്താക്കൾക്ക് കടയിൽ വരുന്നതിന് മുമ്പ് തന്നെ ഓർഡർ നൽകാം.</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> ഫയലുകൾ WhatsApp-ൽ ചോദിച്ച് വാങ്ങേണ്ട സാഹചര്യം കുറയ്ക്കാം.</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> ഓർഡറുകൾ ഒരിടത്ത് ക്രമീകരിച്ച് കൈകാര്യം ചെയ്യാം.</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> പ്രിന്റിംഗ് നിരക്കുകൾ കടയുടമയ്ക്ക് നിയന്ത്രിക്കാം.</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> ഒരേ സമയം ഒന്നിലധികം ഓർഡറുകൾ കൈകാര്യം ചെയ്യാം.</li>
+            <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> കടയുടെ സേവനത്തിന് കൂടുതൽ പ്രൊഫഷണൽ രൂപം നൽകാം.</li>
+          </ul>
+        </div>
+
+        <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200 shadow-sm space-y-2 text-xs md:text-sm text-amber-900">
+          <h4 className="font-bold text-amber-950 text-base">6. പ്രധാനമായി അറിയേണ്ട കാര്യങ്ങൾ</h4>
+          <p>• RTS Smart Print ഒരു പ്രിന്റിംഗ് മാനേജ്മെന്റ് സംവിധാനമാണ്; പ്രിന്ററും കമ്പ്യൂട്ടറും കടയുടമ തന്നെ ഒരുക്കണം.</p>
+          <p>• UPI പേയ്‌മെന്റ് വിജയിച്ചതായി കാണിക്കുന്ന സ്ക്രീൻ മാത്രം പണം ലഭിച്ചതിന്റെ ഉറപ്പല്ല. പണം ലഭിച്ചെന്ന് സ്ഥിതിീകരിച്ചശേഷം മാത്രമേ പ്രിന്റിംഗ് നടത്താവൂ.</p>
+          <p>• ഇന്റർനെറ്റ് ഇല്ലാത്തപ്പോൾ പുതിയ ഓൺലൈൻ ഓർഡറുകൾ ലഭിക്കില്ല. മുമ്പ് ഡൗൺലോഡ് ചെയ്തിട്ടുള്ള ഓർഡറുകൾ മാത്രമേ ഓഫ്ലൈനായി പ്രിന്റ് ചെയ്യാൻ കഴിയൂ.</p>
+          <p>• പ്രിന്ററിന്റെ പ്രവർത്തനക്ഷമതയും പേപ്പർ, മഷി/ടോണർ തുടങ്ങിയവയും കടയുടമയുടെ ഉത്തരവാദിത്തമാണ്.</p>
         </div>
       </section>
 
@@ -479,10 +582,9 @@ export const BusinessLandingPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs bg-white outline-none"
                   >
-                    <option value="starter_monthly">Starter Monthly (₹299/mo)</option>
-                    <option value="starter_yearly">Starter Yearly (₹1,499/yr)</option>
+                    <option value="starter_monthly">Monthly Plan (₹499/mo)</option>
+                    <option value="starter_yearly">Yearly Plan (₹2,499/yr)</option>
                     <option value="trial_7">7-Day Free Trial (₹0)</option>
-                    <option value="trial_14">14-Day Free Trial (₹0)</option>
                   </select>
                 </div>
                 <div>

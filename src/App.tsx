@@ -9,8 +9,9 @@ import { SuperAdminPage } from '@/pages/SuperAdminPage';
 export default function App() {
   return (
     <Routes>
-      {/* 1. Super Admin Master Panel */}
+      {/* 1. Super Admin Master Panel (Handles both with and without hyphen) */}
       <Route path="/super-admin" element={<SuperAdminPage />} />
+      <Route path="/superadmin" element={<SuperAdminPage />} />
 
       {/* 2. Root domain (https://rtsprint.online) opens your professional Business Landing Page */}
       <Route path="/" element={<BusinessLandingPage />} />
@@ -23,13 +24,13 @@ export default function App() {
       <Route path="/shop/:shopSlug/order/:orderId" element={<OrderStatusPage />} />
       <Route path="/order/:orderId" element={<OrderStatusPage />} />
 
-      {/* 5. Shop-Specific Counter Admin Dashboards (Strictly tied to shop slug) */}
+      {/* 5. Shop-Specific Counter Admin Dashboards */}
       <Route path="/shop/:shopSlug/admin" element={<AdminPage />} />
 
       {/* 6. Partner Registration */}
       <Route path="/partner-register" element={<PartnerRegisterPage />} />
 
-      {/* 7. Catch-all Fallback -> Redirects back to Business Landing Page */}
+      {/* 7. Catch-all Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

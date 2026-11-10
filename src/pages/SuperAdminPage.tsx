@@ -84,7 +84,7 @@ interface Inquiry {
   created_at: string;
 }
 
-const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.zip";
+const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
 
 const COMMON_PRINTERS = [
   "Microsoft Print to PDF",

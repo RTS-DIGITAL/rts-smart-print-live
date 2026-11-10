@@ -69,6 +69,10 @@ interface PlatformPlan {
   trial_days: number;
   badge_text: string;
   is_active: boolean;
+  // Dedicated Form Dropdown Fields
+  form_monthly_price?: string;
+  form_yearly_price?: string;
+  form_trial_days?: string;
 }
 
 interface Inquiry {
@@ -126,6 +130,12 @@ export const SuperAdminPage: React.FC = () => {
 
   const [broadcastText, setBroadcastText] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
+
+  // Dedicated Form Dropdown Customizer State
+  const [formMonthlyPrice, setFormMonthlyPrice] = useState('499');
+  const [formYearlyPrice, setFormYearlyPrice] = useState('2,499');
+  const [formTrialDays, setFormTrialDays] = useState('7');
+  const [formPricingSaving, setFormPricingSaving] = useState(false);
 
   const calculateDaysRemaining = (approvedAt: string | null, totalDays: number): { days: number; isExpired: boolean } => {
     if (!approvedAt) return { days: totalDays, isExpired: false };
@@ -202,7 +212,16 @@ export const SuperAdminPage: React.FC = () => {
         .from('platform_plans')
         .select('*')
         .order('original_price', { ascending: true });
-      if (plansData) setPlans(plansData);
+      if (plansData) {
+        setPlans(plansData);
+        // Load custom form dropdown pricing from the first plan row or persistent storage if present
+        const mainPlan = plansData[0];
+        if (mainPlan) {
+          if (mainPlan.form_monthly_price) setFormMonthlyPrice(mainPlan.form_monthly_price);
+          if (mainPlan.form_yearly_price) setFormYearlyPrice(mainPlan.form_yearly_price);
+          if (mainPlan.form_trial_days) setFormTrialDays(String(mainPlan.trial_days || mainPlan.form_trial_days));
+        }
+      }
     } catch (err) {
       console.error('SuperAdmin load failed:', err);
     } finally {
@@ -532,6 +551,27 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
+  // Save Custom Form Dropdown Pricing Settings across platform plans
+  const handleSaveFormPricing = async () => {
+    setFormPricingSaving(true);
+    try {
+      for (const p of plans) {
+        await supabase.from('platform_plans').update({
+          form_monthly_price: formMonthlyPrice,
+          form_yearly_price: formYearlyPrice,
+          form_trial_days: formTrialDays,
+          trial_days: Number(formTrialDays || 7)
+        }).eq('id', p.id);
+      }
+      alert('✅ Registration form dropdown pricing updated successfully!');
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to update form pricing: ' + err.message);
+    } finally {
+      setFormPricingSaving(false);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -575,7 +615,7 @@ export const SuperAdminPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
-      <header className="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-6 py-4 sticky top-0 z-40 flex justify-between items-center">
+      <header className="bg-slate-900/85 backdrop-blur border-b border-slate-800 px-6 py-4 sticky top-0 z-40 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-950 text-base shadow-lg shadow-emerald-500/30">
             ⚡
@@ -864,7 +904,6 @@ export const SuperAdminPage: React.FC = () => {
                   const isAlreadyApproved = inq.status === 'approved';
                   const appliedDate = new Date(inq.created_at).toLocaleDateString();
 
-                  // Find matching shop slug and pairing code if already approved or exists
                   const matchingShop = shops.find(s => s.name.toLowerCase() === inq.business_name.toLowerCase() || s.owner_email === inq.email);
                   const generatedSlug = matchingShop?.slug || inq.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-');
                   const generatedPairingCode = matchingShop?.pairing_code || '919056';
@@ -912,7 +951,6 @@ export const SuperAdminPage: React.FC = () => {
                           <span>Send WhatsApp Kit</span>
                         </a>
 
-                        {/* FIXED: Passing slug and pairingCode so email never shows undefined */}
                         <button
                           type="button"
                           onClick={() => sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug: generatedSlug, pairingCode: generatedPairingCode })}
@@ -1019,6 +1057,77 @@ export const SuperAdminPage: React.FC = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* DEDICATED CUSTOMIZE BOX FOR REGISTRATION FORM DROPDOWN */}
+              <div className="mt-6 bg-slate-950 p-6 rounded-2xl border border-teal-500/30 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-sm font-black text-white flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-teal-400" />
+                      Registration Form Dropdown Pricing Customizer
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Change these values to instantly update the pricing labels inside the Business Page registration form dropdown.
+                    </p>
+                  </div>
+                  <span className="text-[10px] bg-teal-500/20 text-teal-300 font-extrabold px-3 py-1 rounded-full uppercase border border-teal-500/30">
+                    FORM DROPDOWN ONLY
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Monthly Plan Price (₹)
+                    </label>
+                    <input
+                      type="text"
+                      value={formMonthlyPrice}
+                      onChange={(e) => setFormMonthlyPrice(e.target.value)}
+                      placeholder="499"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white font-mono outline-none focus:border-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Yearly Plan Price (₹)
+                    </label>
+                    <input
+                      type="text"
+                      value={formYearlyPrice}
+                      onChange={(e) => setFormYearlyPrice(e.target.value)}
+                      placeholder="2,499"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white font-mono outline-none focus:border-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Free Trial Days
+                    </label>
+                    <input
+                      type="number"
+                      value={formTrialDays}
+                      onChange={(e) => setFormTrialDays(e.target.value)}
+                      placeholder="7"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white font-mono outline-none focus:border-teal-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    disabled={formPricingSaving}
+                    onClick={handleSaveFormPricing}
+                    className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 shadow"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{formPricingSaving ? 'Saving Form Prices...' : 'Save Form Dropdown Settings'}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

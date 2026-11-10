@@ -13,6 +13,9 @@ interface PlatformPlan {
   badge_text: string;
   features: string[];
   is_active: boolean;
+  form_monthly_price?: string;
+  form_yearly_price?: string;
+  form_trial_days?: string;
 }
 
 const TEXTS = {
@@ -156,6 +159,12 @@ export const BusinessLandingPage: React.FC = () => {
   const scrollToForm = () => {
     document.getElementById('inquiry-form-section')?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Extract dynamic form pricing set from Super Admin (defaults to 499 / 2,499 / 7)
+  const firstPlan = dbPlans[0];
+  const customMonthly = firstPlan?.form_monthly_price || '499';
+  const customYearly = firstPlan?.form_yearly_price || '2,499';
+  const customTrialDays = firstPlan?.form_trial_days || String(firstPlan?.trial_days || 7);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
@@ -633,9 +642,9 @@ export const BusinessLandingPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs bg-white outline-none font-normal"
                   >
-                    <option value="starter_monthly">Monthly Plan (₹499/mo)</option>
-                    <option value="starter_yearly">Yearly Plan (₹2,499/yr)</option>
-                    <option value="trial_7">7-Day Free Trial (₹0)</option>
+                    <option value="starter_monthly">Monthly Plan (₹{customMonthly}/mo)</option>
+                    <option value="starter_yearly">Yearly Plan (₹{customYearly}/yr)</option>
+                    <option value="trial_7">{customTrialDays}-Day Free Trial (₹0)</option>
                   </select>
                 </div>
                 <div>

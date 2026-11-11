@@ -25,7 +25,8 @@ import {
   Mail,
   Download,
   Bell,
-  Send
+  Send,
+  MessageCircle
 } from 'lucide-react';
 
 interface ShopData {
@@ -56,6 +57,7 @@ interface ShopData {
   max_downloads?: number;
   download_requested?: boolean;
   admin_message?: string | null;
+  targeted_message?: string | null;
 }
 
 interface OrderRow {
@@ -671,6 +673,35 @@ export default function AdminPage() {
                 {shop.admin_message}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TARGETED PARTICULAR SHOP HIDDEN TICKER BOX (Only appears when Super Admin sends a message for this shop) */}
+      {shop.targeted_message && (
+        <div className="max-w-6xl mx-auto px-4 pt-3">
+          <div className="bg-teal-50 border-2 border-teal-400 rounded-2xl p-4 flex items-start justify-between gap-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-teal-600 text-white rounded-xl shrink-0 mt-0.5">
+                <MessageCircle className="w-4 h-4 animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-teal-800 block">
+                  🎯 Special Update / Instruction for {shop.name} (Code: {shop.pairing_code})
+                </span>
+                <p className="text-xs font-bold text-slate-900 mt-0.5 leading-relaxed">
+                  {shop.targeted_message}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={loadShopData}
+              className="p-1.5 bg-teal-100 hover:bg-teal-200 text-teal-800 rounded-lg transition shrink-0"
+              title="Refresh Notice"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}

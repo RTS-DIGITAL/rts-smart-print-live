@@ -57,6 +57,7 @@ interface ShopTenant {
   max_downloads?: number;
   download_requested?: boolean;
   admin_message?: string | null;
+  targeted_message?: string | null;
 }
 
 interface PlatformPlan {
@@ -130,6 +131,11 @@ export const SuperAdminPage: React.FC = () => {
 
   const [broadcastText, setBroadcastText] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
+
+  // Targeted Particular Shop Notice States
+  const [targetShopCode, setTargetShopCode] = useState('');
+  const [targetShopMessage, setTargetShopMessage] = useState('');
+  const [sendingTargeted, setSendingTargeted] = useState(false);
 
   // Dedicated Form Dropdown Customizer State
   const [formMonthlyPrice, setFormMonthlyPrice] = useState('499');
@@ -261,7 +267,8 @@ export const SuperAdminPage: React.FC = () => {
       max_downloads: shop.max_downloads ?? 3,
       download_allowed: shop.download_allowed ?? true,
       download_requested: shop.download_requested ?? false,
-      admin_message: shop.admin_message ?? ''
+      admin_message: shop.admin_message ?? '',
+      targeted_message: shop.targeted_message ?? ''
     });
   };
 
@@ -409,6 +416,51 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
+  // Handler to send message to a specific shop code/pairing code
+  const handleSendTargetedNotice = async (clear: boolean = false) => {
+    const messageToSend = clear ? null : targetShopMessage.trim();
+    if (!targetShopCode) {
+      alert('Please select or enter a shop pairing code or ID.');
+      return;
+    }
+    if (!clear && !messageToSend) {
+      alert('Please enter a message to send to this shop.');
+      return;
+    }
+
+    setSendingTargeted(true);
+    try {
+      const targetShop = shops.find(
+        s => s.pairing_code === targetShopCode || s.slug === targetShopCode || s.id === targetShopCode || s.admin_username === targetShopCode
+      );
+
+      if (!targetShop) {
+        alert('Shop not found with code: ' + targetShopCode);
+        setSendingTargeted(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from('shops')
+        .update({ targeted_message: messageToSend })
+        .eq('id', targetShop.id);
+
+      if (error) throw error;
+
+      if (clear) setTargetShopMessage('');
+      alert(
+        clear
+          ? `🗑️ Targeted notice deleted/cleared for ${targetShop.name} (${targetShop.pairing_code})!`
+          : `🎯 Targeted notice sent to ${targetShop.name} (${targetShop.pairing_code})!`
+      );
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to send targeted notice: ' + err.message);
+    } finally {
+      setSendingTargeted(false);
+    }
+  };
+
   const handleDeleteShop = async (shop: ShopTenant) => {
     const confirmation = window.prompt(`⚠️ PERMANENT DELETE\n\nType the shop name "${shop.name}" to delete this store, all files, and inquiries:`);
     if (confirmation !== shop.name) {
@@ -520,7 +572,8 @@ export const SuperAdminPage: React.FC = () => {
           max_downloads: Number(editingShop.max_downloads ?? 3),
           download_allowed: Boolean(editingShop.download_allowed ?? true),
           download_requested: Boolean(editingShop.download_requested ?? false),
-          admin_message: editingShop.admin_message?.trim() || null
+          admin_message: editingShop.admin_message?.trim() || null,
+          targeted_message: editingShop.targeted_message?.trim() || null
         })
         .eq('id', editingShop.id);
 
@@ -675,6 +728,7 @@ export const SuperAdminPage: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
         {activeTab === 'shops' && (
           <div className="space-y-4">
+            {/* Global Broadcast Bar (All Shops) */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
               <div className="flex items-center gap-2.5 text-xs font-extrabold text-amber-400 shrink-0">
                 <Megaphone className="w-4 h-4" />
@@ -705,6 +759,106 @@ export const SuperAdminPage: React.FC = () => {
                 >
                   Clear All
                 </button>
+              </div>
+            </div>
+
+            {/* Targeted Individual Shop Notice Box */}
+            <div className="bg-slate-900 border border-teal-500/30 rounded-3xl p-4 shadow-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-extrabold text-teal-400">
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Send Targeted Notice / Instruction / Offer to Particular Shop:</span>
+                </div>
+                <span className="text-[10px] bg-teal-500/20 text-teal-300 font-bold px-2.5 py-0.5 rounded-full border border-teal-500/30">
+                  PARTICULAR SHOP TICKER
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                {/* Dropdown to auto-fill active shop code */}
+                <div className="md:col-span-3">
+                  <select
+                    value={targetShopCode}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setTargetShopCode(code);
+                      const found = shops.find(s => s.pairing_code === code || s.slug === code);
+                      if (found) setTargetShopMessage(found.targeted_message || '');
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-teal-500 font-mono"
+                  >
+                    <option value="">-- Select Active Shop --</option>
+                    {shops.map((s) => (
+                      <option key={s.id} value={s.pairing_code || s.slug}>
+                        [{s.pairing_code || '---'}] {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Manual Shop Code Typing Box */}
+                <div className="md:col-span-2">
+                  <input
+                    type="text"
+                    placeholder="Or type Shop Code..."
+                    value={targetShopCode}
+                    onChange={(e) => setTargetShopCode(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-teal-400 font-mono font-bold outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                {/* Message Input Box for Particular Shop */}
+                <div className="md:col-span-4">
+                  <input
+                    type="text"
+                    placeholder="Type update, offer, or warning for this shop..."
+                    value={targetShopMessage}
+                    onChange={(e) => setTargetShopMessage(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                {/* Action Buttons: Send, Clear, Delete, Refresh */}
+                <div className="md:col-span-3 flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    disabled={sendingTargeted}
+                    onClick={() => handleSendTargetedNotice(false)}
+                    className="px-3 py-2 bg-teal-600 hover:bg-teal-500 text-white font-black rounded-xl text-xs transition flex items-center gap-1 shadow"
+                    title="Send to Shop"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Send</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTargetShopMessage('')}
+                    className="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition"
+                    title="Clear Input Text"
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sendingTargeted}
+                    onClick={() => handleSendTargetedNotice(true)}
+                    className="p-2 bg-rose-950/60 hover:bg-rose-900 text-rose-400 border border-rose-800/60 rounded-xl transition"
+                    title="Delete Notice from Shop Dashboard"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={fetchAllData}
+                    className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
+                    title="Refresh Shops"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -750,8 +904,13 @@ export const SuperAdminPage: React.FC = () => {
                             <span className="text-[11px] font-mono text-emerald-400">/shop/{shop.slug}</span>
                             <span className="text-[10px] text-slate-500 block font-mono">ID: {shop.admin_username || shop.slug}</span>
                             {shop.admin_message && (
-                              <span className="inline-block mt-1 text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md truncate max-w-[180px]" title={shop.admin_message}>
+                              <span className="inline-block mt-1 mr-1 text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md truncate max-w-[180px]" title={shop.admin_message}>
                                 💬 {shop.admin_message}
+                              </span>
+                            )}
+                            {shop.targeted_message && (
+                              <span className="inline-block mt-1 text-[10px] bg-teal-500/10 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-md truncate max-w-[180px]" title={shop.targeted_message}>
+                                🎯 {shop.targeted_message}
                               </span>
                             )}
                           </td>
@@ -1417,7 +1576,7 @@ export const SuperAdminPage: React.FC = () => {
                 <div className="flex justify-between items-center">
                   <label className="text-[11px] font-extrabold text-amber-400 flex items-center gap-1.5">
                     <Bell className="w-3.5 h-3.5" />
-                    Important Update / Notice for Shop Admin Panel
+                    Global Broadcast Notice for Shop Admin Panel
                   </label>
                   {editingShop.admin_message && (
                     <button
@@ -1431,10 +1590,35 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
                 <textarea
                   rows={2}
-                  placeholder="Type a message to display at the top of this shop's admin dashboard (leave empty for none)..."
+                  placeholder="Global broadcast message shown on this shop's admin dashboard..."
                   value={editingShop.admin_message || ''}
                   onChange={(e) => setEditingShop({ ...editingShop, admin_message: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none focus:border-amber-500 text-xs"
+                />
+              </div>
+
+              <div className="p-3 bg-teal-950/20 border border-teal-800/40 rounded-2xl space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-extrabold text-teal-400 flex items-center gap-1.5">
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Targeted / Particular Shop Notice (Hidden unless set)
+                  </label>
+                  {editingShop.targeted_message && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingShop({ ...editingShop, targeted_message: '' })}
+                      className="text-[10px] text-rose-400 hover:underline font-bold"
+                    >
+                      Clear Targeted Notice
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="Type a private update, instruction, or offer for this particular shop..."
+                  value={editingShop.targeted_message || ''}
+                  onChange={(e) => setEditingShop({ ...editingShop, targeted_message: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none focus:border-teal-500 text-xs"
                 />
               </div>
 

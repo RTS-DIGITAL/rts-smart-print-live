@@ -36,6 +36,7 @@ interface ShopData {
   phone: string | null;
   owner_email: string | null;
   upi_id: string | null;
+  upi_name?: string | null;
   target_printer_name: string | null;
   counter_notice: string | null;
   is_accepting_orders: boolean;
@@ -128,6 +129,7 @@ export default function AdminPage() {
   const [phone, setPhone] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [upiId, setUpiId] = useState('');
+  const [upiName, setUpiName] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
   const [isCustomPrinter, setIsCustomPrinter] = useState(false);
   const [counterNotice, setCounterNotice] = useState('');
@@ -191,6 +193,7 @@ export default function AdminPage() {
       setPhone(shopRes.phone || '');
       setOwnerEmail(shopRes.owner_email || '');
       setUpiId(shopRes.upi_id || '');
+      setUpiName(shopRes.upi_name || '');
       
       const savedPrinter = shopRes.target_printer_name || 'Microsoft Print to PDF';
       setTargetPrinter(savedPrinter);
@@ -362,7 +365,8 @@ export default function AdminPage() {
           name: shopName,
           phone: phone,
           owner_email: ownerEmail,
-          upi_id: upiId,
+          upi_id: upiId.trim(),
+          upi_name: upiName.trim(),
           target_printer_name: targetPrinter.trim() || 'Microsoft Print to PDF',
           counter_notice: counterNotice,
           is_accepting_orders: isAccepting,
@@ -844,21 +848,37 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* ALWAYS VISIBLE UPI ID */}
-              <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-1.5">
-                <label className="block font-bold text-emerald-950 flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
-                  Shop Direct UPI ID (GPay / PhonePe / Paytm)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. yourname@okaxis, shop@okhdfcbank"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-emerald-300 font-mono text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+              {/* ALWAYS VISIBLE UPI ID + REGISTERED BANKING NAME */}
+              <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2.5">
+                <div>
+                  <label className="block font-bold text-emerald-950 flex items-center gap-1.5 mb-1">
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                    Shop Direct UPI ID (GPay / PhonePe / Paytm)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. yourname@okaxis, shop@okhdfcbank"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-300 font-mono text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-emerald-950 mb-1">
+                    UPI Registered Banking Name (Account Holder Name)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. RAJANEESH T / RTS DIGITAL SEVA"
+                    value={upiName}
+                    onChange={(e) => setUpiName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-300 text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
                 <p className="text-[10px] text-emerald-700 leading-tight">
-                  Customer payments go 100% directly into this UPI ID.
+                  Customer payments go 100% directly into this UPI ID. Entering your exact bank account holder name prevents UPI name-mismatch warnings.
                 </p>
               </div>
 

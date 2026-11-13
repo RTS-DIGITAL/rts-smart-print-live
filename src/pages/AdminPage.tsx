@@ -52,7 +52,6 @@ interface ShopData {
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
-  // Software Download & Super Admin Notice Fields
   download_count?: number;
   download_allowed?: boolean;
   max_downloads?: number;
@@ -81,8 +80,8 @@ interface PricingRule {
   price_per_page: number;
 }
 
-// PASTE YOUR GOOGLE DRIVE OR DIRECT DOWNLOAD LINK FOR RTS-Print-Setup.exe HERE:
 const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
 const COMMON_PRINTERS = [
   "Microsoft Print to PDF",
@@ -117,12 +116,16 @@ export default function AdminPage() {
   const [downloading, setDownloading] = useState(false);
   const [requestingUnlock, setRequestingUnlock] = useState(false);
 
-  // Authentication State
+  // Authentication & Automated Forgot Password State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginId, setLoginId] = useState('');
   const [loginPin, setLoginPin] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [forgotSent, setForgotSent] = useState(false);
+
+  const [showForgotBox, setShowForgotBox] = useState(false);
+  const [forgotUserId, setForgotUserId] = useState('');
+  const [sendingReset, setSendingReset] = useState(false);
+  const [forgotStatusMsg, setForgotStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Form State
   const [shopName, setShopName] = useState('');
@@ -141,7 +144,6 @@ export default function AdminPage() {
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
 
-  // Check Local Session
   useEffect(() => {
     const sessionKey = `rts_auth_${activeSlug}`;
     if (localStorage.getItem(sessionKey) === 'true') {
@@ -159,13 +161,10 @@ export default function AdminPage() {
 
       if (shopErr || !shopRes) throw new Error('Shop not found');
 
-      // -------------------------------------------------------------
-      // AUTOMATIC STORAGE & QUEUE PURGE (Reclaims Supabase Disk Space)
-      // -------------------------------------------------------------
+      // Automatic Storage & Queue Purge
       const retentionHours = shopRes.auto_delete_hours || 1;
       const expirationThreshold = new Date(Date.now() - retentionHours * 60 * 60 * 1000).toISOString();
 
-      // 1. Find all expired orders
       const { data: expiredOrders } = await supabase
         .from('print_orders')
         .select('id, file_url')
@@ -177,16 +176,13 @@ export default function AdminPage() {
           .map((o) => o.file_url)
           .filter((url): url is string => Boolean(url));
 
-        // 2. Remove files from Supabase Storage bucket (reclaims space)
         if (filePathsToRemove.length > 0) {
           await supabase.storage.from('print-files').remove(filePathsToRemove);
         }
 
-        // 3. Delete matching database records
         const idsToDelete = expiredOrders.map((o) => o.id);
         await supabase.from('print_orders').delete().in('id', idsToDelete);
       }
-      // -------------------------------------------------------------
 
       setShop(shopRes);
       setShopName(shopRes.name || '');
@@ -208,7 +204,6 @@ export default function AdminPage() {
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
       setAutoDeleteHours(shopRes.auto_delete_hours || 24);
 
-      // Load Orders (Limited to 30)
       const { data: ordersRes } = await supabase
         .from('print_orders')
         .select('*')
@@ -218,7 +213,6 @@ export default function AdminPage() {
 
       if (ordersRes) setOrders(ordersRes);
 
-      // Load Pricing
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
         .select('*')
@@ -236,7 +230,6 @@ export default function AdminPage() {
     loadShopData();
   }, [activeSlug]);
 
-  // Realtime Live Subscription (Orders + Shop Settings/Download Unlocks)
   useEffect(() => {
     if (!shop?.id) return;
     const channel = supabase
@@ -258,17 +251,30 @@ export default function AdminPage() {
     };
   }, [shop?.id]);
 
-  // Login Handler
-  const handleLogin = (e: React.FormEvent) => {
+  // Login Handler (Always checks latest PIN from DB so newly reset PIN works immediately)
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
 
-    const validId = (shop.admin_username || shop.slug || '').toLowerCase().trim();
-    const validPhone = (shop.phone || '').trim();
-    const enteredId = loginId.toLowerCase().trim();
-    const validPin = (shop.admin_pin || '123456').trim();
+    const { data: freshShop } = await supabase
+      .from('shops')
+      .select('*')
+      .eq('id', shop.id)
+      .single();
 
-    if ((enteredId === validId || enteredId === validPhone) && loginPin.trim() === validPin) {
+    const currentShop = freshShop || shop;
+    const validId = (currentShop.admin_username || currentShop.slug || '').toLowerCase().trim();
+    const validSlug = (currentShop.slug || '').toLowerCase().trim();
+    const validPhone = (currentShop.phone || '').trim();
+    const enteredId = loginId.toLowerCase().trim();
+    const validPin = (currentShop.admin_pin || '123456').trim();
+
+    if (
+      (enteredId === validId || enteredId === validSlug || enteredId === validPhone) &&
+      loginPin.trim() === validPin
+    ) {
+      setShop(currentShop);
+      setAdminPin(validPin);
       setIsLoggedIn(true);
       localStorage.setItem(`rts_auth_${activeSlug}`, 'true');
       setLoginError('');
@@ -282,15 +288,93 @@ export default function AdminPage() {
     setIsLoggedIn(false);
   };
 
-  const handleForgotPassword = () => {
-    if (!shop?.owner_email) {
-      alert(`No owner email configured. Please call RTS Super Admin (7012833699) to reset your PIN.`);
+  // =========================================================================
+  // AUTOMATED FORGOT PASSWORD HANDLER (Generates New 6-Digit PIN, Saves to DB & Emails Shopkeeper)
+  // =========================================================================
+  const handleSendResetPinEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shop) return;
+
+    const enteredUser = forgotUserId.toLowerCase().trim();
+    const validUsername = (shop.admin_username || '').toLowerCase().trim();
+    const validSlug = (shop.slug || '').toLowerCase().trim();
+    const validName = (shop.name || '').toLowerCase().trim();
+    const validPhone = (shop.phone || '').trim();
+
+    if (!enteredUser) {
+      setForgotStatusMsg({ type: 'error', text: 'Please enter your Shop ID / User ID (e.g. ramu).' });
       return;
     }
-    window.open(
-      `mailto:${shop.owner_email}?subject=Your RTS Shop Admin Login Details&body=Your Shop ID: ${shop.admin_username || shop.slug}%0D%0AYour 6-Digit Admin PIN: ${shop.admin_pin || '123456'}`
-    );
-    setForgotSent(true);
+
+    if (
+      enteredUser !== validUsername &&
+      enteredUser !== validSlug &&
+      enteredUser !== validName &&
+      enteredUser !== validPhone
+    ) {
+      setForgotStatusMsg({
+        type: 'error',
+        text: `User ID "${forgotUserId}" does not match this shop. Try "${shop.admin_username || shop.slug}".`
+      });
+      return;
+    }
+
+    if (!shop.owner_email) {
+      setForgotStatusMsg({
+        type: 'error',
+        text: 'No owner email is registered for this shop. Please contact RTS Support (info@rtsdigitalseva.online).'
+      });
+      return;
+    }
+
+    setSendingReset(true);
+    setForgotStatusMsg(null);
+
+    try {
+      // 1. Generate a brand new random 6-digit Admin PIN
+      const newSixDigitPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // 2. Update the new 6-digit PIN in Supabase `shops` table immediately
+      const { error: updateErr } = await supabase
+        .from('shops')
+        .update({ admin_pin: newSixDigitPin })
+        .eq('id', shop.id);
+
+      if (updateErr) throw updateErr;
+
+      // 3. Update local state so Counter Admin PIN (6 Numbers) reflects the new PIN automatically
+      setAdminPin(newSixDigitPin);
+      setShop({ ...shop, admin_pin: newSixDigitPin });
+
+      // 4. Trigger automated email from RTS side via Google Apps Script webhook
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reset_pin',
+          email: shop.owner_email,
+          shopName: shop.name,
+          userId: shop.admin_username || shop.slug,
+          newPin: newSixDigitPin,
+          slug: shop.slug
+        })
+      });
+
+      const maskedEmail = shop.owner_email.replace(/(.{2})(.*)(?=@)/, '$1***');
+      setForgotStatusMsg({
+        type: 'success',
+        text: `✅ A new 6-digit Admin PIN has been sent to your registered email (${maskedEmail}). Enter it above to sign in!`
+      });
+      setLoginId(shop.admin_username || shop.slug);
+    } catch (err: any) {
+      setForgotStatusMsg({
+        type: 'error',
+        text: 'Failed to reset PIN: ' + (err.message || 'Please try again.')
+      });
+    } finally {
+      setSendingReset(false);
+    }
   };
 
   // =========================================================================
@@ -323,7 +407,6 @@ export default function AdminPage() {
 
       if (error) throw error;
 
-      // Open download URL
       window.open(AGENT_DOWNLOAD_URL, '_blank');
       await loadShopData();
     } catch (err: any) {
@@ -359,6 +442,7 @@ export default function AdminPage() {
     if (!shop) return;
     setSaving(true);
     try {
+      const cleanAdminPin = adminPin.trim() || '123456';
       const { error } = await supabase
         .from('shops')
         .update({
@@ -373,7 +457,7 @@ export default function AdminPage() {
           require_payment: requirePayment,
           is_pin_protected: isPinProtected,
           counter_pin: counterPin,
-          admin_pin: adminPin,
+          admin_pin: cleanAdminPin,
           auto_print_enabled: autoPrintEnabled,
           auto_delete_hours: autoDeleteHours
         })
@@ -402,7 +486,6 @@ export default function AdminPage() {
   const handleRejectOrder = async (orderNumber: string) => {
     if (!window.confirm(`Discard order ${orderNumber}?`)) return;
     try {
-      // Find file to remove from storage immediately
       const target = orders.find((o) => o.order_number === orderNumber);
       if (target?.file_url) {
         await supabase.storage.from('print-files').remove([target.file_url]);
@@ -486,7 +569,7 @@ export default function AdminPage() {
               <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> documents</div>
               <div><strong>${isPinProtected ? '4' : '3'}. Collect Prints</strong> at this counter</div>
             </div>
-            <div class="footer">Powered by RTS Smart Print Automation</div>
+            <div class="footer">Powered by RTS Smart Print</div>
           </div>
           <script>window.onload = function() { window.print(); }</script>
         </body>
@@ -518,7 +601,7 @@ export default function AdminPage() {
   }
 
   // =========================================================================
-  // SHOP ADMIN LOGIN GATE (User ID & 6-Digit Password)
+  // SHOP ADMIN LOGIN GATE (With Automated Email 6-Digit PIN Reset)
   // =========================================================================
   if (!isLoggedIn) {
     return (
@@ -569,16 +652,51 @@ export default function AdminPage() {
             </button>
           </form>
 
-          <div className="pt-2 border-t border-slate-900">
+          {/* Forgot 6-Digit PIN Automated Email Reset Section */}
+          <div className="pt-3 border-t border-slate-900 space-y-3">
             <button
               type="button"
-              onClick={handleForgotPassword}
-              className="text-[11px] text-slate-400 hover:text-emerald-400 transition"
+              onClick={() => {
+                setShowForgotBox(!showForgotBox);
+                setForgotStatusMsg(null);
+              }}
+              className="text-[11px] text-slate-400 hover:text-emerald-400 font-semibold transition"
             >
-              Forgot 6-Digit PIN?
+              {showForgotBox ? 'Cancel PIN Reset' : 'Forgot 6-Digit PIN?'}
             </button>
-            {forgotSent && (
-              <p className="text-[10px] text-emerald-400 mt-1">Reset request prepared via email!</p>
+
+            {showForgotBox && (
+              <form onSubmit={handleSendResetPinEmail} className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl space-y-2.5 text-left">
+                <label className="block text-[11px] font-bold text-slate-300">
+                  Enter User ID / Shop ID to receive a new 6-digit PIN via email:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder={`e.g. ${shop.admin_username || shop.slug}`}
+                    value={forgotUserId}
+                    onChange={(e) => setForgotUserId(e.target.value)}
+                    required
+                    className="flex-1 py-2 px-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sendingReset}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1 shrink-0"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>{sendingReset ? 'Sending...' : 'Send'}</span>
+                  </button>
+                </div>
+
+                {forgotStatusMsg && (
+                  <p className={`text-[11px] font-semibold leading-relaxed ${
+                    forgotStatusMsg.type === 'success' ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {forgotStatusMsg.text}
+                  </p>
+                )}
+              </form>
             )}
           </div>
         </div>
@@ -604,7 +722,6 @@ export default function AdminPage() {
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <h1 className="font-black text-white text-base">{shop.name}</h1>
-              {/* Live Reverse Countdown Pill */}
               {(() => {
                 const approvalDate = shop.approved_at 
                   ? new Date(shop.approved_at).getTime() 
@@ -681,7 +798,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TARGETED PARTICULAR SHOP HIDDEN TICKER BOX (Only appears when Super Admin sends a message for this shop) */}
+      {/* TARGETED PARTICULAR SHOP HIDDEN TICKER BOX */}
       {shop.targeted_message && (
         <div className="max-w-6xl mx-auto px-4 pt-3">
           <div className="bg-teal-50 border-2 border-teal-400 rounded-2xl p-4 flex items-start justify-between gap-3 shadow-sm">
@@ -732,7 +849,7 @@ export default function AdminPage() {
             </p>
           </div>
 
-          {/* WINDOWS PRINT AGENT DOWNLOAD CARD (WITH 3-TIME LIMIT & UNLOCK REQUEST) */}
+          {/* WINDOWS PRINT AGENT DOWNLOAD CARD */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
@@ -830,7 +947,7 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* 6-DIGIT ADMIN PIN FIELD */}
+              {/* 6-DIGIT ADMIN PIN FIELD (Automatically reflects reset PIN & editable anytime) */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
                 <label className="block font-bold text-slate-800 flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
@@ -844,7 +961,7 @@ export default function AdminPage() {
                   className="w-full px-3 py-1.5 rounded-xl border border-slate-300 font-mono text-center font-bold tracking-widest text-slate-900 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <p className="text-[10px] text-slate-500">
-                  Password to log in to this shop admin panel.
+                  Password to log in to this shop admin panel. You can change this anytime and click Save Settings.
                 </p>
               </div>
 
@@ -1062,7 +1179,7 @@ export default function AdminPage() {
               <div>
                 <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
                   <Printer className="w-4 h-4 text-emerald-600" />
-                  Recent Print Queue
+                  Live Print Queue
                 </h2>
                 <p className="text-[11px] text-slate-400">Live incoming counter print jobs</p>
               </div>
@@ -1157,7 +1274,7 @@ export default function AdminPage() {
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
             <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-emerald-600" />
-              Page Printing Rates
+              Dynamic Page Rate
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
               {pricing.map((rule) => (

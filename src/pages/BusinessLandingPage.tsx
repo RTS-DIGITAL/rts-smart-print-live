@@ -3045,4 +3045,486 @@ export const BusinessLandingPage: React.FC = () => {
         <div className="bg-slate-900 border border-slate-800 p-5 sm:p-8 rounded-3xl shadow-2xl">
           {submitted ? (
             <div className="text-center py-8 space-y-3">
-              <div className="w-14 h-14 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/
+              <div className="w-14 h-14 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <h4 className="text-xl font-black text-white">{t.successTitle}</h4>
+              <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">{t.successDesc}</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="text-center mb-4">
+                <h3 className="text-xl font-black text-white">{t.formTitle}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{t.formSubtitle}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">{t.businessNameLabel}</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Friends Xerox & Janasevana Kendra"
+                  value={formData.businessName}
+                  onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-emerald-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.ownerNameLabel}</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Your Name"
+                    value={formData.ownerName}
+                    onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.whatsappLabel}</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="10-digit mobile"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-emerald-500 outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.emailLabel}</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="email@example.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.cityLabel}</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="City / Town in Kerala"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.planLabel}</label>
+                  <select
+                    value={formData.selectedPlan}
+                    onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs outline-none focus:border-emerald-500 font-bold"
+                  >
+                    <option value="starter_monthly">Starter Station (₹{confirmedMonthlyPrice}/month)</option>
+                    <option value="trial_7">{customTrialDays}-Day Free Trial (₹0)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">{t.printerLabel}</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. HP, Canon, Epson, Brother"
+                    value={formData.printerModel}
+                    onChange={(e) => setFormData({ ...formData, printerModel: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-2 mt-3 text-xs uppercase tracking-wider"
+              >
+                {loading ? t.btnSubmitting : t.btnSubmit}
+              </button>
+
+              <div className="text-[11px] text-center text-slate-400 space-y-1 pt-1">
+                <p>
+                  {t.formPrivacyNote}{' '}
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal('privacy')}
+                    className="text-emerald-400 hover:underline font-semibold"
+                  >
+                    Privacy Policy
+                  </button>
+                </p>
+                <p className="text-slate-500">
+                  RTS Smart Print, a product of RTS Reliable Technology Services (info@rtsdigitalseva.online).
+                </p>
+              </div>
+            </form>
+          )}
+        </div>
+      </section>
+
+      {/* Dedicated Support Section (Task 2 compliant) */}
+      <section id="rts-support-section" className="max-w-4xl mx-auto px-3 sm:px-4 py-8">
+        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center space-y-4">
+          <h3 className="text-lg sm:text-xl font-black text-white">{t.supportSectionTitle}</h3>
+          <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
+            <strong>RTS Smart Print, a product of RTS Reliable Technology Services</strong> • Location: Kerala, India
+          </p>
+          <p className="text-xs text-slate-400">
+            Official Support Email:{' '}
+            <a href="mailto:info@rtsdigitalseva.online" className="text-emerald-400 font-bold hover:underline">
+              info@rtsdigitalseva.online
+            </a>
+          </p>
+          <div className="pt-1 flex flex-wrap justify-center gap-3">
+            <a
+              href="mailto:info@rtsdigitalseva.online?subject=RTS%20Smart%20Print%20Support%20Request"
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition inline-flex items-center gap-2 shadow"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span>{t.contactSupportBtn}</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setActiveModal('about')}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition"
+            >
+              About Us
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Standardized Footer (Task 1, 2, 3, 15 compliant) */}
+      <footer className="border-t border-slate-900 bg-slate-950 py-10 px-4 text-center text-xs text-slate-400 space-y-3 pb-24">
+        <p className="font-bold text-slate-200">
+          © 2026 RTS Smart Print. A product of RTS Reliable Technology Services, Kerala, India.
+        </p>
+        <p className="text-[11px] sm:text-xs text-slate-400">
+          Our other service:{' '}
+          <a
+            href="https://rtsdigitalseva.online/"
+            target="_blank"
+            rel="noreferrer"
+            className="text-emerald-400 font-semibold hover:underline"
+          >
+            RTS Digital Seva
+          </a>{' '}
+          <span className="text-slate-500">
+            (an online citizen services portal in Kerala, also owned and operated by RTS Reliable Technology Services)
+          </span>{' '}
+          | Contact:{' '}
+          <a href="mailto:info@rtsdigitalseva.online" className="text-emerald-400 hover:underline">
+            info@rtsdigitalseva.online
+          </a>
+        </p>
+
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={scrollToSupport}
+            className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-800 rounded-xl text-[11px] font-bold transition"
+          >
+            Contact RTS Support
+          </button>
+        </div>
+
+        {/* Footer Legal & Trust Links */}
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 pt-2 text-[11px] font-semibold text-slate-400">
+          <button type="button" onClick={() => setActiveModal('privacy')} className="hover:text-emerald-400 transition">
+            Privacy Policy
+          </button>
+          <span className="text-slate-700">|</span>
+          <button type="button" onClick={() => setActiveModal('terms')} className="hover:text-emerald-400 transition">
+            Terms and Conditions
+          </button>
+          <span className="text-slate-700">|</span>
+          <button type="button" onClick={() => setActiveModal('refund')} className="hover:text-emerald-400 transition">
+            Refund Policy
+          </button>
+          <span className="text-slate-700">|</span>
+          <button type="button" onClick={() => setActiveModal('about')} className="hover:text-emerald-400 transition">
+            About Us
+          </button>
+          <span className="text-slate-700">|</span>
+          <button type="button" onClick={() => setActiveModal('contact')} className="hover:text-emerald-400 transition">
+            Contact
+          </button>
+        </div>
+      </footer>
+
+      {/* ========================================================================= */}
+      {/* TRUST & LEGAL MODALS (Privacy, Terms, Refund, About Us, Contact)          */}
+      {/* ========================================================================= */}
+      {activeModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-7 max-h-[85vh] overflow-y-auto space-y-4 shadow-2xl text-xs text-slate-300">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-black text-white uppercase tracking-wide">
+                {activeModal === 'privacy' && 'Privacy Policy'}
+                {activeModal === 'terms' && 'Terms and Conditions'}
+                {activeModal === 'refund' && 'Refund Policy'}
+                {activeModal === 'about' && 'About Us'}
+                {activeModal === 'contact' && 'Contact RTS Support'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {activeModal === 'about' && (
+              <div className="space-y-3 leading-relaxed">
+                <p>
+                  <strong>Company:</strong> RTS Reliable Technology Services
+                </p>
+                <p>
+                  <strong>Location:</strong> Kerala, India
+                </p>
+                <p>
+                  <strong>What RTS Smart Print Does:</strong> RTS Smart Print, a product of RTS Reliable Technology Services, is a zero-touch automated printing kiosk system for print shops. Customers scan a counter QR code, upload documents, and pay via UPI with 0% commission, while shops print orders automatically in Auto-Pilot Mode or after approval in Manual Mode.
+                </p>
+                <p>
+                  <strong>Related Service:</strong> RTS Digital Seva (<a href="https://rtsdigitalseva.online/" target="_blank" rel="noreferrer" className="text-emerald-400 underline">https://rtsdigitalseva.online/</a>) is an online citizen services portal in Kerala, also owned and operated by RTS Reliable Technology Services.
+                </p>
+                <p className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">
+                  <strong>Clarification:</strong> RTS Smart Print (rtsprint.online) is operated by RTS Reliable Technology Services in Kerala, India, and is not connected to any business in the UK that uses rtsprint.co.uk.
+                </p>
+                <p>
+                  <strong>Contact Email:</strong>{' '}
+                  <a href="mailto:info@rtsdigitalseva.online" className="text-emerald-400 font-bold underline">
+                    info@rtsdigitalseva.online
+                  </a>
+                </p>
+                <div className="pt-2">
+                  <a
+                    href="mailto:info@rtsdigitalseva.online?subject=RTS%20Smart%20Print%20Inquiry"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Contact RTS Support</span>
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {activeModal === 'privacy' && (
+              <div className="space-y-3 leading-relaxed">
+                <p>
+                  <strong>Operator:</strong> RTS Smart Print, a product of RTS Reliable Technology Services, Kerala, India.
+                </p>
+                <p>
+                  <strong>Customer Privacy First & File-Deletion Schedule:</strong> Documents uploaded by customers for printing are transmitted over encrypted connections for queuing at the selected shop counter. Files are deleted automatically from the dashboard and database after the retention time chosen by the shop: <strong>1 hour, 4 hours, 12 hours, or 24 hours</strong>.
+                </p>
+                <p>
+                  <strong>Sign-Up Information:</strong> Shop owner details submitted through the registration form (business name, owner name, phone number, email, and city) are used only to contact you about RTS Smart Print setup and support.
+                </p>
+                <p>
+                  <strong>Privacy Contact:</strong> For any privacy questions, email{' '}
+                  <a href="mailto:info@rtsdigitalseva.online" className="text-emerald-400 underline">
+                    info@rtsdigitalseva.online
+                  </a>.
+                </p>
+              </div>
+            )}
+
+            {activeModal === 'terms' && (
+              <div className="space-y-3 leading-relaxed">
+                <p>
+                  <strong>1. Service Provider:</strong> RTS Smart Print is developed and operated by RTS Reliable Technology Services, Kerala, India.
+                </p>
+                <p>
+                  <strong>2. Software Licence:</strong> Subscribing shops receive a non-transferable licence to use the RTS Smart Print web dashboard, QR Print Standee, and Windows Print Agent for their designated counter.
+                </p>
+                <p>
+                  <strong>3. Payment & Settlement Terms:</strong> Customer print payments made via Direct UPI are settled directly between the customer and the shop's configured UPI ID with 0% platform commission. Shop subscription fees (Starter Station ₹199/month) are billed in Indian Rupees (₹) after the applicable free trial period.
+                </p>
+                <p>
+                  <strong>4. Printing Modes:</strong> Shops can operate in Auto-Pilot Mode (prints automatically after payment confirmation) or Manual Mode (prints after shop approval).
+                </p>
+              </div>
+            )}
+
+            {activeModal === 'refund' && (
+              <div className="space-y-3 leading-relaxed">
+                <p>
+                  <strong>Free Trial Before Billing:</strong> RTS Smart Print provides a 7-Day Free Trial on the Starter Station plan so shops can test printer compatibility and workflow before paying a subscription fee.
+                </p>
+                <p>
+                  <strong>Subscription Cancellations & Refunds:</strong> Shop owners may cancel their monthly subscription at any time prior to the next billing cycle. If you experience a technical issue that prevents your station from operating, please contact RTS Support at{' '}
+                  <a href="mailto:info@rtsdigitalseva.online" className="text-emerald-400 underline">
+                    info@rtsdigitalseva.online
+                  </a>{' '}
+                  within 7 days of billing for review and resolution.
+                </p>
+              </div>
+            )}
+
+            {activeModal === 'contact' && (
+              <div className="space-y-3 leading-relaxed">
+                <p>
+                  <strong>Company:</strong> RTS Reliable Technology Services
+                </p>
+                <p>
+                  <strong>Product:</strong> RTS Smart Print
+                </p>
+                <p>
+                  <strong>Location:</strong> Kerala, India
+                </p>
+                <p>
+                  <strong>Email:</strong>{' '}
+                  <a href="mailto:info@rtsdigitalseva.online" className="text-emerald-400 font-bold underline">
+                    info@rtsdigitalseva.online
+                  </a>
+                </p>
+                <div className="pt-2 flex gap-2">
+                  <a
+                    href="mailto:info@rtsdigitalseva.online?subject=RTS%20Smart%20Print%20Support"
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl inline-flex items-center gap-1.5"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Email RTS Support</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveModal(null);
+                      scrollToForm();
+                    }}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl"
+                  >
+                    Go to Sign-Up Form
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* FLOATING SUPPORT CHAT WIDGET (Task 14 - Clean Professional Bot)          */}
+      {/* ========================================================================= */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
+        {chatOpen && (
+          <div className="w-[340px] sm:w-[360px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">
+            {/* Bot Header */}
+            <div className="bg-teal-900 text-white px-4 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-emerald-300 text-base">
+                  ⚡
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs sm:text-sm text-white leading-tight">RTS Smart Print Support Bot</h4>
+                  <span className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Online • Instant Reply
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg"
+                aria-label="Close Chat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Chat Messages Body */}
+            <div className="p-3.5 max-h-80 overflow-y-auto space-y-3 bg-slate-50 text-xs">
+              {chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`rounded-2xl px-3.5 py-2.5 max-w-[88%] whitespace-pre-line leading-relaxed ${
+                      msg.sender === 'user'
+                        ? 'bg-teal-800 text-white font-semibold'
+                        : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+
+              {/* Approved Topic Quick-Reply Pills */}
+              <div className="pt-1 flex flex-col gap-1.5">
+                {CHAT_FAQ_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => handleSelectChatTopic(opt)}
+                    className="text-left px-3 py-2 rounded-full bg-slate-200/75 hover:bg-emerald-100 text-slate-800 font-bold text-[11px] transition border border-slate-300/60 w-fit"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Direct Contact RTS Support Button inside Chat */}
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                <span className="text-[10px] text-slate-500">Staff Hours: 9 AM – 7 PM IST</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChatOpen(false);
+                    setActiveModal('contact');
+                  }}
+                  className="text-[11px] font-extrabold text-teal-700 hover:underline"
+                >
+                  Contact RTS Support →
+                </button>
+              </div>
+            </div>
+
+            {/* Chat Input Bar */}
+            <form onSubmit={handleSendCustomChat} className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Type your question..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-full outline-none focus:border-teal-600 text-slate-800"
+              />
+              <button
+                type="submit"
+                className="px-3.5 py-2 bg-teal-700 hover:bg-teal-600 text-white font-bold text-xs rounded-full transition flex items-center gap-1 shrink-0"
+              >
+                <span>Send</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Floating Toggle Button */}
+        <button
+          type="button"
+          onClick={() => setChatOpen(!chatOpen)}
+          className="px-4 py-3 rounded-full bg-teal-700 hover:bg-teal-600 text-white font-extrabold text-xs shadow-xl flex items-center gap-2 border border-teal-500/40 transition transform hover:scale-105"
+        >
+          <MessageCircle className="w-4 h-4" />
+          <span>Help & Offers Chat</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default BusinessLandingPage;

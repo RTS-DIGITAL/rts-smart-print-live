@@ -30,7 +30,8 @@ import {
   Hourglass,
   Download,
   Bell,
-  Megaphone
+  Megaphone,
+  Sparkles
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -40,6 +41,7 @@ interface ShopTenant {
   phone: string | null;
   owner_email: string | null;
   upi_id: string | null;
+  upi_name?: string | null;
   target_printer_name: string | null;
   counter_notice: string | null;
   subscription_status: string;
@@ -74,6 +76,7 @@ interface PlatformPlan {
   form_monthly_price?: string;
   form_yearly_price?: string;
   form_trial_days?: string;
+  landing_message?: string | null;
 }
 
 interface Inquiry {
@@ -132,13 +135,17 @@ export const SuperAdminPage: React.FC = () => {
   const [broadcastText, setBroadcastText] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
+  // Public Business Landing Page Offer & Update Box States
+  const [landingOfferText, setLandingOfferText] = useState('');
+  const [savingLandingOffer, setSavingLandingOffer] = useState(false);
+
   // Targeted Particular Shop Notice States
   const [targetShopCode, setTargetShopCode] = useState('');
   const [targetShopMessage, setTargetShopMessage] = useState('');
   const [sendingTargeted, setSendingTargeted] = useState(false);
 
   // Dedicated Form Dropdown Customizer State
-  const [formMonthlyPrice, setFormMonthlyPrice] = useState('499');
+  const [formMonthlyPrice, setFormMonthlyPrice] = useState('199');
   const [formYearlyPrice, setFormYearlyPrice] = useState('2,499');
   const [formTrialDays, setFormTrialDays] = useState('7');
   const [formPricingSaving, setFormPricingSaving] = useState(false);
@@ -183,7 +190,7 @@ export const SuperAdminPage: React.FC = () => {
       }
     } else {
       let subject = action === 'suspended' ? `⚠️ RTS Smart Print Account Suspended: ${shopName}` : `✅ RTS Smart Print Account Reactivated: ${shopName}`;
-      let body = `Hi ${shopName},\n\nYour account status has been updated to: ${action}. Please contact RTS Digital Seva (7012833699) for assistance.`;
+      let body = `Hi ${shopName},\n\nYour account status has been updated to: ${action}. Please contact RTS Support (info@rtsdigitalseva.online) for assistance.`;
       window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
     }
   };
@@ -220,13 +227,24 @@ export const SuperAdminPage: React.FC = () => {
         .order('original_price', { ascending: true });
       if (plansData) {
         setPlans(plansData);
-        // Load custom form dropdown pricing from the first plan row or persistent storage if present
         const mainPlan = plansData[0];
         if (mainPlan) {
           if (mainPlan.form_monthly_price) setFormMonthlyPrice(mainPlan.form_monthly_price);
           if (mainPlan.form_yearly_price) setFormYearlyPrice(mainPlan.form_yearly_price);
           if (mainPlan.form_trial_days) setFormTrialDays(String(mainPlan.trial_days || mainPlan.form_trial_days));
+          if (mainPlan.landing_message) setLandingOfferText(mainPlan.landing_message);
         }
+      }
+
+      // Check site_announcements table for Public Business Landing Page message
+      const { data: announceData } = await supabase
+        .from('site_announcements')
+        .select('message')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (announceData && typeof announceData.message === 'string') {
+        setLandingOfferText(announceData.message);
       }
     } catch (err) {
       console.error('SuperAdmin load failed:', err);
@@ -262,6 +280,7 @@ export const SuperAdminPage: React.FC = () => {
     setIsCustomPrinterModal(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
     setEditingShop({
       ...shop,
+      upi_name: shop.upi_name ?? '',
       target_printer_name: savedPrinter,
       download_count: shop.download_count ?? 0,
       max_downloads: shop.max_downloads ?? 3,
@@ -285,7 +304,7 @@ export const SuperAdminPage: React.FC = () => {
     const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
-    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rtsprint.online/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rtsprint.online/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Digital Seva (7012833699)_`;
+    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rtsprint.online/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rtsprint.online/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Reliable Technology Services (info@rtsdigitalseva.online)_`;
 
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
@@ -385,6 +404,44 @@ export const SuperAdminPage: React.FC = () => {
       fetchAllData();
     } catch (err: any) {
       alert('Failed to unlock download: ' + err.message);
+    }
+  };
+
+  // Handler to update Public Business Landing Page Offer & Update Box
+  const handleSaveLandingAnnouncement = async (clear: boolean = false) => {
+    const msgToSave = clear ? '' : landingOfferText.trim();
+    if (!clear && !msgToSave) {
+      alert('Please type an offer or update message for the Business Landing Page.');
+      return;
+    }
+
+    setSavingLandingOffer(true);
+    try {
+      // 1. Upsert into site_announcements (row id = 1)
+      await supabase
+        .from('site_announcements')
+        .upsert({ id: 1, message: msgToSave || null, updated_at: new Date().toISOString() });
+
+      // 2. Also update platform_plans.landing_message as real-time fallback
+      if (plans.length > 0) {
+        const planIds = plans.map(p => p.id);
+        await supabase
+          .from('platform_plans')
+          .update({ landing_message: msgToSave || null })
+          .in('id', planIds);
+      }
+
+      if (clear) setLandingOfferText('');
+      alert(
+        clear
+          ? '🗑️ Offer/Update message removed from the Public Business Landing Page!'
+          : '🚀 Offer/Update message published live on the Business Landing Page!'
+      );
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to update Business Page offer message: ' + err.message);
+    } finally {
+      setSavingLandingOffer(false);
     }
   };
 
@@ -560,7 +617,8 @@ export const SuperAdminPage: React.FC = () => {
           admin_username: editingShop.admin_username,
           admin_pin: editingShop.admin_pin,
           pairing_code: cleanPairingCode,
-          upi_id: editingShop.upi_id,
+          upi_id: editingShop.upi_id?.trim() || null,
+          upi_name: editingShop.upi_name?.trim() || null,
           target_printer_name: cleanPrinter,
           counter_notice: editingShop.counter_notice,
           subscription_status: editingShop.subscription_status,
@@ -728,6 +786,40 @@ export const SuperAdminPage: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
         {activeTab === 'shops' && (
           <div className="space-y-4">
+            {/* PUBLIC BUSINESS LANDING PAGE OFFER & UPDATE BANNER CONTROLLER */}
+            <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-emerald-950/70 border-2 border-emerald-500/40 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
+              <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-400 shrink-0">
+                <Sparkles className="w-4 h-4" />
+                <span>Business Landing Page Offer Box:</span>
+              </div>
+              <input
+                type="text"
+                placeholder="Type an offer, festival discount, or update to display at the top of BusinessLandingPage..."
+                value={landingOfferText}
+                onChange={(e) => setLandingOfferText(e.target.value)}
+                className="flex-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-emerald-500"
+              />
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={savingLandingOffer}
+                  onClick={() => handleSaveLandingAnnouncement(false)}
+                  className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1.5 shadow"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{savingLandingOffer ? 'Publishing...' : 'Publish on Landing Page'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={savingLandingOffer}
+                  onClick={() => handleSaveLandingAnnouncement(true)}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition"
+                >
+                  Hide / Clear
+                </button>
+              </div>
+            </div>
+
             {/* Global Broadcast Bar (All Shops) */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
               <div className="flex items-center gap-2.5 text-xs font-extrabold text-amber-400 shrink-0">
@@ -953,7 +1045,7 @@ export const SuperAdminPage: React.FC = () => {
 
                           <td className="py-3.5 px-4 space-y-0.5">
                             <span className="text-xs font-bold text-white capitalize block">
-                              {shop.selected_plan === 'starter_yearly' ? 'Starter Yearly (₹1,499)' : 'Starter Monthly (₹299)'}
+                              {shop.selected_plan === 'starter_yearly' ? 'Starter Yearly' : 'Starter Station (₹199)'}
                             </span>
                             <span className="text-[10px] text-slate-400 font-mono">{shop.phone || 'No phone'}</span>
                           </td>
@@ -1138,6 +1230,53 @@ export const SuperAdminPage: React.FC = () => {
 
         {activeTab === 'pricing' && (
           <div className="space-y-6">
+            {/* PUBLIC BUSINESS LANDING PAGE OFFER & UPDATE BANNER CONTROLLER */}
+            <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/40 rounded-3xl p-6 shadow-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    Public Business Landing Page — Live Offer & Update Message Box
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Whatever you type here appears immediately at the top of the Business Landing Page (`rtsprint.online`).
+                  </p>
+                </div>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-extrabold px-3 py-1 rounded-full uppercase border border-emerald-500/30">
+                  LIVE LANDING BANNER
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <input
+                  type="text"
+                  placeholder="e.g. 🎉 Special Launch Offer: Activate Starter Station at ₹199/month + 7-Day Free Trial!"
+                  value={landingOfferText}
+                  onChange={(e) => setLandingOfferText(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-emerald-500"
+                />
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={savingLandingOffer}
+                    onClick={() => handleSaveLandingAnnouncement(false)}
+                    className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1.5 shadow"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{savingLandingOffer ? 'Saving...' : 'Publish to Landing Page'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingLandingOffer}
+                    onClick={() => handleSaveLandingAnnouncement(true)}
+                    className="px-3.5 py-2.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 font-bold rounded-xl text-xs transition"
+                  >
+                    Remove Banner
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
               <h2 className="text-base font-black text-white flex items-center gap-2">
                 <Tag className="w-4 h-4 text-emerald-400" />
@@ -1244,7 +1383,7 @@ export const SuperAdminPage: React.FC = () => {
                       type="text"
                       value={formMonthlyPrice}
                       onChange={(e) => setFormMonthlyPrice(e.target.value)}
-                      placeholder="499"
+                      placeholder="199"
                       className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white font-mono outline-none focus:border-teal-500"
                     />
                   </div>
@@ -1462,15 +1601,28 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-emerald-400 font-bold mb-1">Shop UPI ID (Direct Payments)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. shop@okaxis"
-                  value={editingShop.upi_id || ''}
-                  onChange={(e) => setEditingShop({ ...editingShop, upi_id: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono outline-none"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-emerald-400 font-bold mb-1">Shop UPI ID (Direct Payments)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. shop@okaxis"
+                    value={editingShop.upi_id || ''}
+                    onChange={(e) => setEditingShop({ ...editingShop, upi_id: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-emerald-400 font-bold mb-1">UPI Registered Bank Name</label>
+                  <input
+                    type="text"
+                    placeholder="Account Holder Name"
+                    value={editingShop.upi_name || ''}
+                    onChange={(e) => setEditingShop({ ...editingShop, upi_name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
+                  />
+                </div>
               </div>
 
               <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-2xl space-y-2">
@@ -1499,8 +1651,8 @@ export const SuperAdminPage: React.FC = () => {
                       }}
                       className="w-full bg-slate-950 border border-emerald-800/60 rounded-xl px-3 py-2 text-white outline-none font-bold"
                     >
-                      <option value="starter_monthly">Starter Monthly (₹299/mo - 30 Days)</option>
-                      <option value="starter_yearly">Starter Yearly (₹1,499/yr - 365 Days)</option>
+                      <option value="starter_monthly">Starter Station (₹199/mo - 30 Days)</option>
+                      <option value="starter_yearly">Starter Yearly (365 Days)</option>
                       <option value="trial_7">7-Day Free Trial</option>
                       <option value="trial_14">14-Day Free Trial</option>
                     </select>

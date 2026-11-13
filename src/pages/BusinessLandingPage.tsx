@@ -108,7 +108,7 @@ const TEXTS = {
     viewPlansBtn: "പ്ലാനുകൾ കാണുക",
     privacyTitle: "Customer Privacy First",
     privacyDesc: "പ്രിന്റിംഗിന് ശേഷം നിശ്ചിത സമയത്തിനുള്ളിൽ (1h, 4h, 12h, 24h) ഫയലുകൾ dashboard-ൽ നിന്നും database-ൽ നിന്നും നീക്കം ചെയ്യപ്പെടും.",
-    privacyLinkText: "Read Privacy Policy →",
+    privacyLinkText: "പ്രൈവസി പോളിസി കാണുക →",
     upiTitle: "നേരിട്ടുള്ള UPI പേയ്‌മെന്റ് (0% കമ്മീഷൻ)",
     upiDesc: "പണം ഇടനിലക്കാരില്ലാതെ നിങ്ങളുടെ Google Pay, PhonePe, Paytm എന്നിവയിലേക്ക് നേരിട്ടെത്തുന്നു. 0% പ്ലാറ്റ്‌ഫോം കമ്മീഷൻ.",
     safeTitle: "പരീക്ഷിച്ചുറപ്പിച്ച പ്രിന്റർ സപ്പോർട്ട്",
@@ -125,7 +125,7 @@ const TEXTS = {
     videoTitle: "നിങ്ങളുടെ പ്രിന്റിംഗ് കട ഇനി SMART ആക്കാം! 🚀",
     videoSub: "QR കോഡ് സ്കാൻ ചെയ്ത് എളുപ്പത്തിൽ ഫയലുകൾ അപ്‌ലോഡ് ചെയ്ത് പ്രിന്റ് എടുക്കുന്ന രീതി.",
     plansTitle: "ലളിതമായ സബ്‌സ്‌ക്രിപ്ഷൻ പ്ലാനുകൾ",
-    plansSubtitle: "സൗജന്യ ട്രയൽ ഉൾപ്പെടുന്ന പ്രതിമാസ പ്ലാനുകൾ",
+    plansSubtitle: "പ്രതിമാസ, വാർഷിക പ്ലാനുകളും സൗജന്യ ട്രയലും ഉൾപ്പെടുന്നു",
     trialBadge: "സൗജന്യ ട്രയൽ ലഭ്യമാണ്",
     pricingFootnote: "നിരക്കുകൾ ഇന്ത്യൻ രൂപയിലാണ് (₹) നൽകിയിരിക്കുന്നത്.",
     formTitle: "നിങ്ങളുടെ കടയിൽ RTS Smart Print തുടങ്ങാം",
@@ -147,56 +147,12 @@ const TEXTS = {
   }
 };
 
-const CHAT_FAQ_OPTIONS = [
-  {
-    id: 'what_is',
-    label: '🖨️ What RTS Smart Print does',
-    answerEn: 'RTS Smart Print, a product of RTS Reliable Technology Services (Kerala, India), is a zero-touch automated printing kiosk system for shops. Customers scan your shop QR code, upload documents, and pay via UPI with 0% commission.',
-    answerMl: 'RTS Reliable Technology Services (Kerala, India) പുറത്തിറക്കുന്ന ഓട്ടോമേറ്റഡ് ക്യുആർ പ്രിന്റിംഗ് കിയോസ്ക് സിസ്റ്റമാണ് RTS Smart Print. ഉപഭോക്താക്കൾക്ക് QR സ്കാൻ ചെയ്ത് ഫയലുകൾ അപ്‌ലോഡ് ചെയ്ത് 0% കമ്മീഷനിൽ നേരിട്ട് UPI വഴി പണമടച്ച് പ്രിന്റ് എടുക്കാം.'
-  },
-  {
-    id: 'how_order',
-    label: '📱 How a customer orders',
-    answerEn: '5 Simple Steps: 1. Scan Counter QR Code -> 2. Upload PDF/Image & choose copies/color -> 3. Pay via Direct UPI or Cash -> 4. Live Order appears on Shop PC -> 5. Prints via Auto-Pilot Mode (automatic after payment) or Manual Mode (after shop approval).',
-    answerMl: '5 ഘട്ടങ്ങൾ: 1. കടയിലെ QR സ്കാൻ ചെയ്യുന്നു -> 2. ഫയൽ അപ്‌ലോഡ് ചെയ്യുന്നു -> 3. UPI/Cash പേയ്‌മെന്റ് നൽകുന്നു -> 4. ഓർഡർ കമ്പ്യൂട്ടറിലെ Live Print Queue-ൽ എത്തുന്നു -> 5. Auto-Pilot Mode അഥവാ Manual Mode വഴി പ്രിന്റ് ചെയ്യുന്നു.'
-  },
-  {
-    id: 'pricing',
-    label: '💰 How pricing works',
-    answerEn: 'Starter Station is ₹199/month (Indian Rupees ₹) and includes a 7-Day Free Trial. There is 0% platform commission on your customer payments.',
-    answerMl: 'Starter Station പ്ലാൻ പ്രതിമാസം ₹199 ആണ് (7 ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭ്യമാണ്). കസ്റ്റമർ പേയ്‌മെന്റുകൾക്ക് 0% കമ്മീഷനാണ്.'
-  },
-  {
-    id: 'file_deletion',
-    label: '⏱️ How long files are kept (1, 4, 12, 24h)',
-    answerEn: 'Customer privacy first: Uploaded files are automatically removed from the dashboard and database based on the schedule set by the shop (1 hour, 4 hours, 12 hours, or 24 hours).',
-    answerMl: 'Customer privacy first: കടയുടമ തിരഞ്ഞെടുക്കുന്ന സമയക്രമം അനുസരിച്ച് (1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ) ഫയലുകൾ dashboard-ൽ നിന്നും database-ൽ നിന്നും തനിയെ നീക്കം ചെയ്യപ്പെടും.'
-  },
-  {
-    id: 'print_modes',
-    label: '⚙️ Auto-Pilot Mode vs Manual Mode',
-    answerEn: 'Auto-Pilot Mode prints automatically after payment is confirmed. Manual Mode holds the job in the Live Print Queue and prints only after the shop approves each order.',
-    answerMl: 'Auto-Pilot Mode-ൽ പേയ്‌മെന്റ് കൺഫേം ആയ ഉടൻ പ്രിന്റ് ആകുന്നു. Manual Mode-ൽ കടയുടമ ഓർഡർ പരിശോധിച്ച് അപ്രൂവ് ചെയ്ത ശേഷം മാത്രം പ്രിന്റ് ആകുന്നു.'
-  },
-  {
-    id: 'start_trial',
-    label: '🚀 How to start a trial or sign up',
-    answerEn: 'Click "Activate Free Trial" on this page and fill in your Shop Name, WhatsApp number, Email, and Printer Model to register your station.',
-    answerMl: 'ഈ പേജിലെ "സൗജന്യ ട്രയൽ ആരംഭിക്കൂ" എന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് നിങ്ങളുടെ കടയുടെ പേര്, ഫോൺ നമ്പർ, ഇമെയിൽ എന്നിവ പൂരിപ്പിച്ച് സൈൻ അപ്പ് ചെയ്യാം.'
-  },
-  {
-    id: 'contact_support',
-    label: '✉️ How to contact RTS Support',
-    answerEn: 'You can reach RTS Reliable Technology Services Support directly at info@rtsdigitalseva.online or click the "Contact RTS Support" button on this page.',
-    answerMl: 'സഹായത്തിനായി info@rtsdigitalseva.online എന്ന ഇമെയിലിലോ പേജിലെ "Contact RTS Support" ബട്ടൺ വഴിയോ ബന്ധപ്പെടാവുന്നതാണ്.'
-  }
-];
-
 export const BusinessLandingPage: React.FC = () => {
   const [lang, setLang] = useState<'en' | 'ml'>('ml');
   const t = TEXTS[lang];
 
   const [dbPlans, setDbPlans] = useState<PlatformPlan[]>([]);
+  const [allPlansForForm, setAllPlansForForm] = useState<PlatformPlan[]>([]);
   const [superAdminAnnouncement, setSuperAdminAnnouncement] = useState<string>('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -228,37 +184,112 @@ export const BusinessLandingPage: React.FC = () => {
     document.title = "RTS Smart Print: QR Print & Pay for Shops | RTS Reliable Technology Services";
   }, [lang]);
 
-  useEffect(() => {
-    async function loadPlansAndAnnouncements() {
-      try {
-        const { data, error } = await supabase
-          .from('platform_plans')
-          .select('*')
-          .eq('is_active', true)
-          .order('offer_price', { ascending: true });
+  // Load Plans & Super Admin Dynamic Settings (with Real-Time Sync)
+  const loadPlansAndAnnouncements = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('platform_plans')
+        .select('*')
+        .order('original_price', { ascending: true });
 
-        if (!error && data && data.length > 0) {
-          setDbPlans(data as PlatformPlan[]);
-          const msgFromPlan = data.find((p: any) => p.landing_message && p.landing_message.trim() !== '')?.landing_message;
-          if (msgFromPlan) setSuperAdminAnnouncement(msgFromPlan);
+      if (!error && data && data.length > 0) {
+        setAllPlansForForm(data as PlatformPlan[]);
+        const activeOnly = data.filter((p: any) => p.is_active !== false);
+        setDbPlans(activeOnly as PlatformPlan[]);
+
+        const msgFromPlan = data.find((p: any) => p.landing_message && p.landing_message.trim() !== '')?.landing_message;
+        if (msgFromPlan) {
+          setSuperAdminAnnouncement(msgFromPlan);
+        } else {
+          setSuperAdminAnnouncement('');
         }
-
-        const { data: announceData } = await supabase
-          .from('site_announcements')
-          .select('message')
-          .eq('id', 1)
-          .maybeSingle();
-
-        if (announceData?.message) {
-          setSuperAdminAnnouncement(announceData.message);
-        }
-      } catch (err) {
-        console.error('Failed to load plans:', err);
       }
-    }
 
+      const { data: announceData } = await supabase
+        .from('site_announcements')
+        .select('message')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (announceData && typeof announceData.message === 'string') {
+        setSuperAdminAnnouncement(announceData.message);
+      }
+    } catch (err) {
+      console.error('Failed to load plans:', err);
+    }
+  };
+
+  useEffect(() => {
     loadPlansAndAnnouncements();
+
+    const channel = supabase
+      .channel('realtime-landing-pricing')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'platform_plans' }, () => {
+        loadPlansAndAnnouncements();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'site_announcements' }, () => {
+        loadPlansAndAnnouncements();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
+
+  // Extract Custom Form Dropdown Prices set in Super Admin
+  const planWithCustomForm = allPlansForForm.find(
+    (p) => p.form_monthly_price || p.form_yearly_price || p.form_trial_days
+  ) || allPlansForForm[0] || dbPlans[0];
+
+  const customMonthly = planWithCustomForm?.form_monthly_price || String(dbPlans[0]?.offer_price || '299');
+  const customYearly = planWithCustomForm?.form_yearly_price || String(dbPlans[1]?.offer_price || '1499');
+  const customTrialDays = planWithCustomForm?.form_trial_days || String(planWithCustomForm?.trial_days || '7');
+
+  const CHAT_FAQ_OPTIONS = [
+    {
+      id: 'what_is',
+      label: '🖨️ What RTS Smart Print does',
+      answerEn: 'RTS Smart Print, a product of RTS Reliable Technology Services (Kerala, India), is a zero-touch automated printing kiosk system for shops. Customers scan your shop QR code, upload documents, and pay via UPI with 0% commission.',
+      answerMl: 'RTS Reliable Technology Services (Kerala, India) പുറത്തിറക്കുന്ന ഓട്ടോമേറ്റഡ് ക്യുആർ പ്രിന്റിംഗ് കിയോസ്ക് സിസ്റ്റമാണ് RTS Smart Print. ഉപഭോക്താക്കൾക്ക് QR സ്കാൻ ചെയ്ത് ഫയലുകൾ അപ്‌ലോഡ് ചെയ്ത് 0% കമ്മീഷനിൽ നേരിട്ട് UPI വഴി പണമടച്ച് പ്രിന്റ് എടുക്കാം.'
+    },
+    {
+      id: 'how_order',
+      label: '📱 How a customer orders',
+      answerEn: '5 Simple Steps: 1. Scan Counter QR Code -> 2. Upload PDF/Image & choose copies/color -> 3. Pay via Direct UPI or Cash -> 4. Live Order appears on Shop PC -> 5. Prints via Auto-Pilot Mode (automatic after payment) or Manual Mode (after shop approval).',
+      answerMl: '5 ഘട്ടങ്ങൾ: 1. കടയിലെ QR സ്കാൻ ചെയ്യുന്നു -> 2. ഫയൽ അപ്‌ലോഡ് ചെയ്യുന്നു -> 3. UPI/Cash പേയ്‌മെന്റ് നൽകുന്നു -> 4. ഓർഡർ കമ്പ്യൂട്ടറിലെ Live Print Queue-ൽ എത്തുന്നു -> 5. Auto-Pilot Mode അഥവാ Manual Mode വഴി പ്രിന്റ് ചെയ്യുന്നു.'
+    },
+    {
+      id: 'pricing',
+      label: '💰 How pricing works',
+      answerEn: `Our plans start at ₹${dbPlans[0]?.offer_price || customMonthly}/${dbPlans[0]?.billing_period || 'month'} and include a ${customTrialDays}-Day Free Trial. There is 0% platform commission on your customer payments.`,
+      answerMl: `പ്ലാനുകൾ ₹${dbPlans[0]?.offer_price || customMonthly} മുതൽ ആരംഭിക്കുന്നു (${customTrialDays} ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭ്യമാണ്). കസ്റ്റമർ പേയ്‌മെന്റുകൾക്ക് 0% കമ്മീഷനാണ്.`
+    },
+    {
+      id: 'file_deletion',
+      label: '⏱️ How long files are kept (1, 4, 12, 24h)',
+      answerEn: 'Customer privacy first: Uploaded files are automatically removed from the dashboard and database based on the schedule set by the shop (1 hour, 4 hours, 12 hours, or 24 hours).',
+      answerMl: 'Customer privacy first: കടയുടമ തിരഞ്ഞെടുക്കുന്ന സമയക്രമം അനുസരിച്ച് (1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ) ഫയലുകൾ dashboard-ൽ നിന്നും database-ൽ നിന്നും തനിയെ നീക്കം ചെയ്യപ്പെടും.'
+    },
+    {
+      id: 'print_modes',
+      label: '⚙️ Auto-Pilot Mode vs Manual Mode',
+      answerEn: 'Auto-Pilot Mode prints automatically after payment is confirmed. Manual Mode holds the job in the Live Print Queue and prints only after the shop approves each order.',
+      answerMl: 'Auto-Pilot Mode-ൽ പേയ്‌മെന്റ് കൺഫേം ആയ ഉടൻ പ്രിന്റ് ആകുന്നു. Manual Mode-ൽ കടയുടമ ഓർഡർ പരിശോധിച്ച് അപ്രൂവ് ചെയ്ത ശേഷം മാത്രം പ്രിന്റ് ആകുന്നു.'
+    },
+    {
+      id: 'start_trial',
+      label: '🚀 How to start a trial or sign up',
+      answerEn: 'Click "Activate Free Trial" on this page and fill in your Shop Name, WhatsApp number, Email, and Printer Model to register your station.',
+      answerMl: 'ഈ പേജിലെ "സൗജന്യ ട്രയൽ ആരംഭിക്കൂ" എന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് നിങ്ങളുടെ കടയുടെ പേര്, ഫോൺ നമ്പർ, ഇമെയിൽ എന്നിവ പൂരിപ്പിച്ച് സൈൻ അപ്പ് ചെയ്യാം.'
+    },
+    {
+      id: 'contact_support',
+      label: '✉️ How to contact RTS Support',
+      answerEn: 'You can reach RTS Reliable Technology Services Support directly at info@rtsdigitalseva.online or click the "Contact RTS Support" button on this page.',
+      answerMl: 'സഹായത്തിനായി info@rtsdigitalseva.online എന്ന ഇമെയിലിലോ പേജിലെ "Contact RTS Support" ബട്ടൺ വഴിയോ ബന്ധപ്പെടാവുന്നതാണ്.'
+    }
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -329,7 +360,7 @@ export const BusinessLandingPage: React.FC = () => {
 
     const lower = trimmed.toLowerCase();
     let matchedOption = null;
-    if (lower.includes('price') || lower.includes('cost') || lower.includes('199')) {
+    if (lower.includes('price') || lower.includes('cost') || lower.includes('plan') || lower.includes('offer')) {
       matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'pricing');
     } else if (lower.includes('delete') || lower.includes('privacy') || lower.includes('hour')) {
       matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'file_deletion');
@@ -352,10 +383,6 @@ export const BusinessLandingPage: React.FC = () => {
     ]);
     setChatInput('');
   };
-
-  const firstPlan = dbPlans[0];
-  const confirmedMonthlyPrice = firstPlan?.offer_price || 199;
-  const customTrialDays = firstPlan?.form_trial_days || String(firstPlan?.trial_days || 7);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
@@ -582,7 +609,6 @@ export const BusinessLandingPage: React.FC = () => {
 
       {/* Video Demo + 5-Step Process */}
       <section className="max-w-5xl mx-auto px-3 sm:px-4 py-6 space-y-6">
-        {/* YouTube Video Demo Card above 5-Step Workflow */}
         <div className="bg-slate-900/90 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-xl">
           <div className="grid md:grid-cols-12 gap-6 items-center">
             <div className="md:col-span-7 space-y-4 text-center md:text-left">
@@ -666,7 +692,7 @@ export const BusinessLandingPage: React.FC = () => {
               <p className="text-xs sm:text-sm text-slate-300 mt-1">
                 {lang === 'en' 
                   ? "Upload PDF or image files and choose copies, Black & White or Color, and page settings."
-                  : "PDF അല്ലെങ്കിൽ ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാം. കോപ്പികളുടെ എണ്ണം, കളർ അല്ലെങ്കിൽ ബ്ലാക്ക് ആൻഡ് വൈറ്റ് തിരഞ്ഞെടുക്കാം."}
+                  : "PDF അല്ലെങ്കിൽ ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാം. കോപ്പികളുടെ എണ്ണം, കളർ അല്ലെങ്കിൽ ബ്ലാക്ക് ആൻഡ് വൈറ്റ് എന്നിവ തിരഞ്ഞെടുക്കാം."}
               </p>
             </div>
 
@@ -758,7 +784,7 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Pricing Section (Starter Station ₹199/month, no strikethroughs) */}
+      {/* DYNAMIC SUBSCRIPTION PRICING CARDS (Directly reflects Super Admin -> Pricing & Offers) */}
       <section className="max-w-4xl mx-auto px-3 sm:px-4 py-8" id="pricing-section">
         <div className="text-center mb-8 space-y-1.5">
           <span className="text-[11px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -769,73 +795,141 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
-          <div className="bg-slate-900 border-2 border-emerald-500 rounded-3xl p-6 sm:p-7 shadow-xl flex flex-col justify-between relative">
-            <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
-              Popular Choice
-            </span>
-            <div>
-              <h4 className="font-extrabold text-xl text-white">Starter Station</h4>
-              <div className="mt-3 mb-4">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-black text-white font-mono">₹199</span>
-                  <span className="text-xs text-slate-400">/month</span>
-                </div>
-                <p className="text-xs text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" />
-                  7-Day Free Trial Included
-                </p>
-              </div>
-              <ul className="space-y-2.5 text-xs text-slate-300">
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Counter Configuration & Print Standee</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Live Print Queue & Dynamic Page Rate</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Auto-Pilot Mode & Manual Mode</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 0% Commission Direct UPI & Cash Support</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Scheduled File Deletion (1h, 4h, 12h, 24h)</li>
-              </ul>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setFormData(prev => ({ ...prev, selectedPlan: 'starter_monthly' }));
-                scrollToForm();
-              }}
-              className="mt-6 w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition shadow-md"
-            >
-              Select Starter Station
-            </button>
-          </div>
+          {dbPlans.length > 0 ? (
+            dbPlans.map((plan, index) => {
+              const isHighlighted = index === 0;
+              const isComingSoon = plan.badge_text?.toLowerCase().includes('coming soon');
 
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl flex flex-col justify-between relative opacity-90">
-            <span className="absolute top-4 right-4 bg-amber-500 text-slate-950 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow">
-              Coming Soon
-            </span>
-            <div>
-              <h4 className="font-extrabold text-xl text-white">Pro Digital Seva</h4>
-              <div className="mt-3 mb-4">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-black text-slate-400 font-mono">Coming Soon</span>
+              return (
+                <div 
+                  key={plan.id}
+                  className={`bg-slate-900 rounded-3xl p-6 sm:p-7 shadow-xl relative flex flex-col justify-between ${
+                    isHighlighted
+                      ? 'border-2 border-emerald-500 shadow-emerald-950/30'
+                      : 'border border-slate-800'
+                  }`}
+                >
+                  <span className={`absolute top-4 right-4 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider shadow ${
+                    isHighlighted
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-amber-500 text-slate-950'
+                  }`}>
+                    {plan.badge_text || (isHighlighted ? 'Popular Choice' : 'Best Value')}
+                  </span>
+
+                  <div>
+                    <h4 className="font-extrabold text-xl text-white pr-28">{plan.name}</h4>
+                    <div className="mt-3 mb-4">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-4xl font-black text-white font-mono">₹{plan.offer_price}</span>
+                        {plan.original_price > plan.offer_price && (
+                          <span className="text-sm text-slate-500 line-through font-mono">
+                            ₹{plan.original_price}
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-400 capitalize">/{plan.billing_period}</span>
+                      </div>
+
+                      {plan.trial_days > 0 && (
+                        <p className="text-xs text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          {plan.trial_days}-Day Free Trial Included
+                        </p>
+                      )}
+                    </div>
+
+                    <ul className="space-y-2.5 text-xs text-slate-300">
+                      {plan.features && Array.isArray(plan.features) && plan.features.length > 0 ? (
+                        plan.features.map((feat, idx) => (
+                          <li key={idx} className="flex items-center gap-2">
+                            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                            <span>{feat}</span>
+                          </li>
+                        ))
+                      ) : (
+                        <>
+                          <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Counter Configuration & Print Standee</li>
+                          <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Live Print Queue & Dynamic Page Rate</li>
+                          <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Auto-Pilot Mode & Manual Mode</li>
+                          <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 0% Commission Direct UPI & Cash Support</li>
+                          <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Scheduled File Deletion (1h, 4h, 12h, 24h)</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+
+                  {isComingSoon ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="mt-6 w-full py-3 bg-slate-800 text-slate-500 rounded-xl text-xs font-bold cursor-not-allowed border border-slate-700"
+                    >
+                      Coming Soon
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetSlug = plan.billing_period?.toLowerCase().includes('year')
+                          ? 'starter_yearly'
+                          : 'starter_monthly';
+                        setFormData(prev => ({ ...prev, selectedPlan: targetSlug }));
+                        scrollToForm();
+                      }}
+                      className="mt-6 w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition shadow-md"
+                    >
+                      Select {plan.name}
+                    </button>
+                  )}
                 </div>
+              );
+            })
+          ) : (
+            <>
+              {/* Fallback Cards if Database is Empty */}
+              <div className="bg-slate-900 border-2 border-emerald-500 rounded-3xl p-6 sm:p-7 shadow-xl flex flex-col justify-between relative">
+                <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
+                  Popular Choice
+                </span>
+                <div>
+                  <h4 className="font-extrabold text-xl text-white">Starter Station</h4>
+                  <div className="mt-3 mb-4">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-black text-white font-mono">₹{customMonthly}</span>
+                      <span className="text-xs text-slate-400">/Monthly</span>
+                    </div>
+                    <p className="text-xs text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      {customTrialDays}-Day Free Trial Included
+                    </p>
+                  </div>
+                  <ul className="space-y-2.5 text-xs text-slate-300">
+                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Counter Configuration & Print Standee</li>
+                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Live Print Queue & Dynamic Page Rate</li>
+                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Auto-Pilot Mode & Manual Mode</li>
+                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 0% Commission Direct UPI & Cash Support</li>
+                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Scheduled File Deletion (1h, 4h, 12h, 24h)</li>
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, selectedPlan: 'starter_monthly' }));
+                    scrollToForm();
+                  }}
+                  className="mt-6 w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition shadow-md"
+                >
+                  Select Starter Station
+                </button>
               </div>
-              <ul className="space-y-2.5 text-xs text-slate-400">
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-slate-500" /> All Starter Station Features</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-slate-500" /> Advanced Multi-Counter Controls</li>
-                <li className="flex items-center gap-2"><Check className="w-4 h-4 text-slate-500" /> Extended Analytics & Reports</li>
-              </ul>
-            </div>
-            <button
-              type="button"
-              disabled
-              className="mt-6 w-full py-3 bg-slate-800 text-slate-500 rounded-xl text-xs font-bold cursor-not-allowed border border-slate-700"
-            >
-              Coming Soon
-            </button>
-          </div>
+            </>
+          )}
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-5">{t.pricingFootnote}</p>
       </section>
 
-      {/* Sign-Up Form */}
+      {/* Sign-Up Form (Dropdown directly linked to Super Admin Form Dropdown Pricing Customizer) */}
       <section id="inquiry-form-section" className="max-w-xl mx-auto px-3 sm:px-4 py-8">
         <div className="bg-slate-900 border border-slate-800 p-5 sm:p-8 rounded-3xl shadow-2xl">
           {submitted ? (
@@ -923,7 +1017,8 @@ export const BusinessLandingPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, selectedPlan: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs outline-none focus:border-emerald-500 font-bold"
                   >
-                    <option value="starter_monthly">Starter Station (₹{confirmedMonthlyPrice}/month)</option>
+                    <option value="starter_monthly">Monthly Plan (₹{customMonthly}/mo)</option>
+                    <option value="starter_yearly">Yearly Plan (₹{customYearly}/yr)</option>
                     <option value="trial_7">{customTrialDays}-Day Free Trial (₹0)</option>
                   </select>
                 </div>
@@ -1101,14 +1196,14 @@ export const BusinessLandingPage: React.FC = () => {
             {activeModal === 'terms' && (
               <div className="space-y-3 leading-relaxed">
                 <p><strong>Operator:</strong> RTS Smart Print, a product of RTS Reliable Technology Services, Kerala, India.</p>
-                <p><strong>Licence & Pricing:</strong> Subscribing shops receive access to the Counter Configuration dashboard, QR Print Standee, and Windows Print Agent. Starter Station is ₹199/month in Indian Rupees (₹).</p>
+                <p><strong>Licence & Pricing:</strong> Subscribing shops receive access to the Counter Configuration dashboard, QR Print Standee, and Windows Print Agent. Subscription plans are billed in Indian Rupees (₹).</p>
                 <p><strong>Direct UPI Payments:</strong> Customer UPI payments go directly to the shop's configured UPI ID with 0% commission.</p>
               </div>
             )}
 
             {activeModal === 'refund' && (
               <div className="space-y-3 leading-relaxed">
-                <p><strong>Free Trial:</strong> Every new shop receives a 7-Day Free Trial to test printer compatibility before billing.</p>
+                <p><strong>Free Trial:</strong> Every new shop receives a Free Trial to test printer compatibility before billing.</p>
                 <p><strong>Support & Refunds:</strong> For subscription billing assistance, contact info@rtsdigitalseva.online.</p>
               </div>
             )}

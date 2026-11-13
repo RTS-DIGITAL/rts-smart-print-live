@@ -20,7 +20,8 @@ import {
   Check,
   QrCode,
   Sparkles,
-  ServerOff
+  ServerOff,
+  PlayCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -62,6 +63,9 @@ const TEXTS = {
     storageP2Desc: "Shop Admins and Super Admins can customize the file lifetime. Choose exactly when files disappear: 1 hour, 4 hours, 12 hours, or 24 hours.",
     storageP3Title: "Automatic Purge Engine",
     storageP3Desc: "Once the timer ends, documents are permanently deleted from both the dashboard and database. Zero manual cleanup required.",
+    videoBadge: "Live Video Demo",
+    videoTitle: "Watch How RTS Smart Print Works in Action",
+    videoSub: "See how easily customers can scan the counter QR code, upload files, and print in seconds.",
     plansTitle: "Transparent & Fair Pricing",
     plansSubtitle: "Flexible monthly & yearly plans with instant free trial access",
     trialBadge: "Free Trial Included",
@@ -100,6 +104,9 @@ const TEXTS = {
     storageP2Desc: "ഉപഭോക്താവിന്റെ ഫയലുകൾ എത്ര നേരം സൂക്ഷിക്കണമെന്ന് നിങ്ങൾക്ക് തിരഞ്ഞെടുക്കാം: 1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ.",
     storageP3Title: "സ്വയം നീക്കം ചെയ്യപ്പെടുന്ന ഫയലുകൾ",
     storageP3Desc: "നിശ്ചയിച്ച സമയം കഴിഞ്ഞാൽ ഡാഷ്‌ബോർഡിൽ നിന്നും ഡാറ്റാബേസിൽ നിന്നും ഫയലുകൾ എന്നെന്നേക്കുമായി ഒഴിവാക്കപ്പെടും. സ്വമേധയാ ഡിലീറ്റ് ചെയ്യേണ്ടതില്ല.",
+    videoBadge: "തത്സമയ വീഡിയോ ഡെമോ",
+    videoTitle: "നിങ്ങളുടെ പ്രിന്റിംഗ് കട ഇനി SMART ആക്കാം! 🚀",
+    videoSub: "QR കോഡ് സ്കാൻ ചെയ്ത് നിമിഷങ്ങൾക്കുള്ളിൽ പ്രിന്റ് എടുക്കുന്നതെങ്ങനെയെന്ന് വീഡിയോയിലൂടെ കാണാം.",
     plansTitle: "ലളിതമായ സബ്‌സ്‌ക്രിപ്ഷൻ പ്ലാനുകൾ",
     plansSubtitle: "പ്രതിമാസ, വാർഷിക പ്ലാനുകളും സൗജന്യ ട്രയലും ഉൾപ്പെടുന്നു",
     trialBadge: "സൗജന്യ ട്രയൽ ലഭ്യമാണ്",
@@ -394,8 +401,53 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Visual 5-Step Process */}
+      {/* Visual 5-Step Process + Live Demo Video Above */}
       <section className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        
+        {/* YOUTUBE DEMO VIDEO SHOWCASE CARD (Placed directly above Step-By-Step Workflow) */}
+        <div className="bg-slate-900/90 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-xl">
+          <div className="grid md:grid-cols-12 gap-6 items-center">
+            <div className="md:col-span-7 space-y-4 text-center md:text-left">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <PlayCircle className="w-3.5 h-3.5" />
+                {t.videoBadge}
+              </span>
+              <h3 className="text-2xl sm:text-3xl font-black text-white leading-tight">
+                {t.videoTitle}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                {t.videoSub}
+              </p>
+              <div className="pt-2 flex flex-wrap justify-center md:justify-start gap-2.5 text-xs text-slate-300">
+                <span className="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                  <QrCode className="w-3.5 h-3.5 text-emerald-400" /> Scan QR Code
+                </span>
+                <span className="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-emerald-400" /> Instant UPI
+                </span>
+                <span className="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                  <Printer className="w-3.5 h-3.5 text-emerald-400" /> Auto-Print
+                </span>
+              </div>
+            </div>
+
+            <div className="md:col-span-5 flex justify-center">
+              <div className="w-full max-w-[300px] aspect-[9/16] rounded-3xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl shadow-emerald-950/50 bg-slate-950">
+                <iframe
+                  className="w-full h-full"
+                  src="https://www.youtube.com/embed/kr7fXGDH_wk"
+                  title="നിങ്ങളുടെ പ്രിന്റിംഗ് കട ഇനി SMART ആക്കാം! 🚀 | RTS Smart Print"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                ></iframe>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 1. How RTS Smart Print Works (5-Step Cards) */}
         <div className="bg-slate-900/90 border border-slate-800 p-6 sm:p-8 rounded-3xl space-y-6 shadow-md">
           <div className="border-b border-slate-800 pb-4">
             <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Step-By-Step Workflow</span>

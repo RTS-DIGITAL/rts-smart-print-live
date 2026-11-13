@@ -108,7 +108,7 @@ const TEXTS = {
     viewPlansBtn: "പ്ലാനുകൾ കാണുക",
     privacyTitle: "Customer Privacy First",
     privacyDesc: "പ്രിന്റിംഗിന് ശേഷം നിശ്ചിത സമയത്തിനുള്ളിൽ (1h, 4h, 12h, 24h) ഫയലുകൾ dashboard-ൽ നിന്നും database-ൽ നിന്നും നീക്കം ചെയ്യപ്പെടും.",
-    privacyLinkText: "പ്രൈവസി പോളിസി കാണുക →",
+    privacyLinkText: "Read Privacy Policy →",
     upiTitle: "നേരിട്ടുള്ള UPI പേയ്‌മെന്റ് (0% കമ്മീഷൻ)",
     upiDesc: "പണം ഇടനിലക്കാരില്ലാതെ നിങ്ങളുടെ Google Pay, PhonePe, Paytm എന്നിവയിലേക്ക് നേരിട്ടെത്തുന്നു. 0% പ്ലാറ്റ്‌ഫോം കമ്മീഷൻ.",
     safeTitle: "പരീക്ഷിച്ചുറപ്പിച്ച പ്രിന്റർ സപ്പോർട്ട്",

@@ -377,7 +377,7 @@ export default function KioskPage() {
       setLaunchingGateway(false);
 
       if (!loaded || !(window as any).Razorpay) {
-        alert('Failed to load Razorpay Checkout. Please check your internet connection or use the QR code below.');
+        alert('Failed to load Razorpay Checkout. Please check your internet connection.');
         return;
       }
 
@@ -403,11 +403,11 @@ export default function KioskPage() {
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } else {
-      // If shop entered a direct Cashfree / PhonePe payment link or key
+      // If shop entered a direct Cashfree / PhonePe payment link
       if (keyId.startsWith('http://') || keyId.startsWith('https://')) {
         window.open(keyId, '_blank');
       } else {
-        alert(`Please complete ₹${formattedAmount} payment via ${activeGatewayProvider.toUpperCase()} or scan the QR below, then tap 'I Have Paid'.`);
+        alert(`Opening ${activeGatewayProvider.toUpperCase()} checkout for ₹${formattedAmount}...`);
       }
     }
   };
@@ -454,7 +454,7 @@ export default function KioskPage() {
               {shop.require_payment ? <Smartphone className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
               {shop.require_payment
                 ? hasActiveShopGateway
-                  ? `${activeGatewayProvider.toUpperCase()} / UPI`
+                  ? `${activeGatewayProvider.toUpperCase()}`
                   : 'Online UPI'
                 : 'Cash at Counter'}
             </span>
@@ -648,18 +648,25 @@ export default function KioskPage() {
                       onClick={() => {
                         if (!shop.require_payment) {
                           handleProceedOrder();
+                        } else if (hasActiveShopGateway && activeGatewayProvider === 'razorpay') {
+                          // If Shopkeeper enabled Razorpay, open Razorpay directly on 1st click!
+                          handlePayWithShopGateway();
                         } else {
                           setShowCheckout(true);
                         }
                       }}
-                      disabled={submittingOrder}
+                      disabled={submittingOrder || launchingGateway}
                       className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs"
                     >
                       <Printer className="w-4 h-4" />
                       {submittingOrder
                         ? 'Sending to Printer...'
+                        : launchingGateway
+                        ? `Opening ${activeGatewayProvider.toUpperCase()}...`
                         : shop.require_payment
-                        ? 'Proceed to Pay & Print'
+                        ? hasActiveShopGateway
+                          ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
+                          : 'Proceed to Pay & Print'
                         : shop.auto_print_enabled
                         ? 'Send to Print (Pay Cash at Counter)'
                         : 'Submit to Counter (Staff Will Release)'}
@@ -746,11 +753,11 @@ export default function KioskPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* ONLINE UPI & GATEWAY PAYMENT MODAL (Supports Shop Gateway + QR Scanner)   */}
+      {/* ONLINE PAYMENT MODAL (Shows ONLY Gateway if ON, OR ONLY QR Scanner if OFF) */}
       {/* ========================================================================= */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-3.5 shadow-2xl my-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">
             <div>
               <h3 className="font-extrabold text-slate-900 text-base">Payment for {shop.name}</h3>
               <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-0.5 inline-block mt-1">
@@ -758,136 +765,125 @@ export default function KioskPage() {
               </p>
             </div>
 
-            {/* IF SHOP HAS CONNECTED THEIR OWN RAZORPAY / CASHFREE KEY: 1-CLICK VERIFIED GATEWAY BUTTON */}
-            {hasActiveShopGateway && (
-              <div className="p-3 bg-indigo-50 border-2 border-indigo-500/40 rounded-2xl space-y-2">
-                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">
-                  ⚡ Verified Merchant Gateway ({activeGatewayProvider.toUpperCase()})
-                </span>
-                <button
-                  type="button"
-                  disabled={launchingGateway || submittingOrder}
-                  onClick={handlePayWithShopGateway}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
-                >
-                  <Zap className="w-4 h-4" />
-                  <span>
-                    {launchingGateway
-                      ? 'Opening Secure Gateway...'
-                      : `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} (Auto-Print)`}
+            {hasActiveShopGateway ? (
+              /* MODE A: SHOPKEEPER ENABLED OWN GATEWAY (RAZORPAY / CASHFREE / PHONEPE) — SHOW ONLY THIS! */
+              <div className="space-y-4">
+                <div className="p-4 bg-indigo-50 border-2 border-indigo-500/40 rounded-2xl space-y-3">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">
+                    ⚡ Verified Merchant Gateway ({activeGatewayProvider.toUpperCase()})
                   </span>
-                </button>
-                <p className="text-[10px] text-indigo-800 leading-tight">
-                  1-Click GPay / PhonePe / Paytm without bank limit blocks. Prints automatically after payment!
-                </p>
-              </div>
-            )}
-
-            {/* OPTION 1: Save QR to Phone & Scan from Gallery (100% Immune to Bank Deep-Link Blocks up to ₹2,000) */}
-            {cleanUpiId && (
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                <img
-                  src={qrCodeImageUrl}
-                  alt="UPI QR Code"
-                  className="w-36 h-36 mx-auto rounded-xl border border-slate-200 bg-white p-1"
-                />
+                  <button
+                    type="button"
+                    disabled={launchingGateway || submittingOrder}
+                    onClick={handlePayWithShopGateway}
+                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+                  >
+                    <Zap className="w-4 h-4" />
+                    <span>
+                      {launchingGateway
+                        ? 'Opening Secure Gateway...'
+                        : `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} (Auto-Print)`}
+                    </span>
+                  </button>
+                  <p className="text-[11px] text-indigo-800 leading-relaxed">
+                    1-Click GPay / PhonePe / Paytm without bank limit blocks. Your document prints automatically as soon as payment succeeds!
+                  </p>
+                </div>
 
                 <button
                   type="button"
-                  onClick={handleDownloadQrForGallery}
-                  disabled={savingQr}
-                  className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-[11px] transition flex items-center justify-center gap-1.5 shadow-sm"
+                  onClick={() => setShowCheckout(false)}
+                  className="w-full py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>{savingQr ? 'Saving QR...' : '1. Save QR & Scan from GPay/PhonePe Gallery'}</span>
-                </button>
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  Works 100% on the same phone! Save QR → Open GPay/PhonePe → Tap <strong>Scan QR</strong> → <strong>Upload from Gallery</strong>.
-                </p>
-              </div>
-            )}
-
-            {/* OPTION 2: Direct UPI App Deep-Link Buttons */}
-            {upiDeepLink && (
-              <div className="space-y-2">
-                <a
-                  href={upiDeepLink}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5"
-                >
-                  <Smartphone className="w-4 h-4" />
-                  <span>Pay ₹{formattedAmount} via UPI App</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-
-                {/* Fallback No-Block Link if customer's bank blocks pre-filled amount links */}
-                <a
-                  href={upiNoBlockLink}
-                  className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-[11px] transition flex items-center justify-center gap-1"
-                >
-                  <span>Showing "Bank Limit" error? Tap here & type ₹{formattedAmount} manually →</span>
-                </a>
-              </div>
-            )}
-
-            {/* OPTION 3: Copy UPI ID */}
-            {cleanUpiId && (
-              <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                <span className="font-mono font-bold text-slate-700 truncate">{cleanUpiId}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(cleanUpiId);
-                    setCopiedUpi(true);
-                    setTimeout(() => setCopiedUpi(false), 2000);
-                  }}
-                  className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 flex items-center gap-1 shrink-0"
-                >
-                  {copiedUpi ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-600" />
-                      <span className="text-emerald-700">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 text-slate-500" />
-                      <span>Copy UPI ID</span>
-                    </>
-                  )}
+                  Cancel & Go Back
                 </button>
               </div>
+            ) : (
+              /* MODE B: SHOPKEEPER USES DIRECT UPI ID / QR SCANNER (Gateway is OFF) */
+              <div className="space-y-3.5">
+                {cleanUpiId && (
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                    <img
+                      src={qrCodeImageUrl}
+                      alt="UPI QR Code"
+                      className="w-40 h-40 mx-auto rounded-xl border border-slate-200 bg-white p-1.5"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadQrForGallery}
+                      disabled={savingQr}
+                      className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{savingQr ? 'Saving QR...' : 'Save QR & Pay via GPay/PhonePe Gallery'}</span>
+                    </button>
+                    <p className="text-[10px] text-slate-500 leading-tight">
+                      Scan with another phone OR tap <strong>Save QR</strong> → Open GPay/PhonePe → <strong>Scan QR</strong> → <strong>Upload from Gallery</strong>.
+                    </p>
+                  </div>
+                )}
+
+                {cleanUpiId && (
+                  <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                    <span className="font-mono font-bold text-slate-700 truncate">{cleanUpiId}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(cleanUpiId);
+                        setCopiedUpi(true);
+                        setTimeout(() => setCopiedUpi(false), 2000);
+                      }}
+                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 flex items-center gap-1 shrink-0"
+                    >
+                      {copiedUpi ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-700">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-slate-500" />
+                          <span>Copy UPI ID</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1 text-left">
+                    Enter Last 4 Digits of UPI Ref / UTR (Optional):
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={12}
+                    placeholder="e.g. 8492"
+                    value={utrNumber}
+                    onChange={(e) => setUtrNumber(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-center font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowCheckout(false)}
+                    className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleProceedOrder()}
+                    disabled={submittingOrder}
+                    className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition"
+                  >
+                    {submittingOrder ? 'Verifying...' : 'I Have Paid'}
+                  </button>
+                </div>
+              </div>
             )}
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-500 mb-1 text-left">
-                Enter Last 4 Digits of UPI Ref / UTR (Optional):
-              </label>
-              <input
-                type="text"
-                maxLength={12}
-                placeholder="e.g. 8492"
-                value={utrNumber}
-                onChange={(e) => setUtrNumber(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-center font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowCheckout(false)}
-                className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={() => handleProceedOrder()}
-                disabled={submittingOrder}
-                className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition"
-              >
-                {submittingOrder ? 'Verifying...' : 'I Have Paid'}
-              </button>
-            </div>
           </div>
         </div>
       )}

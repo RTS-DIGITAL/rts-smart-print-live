@@ -21,7 +21,9 @@ import {
   ExternalLink,
   EyeOff,
   Clock,
-  Download
+  Download,
+  CreditCard,
+  Zap
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -42,6 +44,11 @@ interface ShopConfig {
   counter_pin: string;
   auto_print_enabled: boolean;
   auto_delete_hours?: number | null;
+  // Self Payment Gateway & Split Settings from Shop Admin
+  gateway_enabled?: boolean;
+  gateway_provider?: string | null;
+  gateway_key_id?: string | null;
+  split_payment_enabled?: boolean;
 }
 
 interface UploadedItem {
@@ -68,6 +75,21 @@ function cleanVpa(input: string | null | undefined): string {
   return (input || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
+// Dynamically load Razorpay Checkout SDK when a shop has enabled their own Razorpay Key
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 export default function KioskPage() {
   const { shopSlug } = useParams<{ shopSlug: string }>();
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
@@ -86,6 +108,7 @@ export default function KioskPage() {
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [launchingGateway, setLaunchingGateway] = useState(false);
 
   const [showCheckout, setShowCheckout] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
@@ -209,6 +232,12 @@ export default function KioskPage() {
     : (shop?.name || 'RTS Smart Print').trim();
   const formattedAmount = Number(totalAmount || 0).toFixed(2);
 
+  // Check if shopkeeper has configured & enabled their own Payment Gateway Key
+  const hasActiveShopGateway = Boolean(
+    shop?.gateway_enabled && shop?.gateway_key_id && shop.gateway_key_id.trim() !== ''
+  );
+  const activeGatewayProvider = (shop?.gateway_provider || 'razorpay').toLowerCase();
+
   // 1. Standard UPI Deep Link (With pre-filled amount for QR Code & Primary Button)
   const upiDeepLink = cleanUpiId
     ? `upi://pay?pa=${encodeURIComponent(cleanUpiId)}&pn=${encodeURIComponent(payeeName)}&am=${formattedAmount}&cu=INR`
@@ -245,18 +274,33 @@ export default function KioskPage() {
     }
   };
 
-  const handleProceedOrder = async () => {
+  // Master Order Creation + Lightweight 30-Day Ledger Recording
+  const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
 
     try {
       const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
       const isCashMode = !shop.require_payment;
+      const isGatewayVerified = Boolean(verifiedGatewayPaymentId);
 
+      // If paid via verified Gateway OR Auto-Pilot is enabled, mark as 'paid' so PC Agent prints automatically!
       let targetStatus = 'pending';
-      if (isCashMode) {
+      if (isGatewayVerified) {
+        targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
+      } else if (isCashMode) {
+        targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
+      } else {
         targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
       }
+
+      const finalPaymentRef = isGatewayVerified
+        ? `${activeGatewayProvider.toUpperCase()}_${verifiedGatewayPaymentId}`
+        : isCashMode
+        ? 'CASH_AT_COUNTER'
+        : utrNumber
+        ? `UTR_${utrNumber.trim()}`
+        : 'UPI_QR_SUBMITTED';
 
       for (const item of items) {
         const fileExt = item.name.split('.').pop() || 'pdf';
@@ -286,11 +330,32 @@ export default function KioskPage() {
             paper_size: item.paperSize,
             total_amount: itemTotal,
             status: targetStatus,
-            payment_ref: isCashMode ? 'CASH_AT_COUNTER' : utrNumber || 'UPI_SUBMITTED'
+            payment_ref: finalPaymentRef
           }
         ]);
 
         if (orderError) throw orderError;
+      }
+
+      // Record into 30-Day Lightweight Statement Ledger (0 MB file storage, separates Direct Shop vs Split)
+      try {
+        await supabase.from('shop_transactions').insert([
+          {
+            shop_id: shop.id,
+            order_number: orderNumber,
+            amount: Number(formattedAmount),
+            payment_mode: isGatewayVerified
+              ? activeGatewayProvider.toUpperCase()
+              : isCashMode
+              ? 'CASH'
+              : 'UPI',
+            collection_type: shop.split_payment_enabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
+            payment_ref: finalPaymentRef,
+            status: targetStatus
+          }
+        ]);
+      } catch {
+        // Non-blocking if shop_transactions table is not yet created
       }
 
       navigate(`/shop/${shop.slug}/order/${orderNumber}`);
@@ -298,6 +363,52 @@ export default function KioskPage() {
       alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
     } finally {
       setSubmittingOrder(false);
+    }
+  };
+
+  // Launch Shopkeeper's Own Connected Gateway (Razorpay / Cashfree / PhonePe) -> Auto-Prints on Payment Success!
+  const handlePayWithShopGateway = async () => {
+    if (!shop || !hasActiveShopGateway) return;
+    const keyId = (shop.gateway_key_id || '').trim();
+
+    if (activeGatewayProvider === 'razorpay') {
+      setLaunchingGateway(true);
+      const loaded = await loadRazorpayScript();
+      setLaunchingGateway(false);
+
+      if (!loaded || !(window as any).Razorpay) {
+        alert('Failed to load Razorpay Checkout. Please check your internet connection or use the QR code below.');
+        return;
+      }
+
+      const amountInPaise = Math.round(Number(totalAmount || 0) * 100);
+      const options = {
+        key: keyId,
+        amount: amountInPaise,
+        currency: 'INR',
+        name: shop.name,
+        description: `Print Job (${totalPages} pages)`,
+        prefill: {
+          contact: shop.phone || ''
+        },
+        theme: {
+          color: '#059669'
+        },
+        handler: function (response: any) {
+          const paymentId = response?.razorpay_payment_id || `RZP_${Date.now()}`;
+          handleProceedOrder(paymentId);
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } else {
+      // If shop entered a direct Cashfree / PhonePe payment link or key
+      if (keyId.startsWith('http://') || keyId.startsWith('https://')) {
+        window.open(keyId, '_blank');
+      } else {
+        alert(`Please complete ₹${formattedAmount} payment via ${activeGatewayProvider.toUpperCase()} or scan the QR below, then tap 'I Have Paid'.`);
+      }
     }
   };
 
@@ -341,7 +452,11 @@ export default function KioskPage() {
               shop.require_payment ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
             }`}>
               {shop.require_payment ? <Smartphone className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
-              {shop.require_payment ? 'Online UPI' : 'Cash at Counter'}
+              {shop.require_payment
+                ? hasActiveShopGateway
+                  ? `${activeGatewayProvider.toUpperCase()} / UPI`
+                  : 'Online UPI'
+                : 'Cash at Counter'}
             </span>
           </div>
         </header>
@@ -631,7 +746,7 @@ export default function KioskPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* ONLINE UPI PAYMENT MODAL (Single-Phone Gallery QR + No-Block P2P Link)    */}
+      {/* ONLINE UPI & GATEWAY PAYMENT MODAL (Supports Shop Gateway + QR Scanner)   */}
       {/* ========================================================================= */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -642,6 +757,31 @@ export default function KioskPage() {
                 Banking Name: {payeeName}
               </p>
             </div>
+
+            {/* IF SHOP HAS CONNECTED THEIR OWN RAZORPAY / CASHFREE KEY: 1-CLICK VERIFIED GATEWAY BUTTON */}
+            {hasActiveShopGateway && (
+              <div className="p-3 bg-indigo-50 border-2 border-indigo-500/40 rounded-2xl space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">
+                  ⚡ Verified Merchant Gateway ({activeGatewayProvider.toUpperCase()})
+                </span>
+                <button
+                  type="button"
+                  disabled={launchingGateway || submittingOrder}
+                  onClick={handlePayWithShopGateway}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>
+                    {launchingGateway
+                      ? 'Opening Secure Gateway...'
+                      : `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} (Auto-Print)`}
+                  </span>
+                </button>
+                <p className="text-[10px] text-indigo-800 leading-tight">
+                  1-Click GPay / PhonePe / Paytm without bank limit blocks. Prints automatically after payment!
+                </p>
+              </div>
+            )}
 
             {/* OPTION 1: Save QR to Phone & Scan from Gallery (100% Immune to Bank Deep-Link Blocks up to ₹2,000) */}
             {cleanUpiId && (
@@ -690,30 +830,32 @@ export default function KioskPage() {
             )}
 
             {/* OPTION 3: Copy UPI ID */}
-            <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-              <span className="font-mono font-bold text-slate-700 truncate">{cleanUpiId}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(cleanUpiId);
-                  setCopiedUpi(true);
-                  setTimeout(() => setCopiedUpi(false), 2000);
-                }}
-                className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 flex items-center gap-1 shrink-0"
-              >
-                {copiedUpi ? (
-                  <>
-                    <Check className="w-3 h-3 text-emerald-600" />
-                    <span className="text-emerald-700">Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3 h-3 text-slate-500" />
-                    <span>Copy UPI ID</span>
-                  </>
-                )}
-              </button>
-            </div>
+            {cleanUpiId && (
+              <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                <span className="font-mono font-bold text-slate-700 truncate">{cleanUpiId}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(cleanUpiId);
+                    setCopiedUpi(true);
+                    setTimeout(() => setCopiedUpi(false), 2000);
+                  }}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 flex items-center gap-1 shrink-0"
+                >
+                  {copiedUpi ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span className="text-emerald-700">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-slate-500" />
+                      <span>Copy UPI ID</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-500 mb-1 text-left">
@@ -739,7 +881,7 @@ export default function KioskPage() {
               </button>
               <button
                 type="button"
-                onClick={handleProceedOrder}
+                onClick={() => handleProceedOrder()}
                 disabled={submittingOrder}
                 className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition"
               >

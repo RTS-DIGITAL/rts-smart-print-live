@@ -167,25 +167,26 @@ export const BusinessLandingPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [activeModal, setActiveModal] = useState<TrustModalType>(null);
 
-  // Live Chat & Customizable Auto-Reset Timer States
+  // Live Chat & Per-Tab Independent Session Storage (So 2 tabs never overwrite each other)
   const [chatOpen, setChatOpen] = useState(false);
   const [chatTimeoutMinutes, setChatTimeoutMinutes] = useState<number>(10);
   const [chatSessionId, setChatSessionId] = useState<string | null>(
-    () => localStorage.getItem('rts_live_chat_session_id')
+    () => sessionStorage.getItem('rts_live_chat_session_id')
   );
   const [chatStartedAt, setChatStartedAt] = useState<number | null>(() => {
-    const saved = localStorage.getItem('rts_live_chat_started_at');
+    const saved = sessionStorage.getItem('rts_live_chat_started_at');
     return saved ? Number(saved) : null;
   });
   const [chatUser, setChatUser] = useState({
-    name: localStorage.getItem('rts_live_chat_name') || '',
-    phone: localStorage.getItem('rts_live_chat_phone') || '',
-    email: localStorage.getItem('rts_live_chat_email') || ''
+    name: sessionStorage.getItem('rts_live_chat_name') || '',
+    phone: sessionStorage.getItem('rts_live_chat_phone') || '',
+    email: sessionStorage.getItem('rts_live_chat_email') || ''
   });
   const [startingChat, setStartingChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [sendingChatMsg, setSendingChatMsg] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
+  const lastMsgCountRef = useRef<number>(1);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
@@ -222,17 +223,18 @@ export const BusinessLandingPage: React.FC = () => {
 
   // Helper to reset customer chat box back to a fresh Pre-Chat form after timer expires
   const resetCustomerChatToFresh = () => {
-    localStorage.removeItem('rts_live_chat_session_id');
-    localStorage.removeItem('rts_live_chat_started_at');
-    localStorage.removeItem('rts_live_chat_name');
-    localStorage.removeItem('rts_live_chat_phone');
-    localStorage.removeItem('rts_live_chat_email');
+    sessionStorage.removeItem('rts_live_chat_session_id');
+    sessionStorage.removeItem('rts_live_chat_started_at');
+    sessionStorage.removeItem('rts_live_chat_name');
+    sessionStorage.removeItem('rts_live_chat_phone');
+    sessionStorage.removeItem('rts_live_chat_email');
 
     setChatSessionId(null);
     setChatStartedAt(null);
     setChatUser({ name: '', phone: '', email: '' });
     setChatInput('');
     setChatMessages([WELCOME_MESSAGE]);
+    lastMsgCountRef.current = 1;
   };
 
   useEffect(() => {
@@ -316,7 +318,7 @@ export const BusinessLandingPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [chatSessionId, chatStartedAt, chatTimeoutMinutes]);
 
-  // Sync Live Chat Session with Super Admin Replies in Real-Time
+  // Sync Live Chat Session with Super Admin Replies (Realtime + 3s Auto-Poll Fallback so no reply is ever missed)
   useEffect(() => {
     if (!chatSessionId) return;
 
@@ -333,26 +335,28 @@ export const BusinessLandingPage: React.FC = () => {
       }
 
       if (Array.isArray(data.messages) && data.messages.length > 0) {
+        if (data.messages.length > lastMsgCountRef.current) {
+          const newest = data.messages[data.messages.length - 1];
+          if (newest?.sender === 'admin') {
+            playCustomerReplySound();
+          }
+        }
+        lastMsgCountRef.current = data.messages.length;
         setChatMessages(data.messages);
       }
     }
 
     fetchExistingChat();
 
+    const pollInterval = setInterval(fetchExistingChat, 3000);
+
     const chatChannel = supabase
       .channel(`live-chat-${chatSessionId}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'support_chats', filter: `id=eq.${chatSessionId}` },
-        (payload) => {
-          const updatedMsgs = (payload.new as any)?.messages;
-          if (Array.isArray(updatedMsgs)) {
-            const lastMsg = updatedMsgs[updatedMsgs.length - 1];
-            if (lastMsg?.sender === 'admin') {
-              playCustomerReplySound();
-            }
-            setChatMessages(updatedMsgs);
-          }
+        () => {
+          fetchExistingChat();
         }
       )
       .on(
@@ -365,6 +369,7 @@ export const BusinessLandingPage: React.FC = () => {
       .subscribe();
 
     return () => {
+      clearInterval(pollInterval);
       supabase.removeChannel(chatChannel);
     };
   }, [chatSessionId]);
@@ -472,6 +477,7 @@ export const BusinessLandingPage: React.FC = () => {
     };
     const updated = [...chatMessages, uMsg, bMsg];
     setChatMessages(updated);
+    lastMsgCountRef.current = updated.length;
 
     if (chatSessionId) {
       await supabase
@@ -518,15 +524,16 @@ export const BusinessLandingPage: React.FC = () => {
 
       if (error) throw error;
 
-      localStorage.setItem('rts_live_chat_session_id', newChat.id);
-      localStorage.setItem('rts_live_chat_started_at', String(startTimestamp));
-      localStorage.setItem('rts_live_chat_name', chatUser.name.trim());
-      localStorage.setItem('rts_live_chat_phone', chatUser.phone.trim());
-      localStorage.setItem('rts_live_chat_email', chatUser.email.trim());
+      sessionStorage.setItem('rts_live_chat_session_id', newChat.id);
+      sessionStorage.setItem('rts_live_chat_started_at', String(startTimestamp));
+      sessionStorage.setItem('rts_live_chat_name', chatUser.name.trim());
+      sessionStorage.setItem('rts_live_chat_phone', chatUser.phone.trim());
+      sessionStorage.setItem('rts_live_chat_email', chatUser.email.trim());
 
       setChatSessionId(newChat.id);
       setChatStartedAt(startTimestamp);
       setChatMessages(initialMsgs);
+      lastMsgCountRef.current = initialMsgs.length;
 
       // Send ONE-TIME email notification to Admin on First Submit ONLY
       fetch(GOOGLE_SCRIPT_URL, {
@@ -548,31 +555,40 @@ export const BusinessLandingPage: React.FC = () => {
     }
   };
 
-  // Step 2 in Chat: Customer types message -> Syncs directly to Super Admin Panel (NO duplicate email alerts)
+  // Step 2 in Chat: Customer types message -> Fetches latest DB messages first so Admin replies are never overwritten
   const handleSendCustomChat = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = chatInput.trim();
     if (!trimmed || !chatSessionId) return;
 
-    // Check if session timer already expired before sending
     if (chatStartedAt && Date.now() - chatStartedAt >= (chatTimeoutMinutes || 10) * 60 * 1000) {
       resetCustomerChatToFresh();
       return;
     }
 
     setSendingChatMsg(true);
-    const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
-      sender: 'user',
-      text: trimmed,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    const updatedMessages = [...chatMessages, userMsg];
-    setChatMessages(updatedMessages);
     setChatInput('');
 
     try {
+      const { data: currentRow } = await supabase
+        .from('support_chats')
+        .select('messages')
+        .eq('id', chatSessionId)
+        .maybeSingle();
+
+      const baseMessages = Array.isArray(currentRow?.messages) ? currentRow.messages : chatMessages;
+
+      const userMsg: ChatMessage = {
+        id: `u-${Date.now()}`,
+        sender: 'user',
+        text: trimmed,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      const updatedMessages = [...baseMessages, userMsg];
+      setChatMessages(updatedMessages);
+      lastMsgCountRef.current = updatedMessages.length;
+
       await supabase
         .from('support_chats')
         .update({
@@ -581,7 +597,6 @@ export const BusinessLandingPage: React.FC = () => {
           updated_at: new Date().toISOString()
         })
         .eq('id', chatSessionId);
-      // Note: No second email is sent here during active session timer; Super Admin gets real-time message + sound alert!
     } catch (err) {
       console.error('Failed to send live chat message:', err);
     } finally {
@@ -1421,7 +1436,7 @@ export const BusinessLandingPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* FLOATING LIVE SUPPORT CHAT WIDGET (With Auto-Reset Timer & 1st Email Only) */}
+      {/* FLOATING LIVE SUPPORT CHAT WIDGET (With Per-Tab Session & Customer Name)  */}
       {/* ========================================================================= */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
         {chatOpen && (
@@ -1438,7 +1453,9 @@ export const BusinessLandingPage: React.FC = () => {
                   </h4>
                   <span className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1 mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Connected to Admin • Instant Reply
+                    {chatSessionId && chatUser.name
+                      ? `Connected as ${chatUser.name} • Live`
+                      : 'Connected to Admin • Instant Reply'}
                   </span>
                 </div>
               </div>

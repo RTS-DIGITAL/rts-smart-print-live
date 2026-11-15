@@ -2048,7 +2048,24 @@ export default function AdminPage() {
                             ) : o.status === 'completed' ? (
                               <span className="text-[10px] font-bold text-emerald-600">Printed</span>
                             ) : (
-                              <span className="text-[10px] text-slate-400 font-mono">Spooling...</span>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveOrder(o.order_number)}
+                                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold text-[10px] transition"
+                                  title="Re-trigger PC Agent Print"
+                                >
+                                  🖨️ Print
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectOrder(o.order_number)}
+                                  className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition"
+                                  title="Delete Order"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>

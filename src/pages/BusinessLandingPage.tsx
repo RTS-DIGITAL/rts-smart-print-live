@@ -55,6 +55,12 @@ interface ChatMessage {
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
+const WELCOME_MESSAGE: ChatMessage = {
+  id: 'welcome',
+  sender: 'bot',
+  text: '👋 Namaskaram! Tap a quick topic below or connect with our Admin for live chat:'
+};
+
 const TEXTS = {
   en: {
     heroBadge: "Automated Cloud Kiosk & Zero-Touch Print Management",
@@ -161,11 +167,16 @@ export const BusinessLandingPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [activeModal, setActiveModal] = useState<TrustModalType>(null);
 
-  // Live Chat & Pre-Chat Customer Details State
+  // Live Chat & Customizable Auto-Reset Timer States
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatTimeoutMinutes, setChatTimeoutMinutes] = useState<number>(10);
   const [chatSessionId, setChatSessionId] = useState<string | null>(
     () => localStorage.getItem('rts_live_chat_session_id')
   );
+  const [chatStartedAt, setChatStartedAt] = useState<number | null>(() => {
+    const saved = localStorage.getItem('rts_live_chat_started_at');
+    return saved ? Number(saved) : null;
+  });
   const [chatUser, setChatUser] = useState({
     name: localStorage.getItem('rts_live_chat_name') || '',
     phone: localStorage.getItem('rts_live_chat_phone') || '',
@@ -174,13 +185,7 @@ export const BusinessLandingPage: React.FC = () => {
   const [startingChat, setStartingChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [sendingChatMsg, setSendingChatMsg] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      sender: 'bot',
-      text: '👋 Namaskaram! Tap a quick topic below or connect with our Admin for live chat:'
-    }
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
@@ -194,12 +199,48 @@ export const BusinessLandingPage: React.FC = () => {
     message: ''
   });
 
+  // Subtle chime sound when Admin replies to customer
+  const playCustomerReplySound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(987.77, ctx.currentTime); // B5
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {
+      // Ignore audio block
+    }
+  };
+
+  // Helper to reset customer chat box back to a fresh Pre-Chat form after timer expires
+  const resetCustomerChatToFresh = () => {
+    localStorage.removeItem('rts_live_chat_session_id');
+    localStorage.removeItem('rts_live_chat_started_at');
+    localStorage.removeItem('rts_live_chat_name');
+    localStorage.removeItem('rts_live_chat_phone');
+    localStorage.removeItem('rts_live_chat_email');
+
+    setChatSessionId(null);
+    setChatStartedAt(null);
+    setChatUser({ name: '', phone: '', email: '' });
+    setChatInput('');
+    setChatMessages([WELCOME_MESSAGE]);
+  };
+
   useEffect(() => {
     document.documentElement.lang = lang;
     document.title = "RTS Smart Print: QR Print & Pay for Shops | RTS Reliable Technology Services";
   }, [lang]);
 
-  // Load Plans & Super Admin Dynamic Settings (with Real-Time Sync)
+  // Load Plans, Super Admin Announcement & Customizable Chat Timeout Minutes
   const loadPlansAndAnnouncements = async () => {
     try {
       const { data, error } = await supabase
@@ -222,12 +263,17 @@ export const BusinessLandingPage: React.FC = () => {
 
       const { data: announceData } = await supabase
         .from('site_announcements')
-        .select('message')
+        .select('message, chat_timeout_minutes')
         .eq('id', 1)
         .maybeSingle();
 
-      if (announceData && typeof announceData.message === 'string') {
-        setSuperAdminAnnouncement(announceData.message);
+      if (announceData) {
+        if (typeof announceData.message === 'string') {
+          setSuperAdminAnnouncement(announceData.message);
+        }
+        if (announceData.chat_timeout_minutes) {
+          setChatTimeoutMinutes(Number(announceData.chat_timeout_minutes));
+        }
       }
     } catch (err) {
       console.error('Failed to load plans:', err);
@@ -252,6 +298,24 @@ export const BusinessLandingPage: React.FC = () => {
     };
   }, []);
 
+  // Automatic Session Expiration Watcher (Resets to fresh chat box after 5, 10, 15, or 20 minutes)
+  useEffect(() => {
+    if (!chatSessionId || !chatStartedAt) return;
+
+    const timeoutMs = (chatTimeoutMinutes || 10) * 60 * 1000;
+
+    const checkExpiry = () => {
+      const elapsed = Date.now() - chatStartedAt;
+      if (elapsed >= timeoutMs) {
+        resetCustomerChatToFresh();
+      }
+    };
+
+    checkExpiry();
+    const interval = setInterval(checkExpiry, 5000);
+    return () => clearInterval(interval);
+  }, [chatSessionId, chatStartedAt, chatTimeoutMinutes]);
+
   // Sync Live Chat Session with Super Admin Replies in Real-Time
   useEffect(() => {
     if (!chatSessionId) return;
@@ -264,8 +328,7 @@ export const BusinessLandingPage: React.FC = () => {
         .maybeSingle();
 
       if (error || !data) {
-        localStorage.removeItem('rts_live_chat_session_id');
-        setChatSessionId(null);
+        resetCustomerChatToFresh();
         return;
       }
 
@@ -284,8 +347,19 @@ export const BusinessLandingPage: React.FC = () => {
         (payload) => {
           const updatedMsgs = (payload.new as any)?.messages;
           if (Array.isArray(updatedMsgs)) {
+            const lastMsg = updatedMsgs[updatedMsgs.length - 1];
+            if (lastMsg?.sender === 'admin') {
+              playCustomerReplySound();
+            }
             setChatMessages(updatedMsgs);
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'support_chats', filter: `id=eq.${chatSessionId}` },
+        () => {
+          resetCustomerChatToFresh();
         }
       )
       .subscribe();
@@ -407,17 +481,18 @@ export const BusinessLandingPage: React.FC = () => {
     }
   };
 
-  // Step 1 in Chat: Customer submits Name, Phone, Email to unlock live message box & notify Admin
+  // Step 1 in Chat: Customer submits Name, Phone, Email -> Sends ONLY 1 Email Alert & Starts Timer
   const handleStartLiveChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatUser.name.trim() || !chatUser.phone.trim() || !chatUser.email.trim()) return;
 
     setStartingChat(true);
     try {
+      const startTimestamp = Date.now();
       const initialMsgs: ChatMessage[] = [
         ...chatMessages,
         {
-          id: `sys-${Date.now()}`,
+          id: `sys-${startTimestamp}`,
           sender: 'bot',
           text: lang === 'en'
             ? `✅ Hi ${chatUser.name}! You are now connected to RTS Admin. Type your question below and our Admin will reply here directly.`
@@ -444,14 +519,16 @@ export const BusinessLandingPage: React.FC = () => {
       if (error) throw error;
 
       localStorage.setItem('rts_live_chat_session_id', newChat.id);
+      localStorage.setItem('rts_live_chat_started_at', String(startTimestamp));
       localStorage.setItem('rts_live_chat_name', chatUser.name.trim());
       localStorage.setItem('rts_live_chat_phone', chatUser.phone.trim());
       localStorage.setItem('rts_live_chat_email', chatUser.email.trim());
 
       setChatSessionId(newChat.id);
+      setChatStartedAt(startTimestamp);
       setChatMessages(initialMsgs);
 
-      // Send immediate email notification to Admin that customer joined chat
+      // Send ONE-TIME email notification to Admin on First Submit ONLY
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -461,7 +538,7 @@ export const BusinessLandingPage: React.FC = () => {
           customerName: chatUser.name.trim(),
           customerPhone: chatUser.phone.trim(),
           customerEmail: chatUser.email.trim(),
-          message: 'Customer submitted details in chat box and is ready for live chat!'
+          message: 'New customer just connected to Live Support Chat! Open Super Admin Panel to chat live.'
         })
       });
     } catch (err: any) {
@@ -471,11 +548,17 @@ export const BusinessLandingPage: React.FC = () => {
     }
   };
 
-  // Step 2 in Chat: Customer types direct message -> Goes straight to Super Admin Live Chat & Admin Email
+  // Step 2 in Chat: Customer types message -> Syncs directly to Super Admin Panel (NO duplicate email alerts)
   const handleSendCustomChat = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = chatInput.trim();
     if (!trimmed || !chatSessionId) return;
+
+    // Check if session timer already expired before sending
+    if (chatStartedAt && Date.now() - chatStartedAt >= (chatTimeoutMinutes || 10) * 60 * 1000) {
+      resetCustomerChatToFresh();
+      return;
+    }
 
     setSendingChatMsg(true);
     const userMsg: ChatMessage = {
@@ -498,20 +581,7 @@ export const BusinessLandingPage: React.FC = () => {
           updated_at: new Date().toISOString()
         })
         .eq('id', chatSessionId);
-
-      // Send immediate email notification to Admin with the customer's exact message
-      fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'live_chat_alert',
-          customerName: chatUser.name,
-          customerPhone: chatUser.phone,
-          customerEmail: chatUser.email,
-          message: trimmed
-        })
-      });
+      // Note: No second email is sent here during active session timer; Super Admin gets real-time message + sound alert!
     } catch (err) {
       console.error('Failed to send live chat message:', err);
     } finally {
@@ -919,7 +989,7 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* DYNAMIC SUBSCRIPTION PRICING CARDS (Directly reflects Super Admin -> Pricing & Offers) */}
+      {/* DYNAMIC SUBSCRIPTION PRICING CARDS */}
       <section className="max-w-4xl mx-auto px-3 sm:px-4 py-8" id="pricing-section">
         <div className="text-center mb-8 space-y-1.5">
           <span className="text-[11px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -1020,51 +1090,48 @@ export const BusinessLandingPage: React.FC = () => {
               );
             })
           ) : (
-            <>
-              {/* Fallback Cards if Database is Empty */}
-              <div className="bg-slate-900 border-2 border-emerald-500 rounded-3xl p-6 sm:p-7 shadow-xl flex flex-col justify-between relative">
-                <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
-                  Popular Choice
-                </span>
-                <div>
-                  <h4 className="font-extrabold text-xl text-white">Starter Station</h4>
-                  <div className="mt-3 mb-4">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-white font-mono">₹{customMonthly}</span>
-                      <span className="text-xs text-slate-400">/Monthly</span>
-                    </div>
-                    <p className="text-xs text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5" />
-                      {customTrialDays}-Day Free Trial Included
-                    </p>
+            <div className="bg-slate-900 border-2 border-emerald-500 rounded-3xl p-6 sm:p-7 shadow-xl flex flex-col justify-between relative">
+              <span className="absolute top-4 right-4 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase">
+                Popular Choice
+              </span>
+              <div>
+                <h4 className="font-extrabold text-xl text-white">Starter Station</h4>
+                <div className="mt-3 mb-4">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-black text-white font-mono">₹{customMonthly}</span>
+                    <span className="text-xs text-slate-400">/Monthly</span>
                   </div>
-                  <ul className="space-y-2.5 text-xs text-slate-300">
-                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Counter Configuration & Print Standee</li>
-                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Live Print Queue & Dynamic Page Rate</li>
-                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Auto-Pilot Mode & Manual Mode</li>
-                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 0% Commission Direct UPI & Cash Support</li>
-                    <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Scheduled File Deletion (1h, 4h, 12h, 24h)</li>
-                  </ul>
+                  <p className="text-xs text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    {customTrialDays}-Day Free Trial Included
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData(prev => ({ ...prev, selectedPlan: 'starter_monthly' }));
-                    scrollToForm();
-                  }}
-                  className="mt-6 w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition shadow-md"
-                >
-                  Select Starter Station
-                </button>
+                <ul className="space-y-2.5 text-xs text-slate-300">
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Counter Configuration & Print Standee</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Live Print Queue & Dynamic Page Rate</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Auto-Pilot Mode & Manual Mode</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 0% Commission Direct UPI & Cash Support</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Scheduled File Deletion (1h, 4h, 12h, 24h)</li>
+                </ul>
               </div>
-            </>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormData(prev => ({ ...prev, selectedPlan: 'starter_monthly' }));
+                  scrollToForm();
+                }}
+                className="mt-6 w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition shadow-md"
+              >
+                Select Starter Station
+              </button>
+            </div>
           )}
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-5">{t.pricingFootnote}</p>
       </section>
 
-      {/* Sign-Up Form (Dropdown directly linked to Super Admin Form Dropdown Pricing Customizer) */}
+      {/* Sign-Up Form */}
       <section id="inquiry-form-section" className="max-w-xl mx-auto px-3 sm:px-4 py-8">
         <div className="bg-slate-900 border border-slate-800 p-5 sm:p-8 rounded-3xl shadow-2xl">
           {submitted ? (
@@ -1354,7 +1421,7 @@ export const BusinessLandingPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* FLOATING LIVE SUPPORT CHAT WIDGET (With Pre-Chat Form & Admin Live Chat)  */}
+      {/* FLOATING LIVE SUPPORT CHAT WIDGET (With Auto-Reset Timer & 1st Email Only) */}
       {/* ========================================================================= */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
         {chatOpen && (
@@ -1476,25 +1543,37 @@ export const BusinessLandingPage: React.FC = () => {
                 </button>
               </form>
             ) : (
-              <form
-                onSubmit={handleSendCustomChat}
-                className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-2"
-              >
-                <input
-                  type="text"
-                  placeholder="Type your message to Admin (e.g. is this offer available)..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  className="flex-1 px-3.5 py-2 text-xs border border-slate-300 rounded-full outline-none focus:border-teal-700 text-slate-800"
-                />
-                <button
-                  type="submit"
-                  disabled={sendingChatMsg}
-                  className="px-4 py-2 bg-[#0b5c58] hover:bg-teal-700 text-white font-bold text-xs rounded-full transition flex items-center gap-1 shrink-0"
+              <div className="bg-white border-t border-slate-200">
+                <form
+                  onSubmit={handleSendCustomChat}
+                  className="p-2.5 flex items-center gap-2"
                 >
-                  <span>Send →</span>
-                </button>
-              </form>
+                  <input
+                    type="text"
+                    placeholder="Type your message to Admin (e.g. is this offer available)..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    className="flex-1 px-3.5 py-2 text-xs border border-slate-300 rounded-full outline-none focus:border-teal-700 text-slate-800"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sendingChatMsg}
+                    className="px-4 py-2 bg-[#0b5c58] hover:bg-teal-700 text-white font-bold text-xs rounded-full transition flex items-center gap-1 shrink-0"
+                  >
+                    <span>Send →</span>
+                  </button>
+                </form>
+                <div className="px-3.5 pb-2 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Session auto-refreshes after {chatTimeoutMinutes} min</span>
+                  <button
+                    type="button"
+                    onClick={resetCustomerChatToFresh}
+                    className="text-teal-700 hover:underline font-bold"
+                  >
+                    Start New Chat
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

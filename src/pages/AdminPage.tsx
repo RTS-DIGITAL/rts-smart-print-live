@@ -113,91 +113,90 @@ const COMMON_PRINTERS = [
   "POS-80-Printer"
 ];
 
-// 12 Official Shopkeeper FAQs (Cleaned, Confirmed & Bilingual)
 const SHOP_ADMIN_FAQS = [
   {
     id: 'q1',
     qEn: '1. What is RTS Smart Print?',
     aEn: 'RTS Smart Print is an automated printing system for your shop. Customers scan your counter QR code, upload their file, choose copies and colour, and pay by UPI or cash. Your shop computer receives the order and prints it.',
     qMl: '1. എന്താണ് RTS Smart Print?',
-    aMl: 'നിങ്ങളുടെ കടയ്ക്കായുള്ള ഒരു ഓട്ടോമേറ്റഡ് പ്രിന്റിംഗ് സംവിധാനമാണ് RTS Smart Print. ഉപഭോക്താക്കൾ കൗണ്ടറിലെ QR കോഡ് സ്കാൻ ചെയ്ത് ഫയൽ അപ്‌ലോഡ് ചെയ്യുകയും UPI വഴിയോ ക്യാഷ് ആയോ പണമടയ്ക്കുകയും ചെയ്യുന്നു. ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിൽ എത്തുകയും തനിയെ പ്രിന്റ് ആകുകയും ചെയ്യുന്നു.'
+    aMl: 'നിങ്ങളുടെ കടയ്ക്കായുള്ള ഒരു ഓട്ടോമേറ്റഡ് പ്രിന്റിംഗ് സംവിധാനമാണ് RTS Smart Print. ഉപഭോക്താക്കൾ കൗണ്ടറിലെ QR കോഡ് സ്കാൻ ചെയ്ത് ഫയൽ അപ്‌ലോഡ് ചെയ്യുകയും UPI വഴിയോ ക്യാഷ് ആയോ പണമടയ്ക്കുകയും ചെയ്യുന്നു. ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിൽ എത്തുകയും പ്രിന്റ് ആകുകയും ചെയ്യുന്നു.'
   },
   {
     id: 'q2',
     qEn: '2. How much does it cost?',
-    aEn: 'The Starter Station plan is ₹199 per month. It includes a 7-day free trial. You can see the plan details on the pricing section of the website, or ask RTS Support in the Live Chat tab for current offers.',
+    aEn: 'The Starter Station plan is ₹199 per month. It includes a 7-day free trial. You can see the plan details on the pricing section of the website, or ask RTS Support for the current offer.',
     qMl: '2. ഇതിന് എത്രയാണ് നിരക്ക്?',
-    aMl: 'Starter Station പ്ലാനിന് പ്രതിമാസം ₹199 ആണ്. ഇതിൽ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ഉൾപ്പെടുന്നു. നിലവിലെ ഓഫറുകൾ അറിയാൻ Live Chat ടാബ് വഴി സൂപ്പർ അഡ്മിനോട് ചോദിക്കാവുന്നതാണ്.'
+    aMl: 'Starter Station പ്ലാനിന് പ്രതിമാസം ₹199 ആണ്. ഇതിൽ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ഉൾപ്പെടുന്നു. നിലവിലെ ഓഫറുകൾ അറിയാൻ RTS Support-ൽ ചോദിക്കാവുന്നതാണ്.'
   },
   {
     id: 'q3',
     qEn: '3. Is there a free trial?',
-    aEn: 'Yes, the Starter Station plan includes a 7-day free trial with no card or upfront payment required to start. When the trial ends, you can renew your subscription to continue receiving orders without interruption.',
+    aEn: 'Yes, the Starter Station plan includes a 7-day free trial with no card or upfront payment required to start. When the trial ends, you can renew your subscription to continue receiving orders.',
     qMl: '3. സൗജന്യ ട്രയൽ ലഭ്യമാണോ?',
     aMl: 'അതെ, കാർഡോ മുൻകൂർ പേയ്‌മെന്റോ ഇല്ലാതെ തന്നെ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭിക്കും. ട്രയൽ അവസാനിക്കുമ്പോൾ സബ്‌സ്‌ക്രിപ്ഷൻ പുതുക്കി സേവനം തുടരാവുന്നതാണ്.'
   },
   {
     id: 'q4',
     qEn: '4. Does RTS Smart Print take a commission on my payments?',
-    aEn: 'No. Customer UPI payments go 100% directly to your own UPI ID, and cash payments are collected directly at your counter — both with 0% platform commission.',
+    aEn: 'No. Customer UPI payments go directly to your own UPI ID, and cash payments are collected directly at your counter — both with 0% commission.',
     qMl: '4. എന്റെ പേയ്‌മെന്റുകളിൽ നിന്ന് കമ്മീഷൻ ഈടാക്കുമോ?',
-    aMl: 'ഇല്ല. കസ്റ്റമർ നൽകുന്ന UPI പേയ്‌മെന്റുകൾ നേരിട്ട് നിങ്ങളുടെ ബാങ്ക് UPI ID-യിലേക്കും ക്യാഷ് പേയ്‌മെന്റുകൾ നേരിട്ട് കൗണ്ടറിലേക്കും ലഭിക്കുന്നു (0% കമ്മീഷൻ).'
+    aMl: 'ഇല്ല. കസ്റ്റമർ നൽകുന്ന UPI പേയ്‌മെന്റുകൾ നേരിട്ട് നിങ്ങളുടെ സ്വന്തം UPI ID-യിലേക്കും ക്യാഷ് പേയ്‌മെന്റുകൾ നേരിട്ട് കൗണ്ടറിലേക്കും ലഭിക്കുന്നു (0% കമ്മീഷൻ).'
   },
   {
     id: 'q5',
     qEn: "5. How do I change my shop's printing prices?",
-    aEn: 'In this Shop Admin Dashboard, scroll to the "Dynamic Page Rate" card. Change the rate for A4, Legal, Letter, Colour, Black & White, Single-sided or Double-sided printing. The new prices are saved automatically and appear on the customer screen immediately without restarting anything.',
+    aEn: "In your Shop Admin Dashboard, scroll to the 'Dynamic Page Rate' section. Change the rate for A4, Legal, Letter, colour, black and white, single-sided or double-sided printing. The new prices appear on the customer's screen as soon as they are saved, so there is no need to restart anything.",
     qMl: '5. പ്രിന്റിംഗ് നിരക്കുകൾ എങ്ങനെ മാറ്റാം?',
-    aMl: 'ഈ ഡാഷ്‌ബോർഡിലെ "Dynamic Page Rate" കാർഡിൽ A4, Legal, Letter, B&W, Color നിരക്കുകൾ മാറ്റിയാൽ ഉടൻ തന്നെ അത് സേവ് ആകുകയും കസ്റ്റമറുടെ സ്ക്രീനിൽ തത്സമയം മാറുകയും ചെയ്യും.'
+    aMl: "ഈ ഡാഷ്‌ബോർഡിലെ 'Dynamic Page Rate' കാർഡിൽ A4, Legal, Letter, B&W, Color നിരക്കുകൾ മാറ്റിയാൽ ഉടൻ തന്നെ അത് സേവ് ആകുകയും കസ്റ്റമറുടെ സ്ക്രീനിൽ തത്സമയം മാറുകയും ചെയ്യും."
   },
   {
     id: 'q6',
     qEn: '6. How do I connect my shop computer to RTS Smart Print?',
-    aEn: '1. Copy your permanent 6-digit pairing code from this dashboard.\n2. Download the PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Install and run it on your shop computer.\n4. Enter the 6-digit pairing code when asked.\nThe pairing code never changes on refresh. You can download the agent up to 3 times (request unlock if reinstalling).',
+    aEn: '1. Log in to the Shop Admin Dashboard and copy your permanent 6-digit pairing code.\n2. Download the PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Install it on the shop computer and run it.\n4. Enter the 6-digit pairing code when asked.\nThe pairing code does not change when you refresh the page. You can download the agent up to 3 times per account. If you need more, request re-download approval from RTS Support.',
     qMl: '6. കടയിലെ കമ്പ്യൂട്ടർ എങ്ങനെ കണക്റ്റ് ചെയ്യാം?',
-    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക.\nഈ കോഡ് ഒരിക്കലും മാറില്ല. സുരക്ഷയ്ക്കായി 3 തവണ വരെ സോഫ്റ്റ്‌വെയർ ഡൗൺലോഡ് ചെയ്യാം.'
+    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്ത് റൺ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക.\nഈ കോഡ് പേജ് റീഫ്രഷ് ചെയ്താലും മാറില്ല. 3 തവണ വരെ സോഫ്റ്റ്‌വെയർ ഡൗൺലോഡ് ചെയ്യാം.'
   },
   {
     id: 'q7',
     qEn: '7. Do I need to install anything on my phone?',
-    aEn: 'No app is needed for customers or your phone. Customers simply scan the QR code with their phone camera and use the web page. You only need the PC Print Agent on your shop computer.',
+    aEn: 'No app is needed for customers. They scan the QR code with their phone camera and use the web page. You only need the PC Print Agent on your shop computer.',
     qMl: '7. ഫോണിൽ ആപ്പ് ഇൻസ്റ്റാൾ ചെയ്യേണ്ടതുണ്ടോ?',
-    aMl: 'ഇല്ല. കസ്റ്റമേഴ്സിന് ഫോൺ ക്യാമറ വഴി QR കോഡ് സ്കാൻ ചെയ്ത് നേരിട്ട് വെബ് പേജിലൂടെ ഫയൽ അയക്കാം. കടയിലെ കമ്പ്യൂട്ടറിൽ മാത്രം PC Print Agent ഉണ്ടായാൽ മതി.'
+    aMl: 'ഇല്ല. ഉപഭോക്താക്കൾക്ക് ആപ്പിന്റെ ആവശ്യമില്ല. അവർ ഫോൺ ക്യാമറ വഴി QR കോഡ് സ്കാൻ ചെയ്ത് വെബ് പേജ് ഉപയോഗിക്കുന്നു. കടയിലെ കമ്പ്യൂട്ടറിൽ മാത്രം PC Print Agent ഉണ്ടായാൽ മതി.'
   },
   {
     id: 'q8',
     qEn: '8. What do I need before I start?',
-    aEn: 'You need a Windows computer, an internet connection, a printer connected to that computer, your UPI ID (or cash collection at counter), and a phone to test with.',
-    qMl: '8. തുടങ്ങുന്നതിന് എന്തെല്ലാം ആവശ്യമാണ്?',
-    aMl: 'ഒരു വിൻഡോസ് കമ്പ്യൂട്ടർ, ഇന്റർനെറ്റ് കണക്ഷൻ, കമ്പ്യൂട്ടറുമായി ഘടിപ്പിച്ച പ്രിന്റർ, നിങ്ങളുടെ UPI ID (അല്ലെങ്കിൽ ക്യാഷ് കൗണ്ടർ) എന്നിവ മാത്രം മതി.'
+    aEn: 'You need a Windows computer, an internet connection, a printer connected to that computer, your UPI ID (or cash payment), and a phone to test with.',
+    qMl: '8. തുടങ്ങുന്നതിന് മുൻപ് എന്തെല്ലാം ആവശ്യമാണ്?',
+    aMl: 'ഒരു വിൻഡോസ് കമ്പ്യൂട്ടർ, ഇന്റർനെറ്റ് കണക്ഷൻ, കമ്പ്യൂട്ടറുമായി ഘടിപ്പിച്ച പ്രിന്റർ, നിങ്ങളുടെ UPI ID (അല്ലെങ്കിൽ ക്യാഷ് പേയ്‌മെന്റ്), ടെസ്റ്റ് ചെയ്യാൻ ഒരു ഫോൺ എന്നിവ മാത്രം മതി.'
   },
   {
     id: 'q9',
     qEn: '9. How do I print the QR code for my counter?',
-    aEn: 'Click the green "Print Counter Standee" button at the top of this Shop Admin Dashboard. Print the A4 QR standee and place it on your counter for customers to scan.',
+    aEn: 'Open the Shop Admin Dashboard and click Print Counter Standee. Print the QR code and place it on your counter. Customers can scan it with any phone camera.',
     qMl: '9. കൗണ്ടറിൽ വെക്കാനുള്ള QR കോഡ് എങ്ങനെ പ്രിന്റ് ചെയ്യാം?',
-    aMl: 'മുകളിലുള്ള പച്ച നിറത്തിലുള്ള "Print Counter Standee" ബട്ടൺ ക്ലിക്ക് ചെയ്ത് QR കോഡ് പ്രിന്റ് എടുത്ത് കൗണ്ടറിൽ സ്ഥാപിക്കാം.'
+    aMl: 'Shop Admin Dashboard-ലെ "Print Counter Standee" ക്ലിക്ക് ചെയ്ത് QR കോഡ് പ്രിന്റ് എടുത്ത് കൗണ്ടറിൽ വെക്കുക. ഏത് ഫോൺ ക്യാമറ ഉപയോഗിച്ചും ഇത് സ്കാൻ ചെയ്യാം.'
   },
   {
     id: 'q10',
     qEn: '10. What happens when a customer places an order?',
-    aEn: 'The order appears in your Live Print Queue showing order number, file name, copies, amount, and status. In Auto-Pilot mode, printing starts automatically after payment is confirmed. In Manual Approval mode, press "Print Now" after checking the order, or press Reject/Trash to discard it.',
+    aEn: "The order appears in your Live Print Queue, showing the order number, file name, copies, amount and status. In Auto-Pilot mode, printing starts automatically after payment is confirmed. In Manual mode, press Print Now after you check the order. You can press Reject / Discard to remove an order you don't want to print.",
     qMl: '10. കസ്റ്റമർ ഓർഡർ നൽകുമ്പോൾ എന്ത് സംഭവിക്കും?',
-    aMl: 'ഓർഡർ ഉടൻ തന്നെ "Live Print Queue"-ൽ കാണാം. Auto-Pilot മോഡിൽ പേയ്‌മെന്റ് കഴിഞ്ഞാൽ തനിയെ പ്രിന്റ് ആകും. Manual മോഡിൽ "Print Now" ക്ലിക്ക് ചെയ്യുമ്പോൾ പ്രിന്റ് ആകും.'
+    aMl: 'ഓർഡർ നിങ്ങളുടെ Live Print Queue-ൽ കാണാം. Auto-Pilot മോഡിൽ പേയ്‌മെന്റ് കഴിഞ്ഞാൽ തനിയെ പ്രിന്റ് ആകും. Manual മോഡിൽ ഓർഡർ പരിശോധിച്ച ശേഷം "Print Now" ക്ലിക്ക് ചെയ്യാം, അല്ലെങ്കിൽ ഒഴിവാക്കാൻ Reject ബട്ടൺ അമർത്താം.'
   },
   {
     id: 'q11',
     qEn: '11. How long are customer files kept?',
-    aEn: 'You choose how long customer files are kept in Counter Configuration: 1 hour, 4 hours, 12 hours, or 24 hours. When that time ends, files are removed automatically from the Shop Admin Dashboard and cloud database.',
+    aEn: "You choose how long customer files are kept: 1 hour, 4 hours, 12 hours or 24 hours. When that time ends, the files are removed automatically from the Shop Admin Dashboard and our database. You don't need to clear any storage yourself.",
     qMl: '11. ഉപഭോക്താക്കളുടെ ഫയലുകൾ എത്ര സമയം സൂക്ഷിക്കും?',
-    aMl: '1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ എന്നിങ്ങനെ നിങ്ങൾ തിരഞ്ഞെടുക്കുന്ന സമയത്തിന് ശേഷം ഫയലുകൾ ഡാഷ്‌ബോർഡിൽ നിന്നും ക്ലൗഡ് ഡാറ്റാബേസിൽ നിന്നും തനിയെ ഡിലീറ്റ് ആകും.'
+    aMl: '1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ എന്നിങ്ങനെ നിങ്ങൾ തിരഞ്ഞെടുക്കുന്ന സമയത്തിന് ശേഷം ഫയലുകൾ ഡാഷ്‌ബോർഡിൽ നിന്നും ഡാറ്റാബേസിൽ നിന്നും തനിയെ നീക്കം ചെയ്യപ്പെടും.'
   },
   {
     id: 'q12',
     qEn: '12. Who do I contact if I have a problem?',
-    aEn: 'First check that your printer is switched on, has paper, is selected in Counter Configuration, and RTS-Print-Setup.exe is running with internet. If the issue continues, switch to the "Live Chat with Super Admin" tab above to message RTS Support directly!',
-    qMl: '12. എന്തെങ്കിലും സഹായം ആവശ്യമുണ്ടെങ്കിൽ ആരെ ബന്ധപ്പെടണം?',
-    aMl: 'പ്രിന്റർ ഓൺ ആണെന്നും പേപ്പർ ഉണ്ടെന്നും ഉറപ്പാക്കുക. കൂടുതൽ സഹായത്തിനായി ഈ ചാറ്റ് ബോക്സിലെ "Live Chat with Super Admin" ടാബിൽ ക്ലിക്ക് ചെയ്ത് സൂപ്പർ അഡ്മിനുമായി നേരിട്ട് ചാറ്റ് ചെയ്യാം!'
+    aEn: 'First check that the printer is on, has paper, is connected to the computer, and is selected in the dashboard, and that the internet is working. If the problem continues, switch to the "Live Chat (Super Admin)" tab above to contact RTS Support directly.',
+    qMl: '12. എന്തെങ്കിലും പ്രശ്നമുണ്ടായാൽ ആരെ ബന്ധപ്പെടണം?',
+    aMl: 'ആദ്യം പ്രിന്റർ ഓൺ ആണെന്നും പേപ്പർ ഉണ്ടെന്നും ഇന്റർനെറ്റ് പ്രവർത്തിക്കുന്നുണ്ടെന്നും ഉറപ്പാക്കുക. പ്രശ്നം തുടരുകയാണെങ്കിൽ മുകളിലുള്ള "Live Chat (Super Admin)" ടാബിൽ ക്ലിക്ക് ചെയ്ത് RTS Support-മായി നേരിട്ട് ചാറ്റ് ചെയ്യുക.'
   }
 ];
 
@@ -242,9 +241,7 @@ export default function AdminPage() {
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
 
-  // =========================================================================
-  // SHOP ADMIN HELP & LIVE SUPPORT CHAT BOX STATES (FAQ Tab + Super Admin Live Chat Tab)
-  // =========================================================================
+  // Shop Admin Floating Help & Live Support Chat States
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportTab, setSupportTab] = useState<'faq' | 'livechat'>('faq');
   const [faqLang, setFaqLang] = useState<'en' | 'ml'>('en');
@@ -260,7 +257,6 @@ export default function AdminPage() {
   const lastShopMsgCountRef = useRef<number>(0);
   const shopChatEndRef = useRef<HTMLDivElement>(null);
 
-  // Subtle chime sound when Super Admin replies to Shop Admin
   const playReplyChime = () => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -372,7 +368,6 @@ export default function AdminPage() {
 
       if (pricingRes) setPricing(pricingRes);
 
-      // Load Super Admin customizable chat timeout minutes
       const { data: announceData } = await supabase
         .from('site_announcements')
         .select('chat_timeout_minutes')
@@ -430,7 +425,7 @@ export default function AdminPage() {
     return () => clearInterval(timer);
   }, [shopChatSessionId, shopChatStartedAt, chatTimeoutMinutes]);
 
-  // Real-time + 3-second polling sync for Shop Admin <-> Super Admin Live Chat
+  // Sync Shop Admin Live Chat with Super Admin Replies
   useEffect(() => {
     if (!shopChatSessionId) return;
 
@@ -501,7 +496,7 @@ export default function AdminPage() {
           id: `sys-${startTimestamp}`,
           sender: 'bot',
           text: faqLang === 'en'
-            ? `✅ Connected to RTS Super Admin! Hello ${shop.name} (Code: ${shop.pairing_code}), type your message below and Super Admin will reply here live.`
+            ? `✅ Connected to RTS Super Admin! Hello ${shop.name} (Code: ${shop.pairing_code}), type your question below and Super Admin will reply here live.`
             : `✅ RTS Super Admin-മായി കണക്റ്റ് ചെയ്തു! നമസ്കാരം ${shop.name} (Code: ${shop.pairing_code}), നിങ്ങളുടെ സന്ദേശം താഴെ ടൈപ്പ് ചെയ്യുക.`,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
@@ -552,7 +547,7 @@ export default function AdminPage() {
     }
   };
 
-  // Send message from Shop Admin to Super Admin Inbox (No duplicate emails during active timer)
+  // Send message from Shop Admin to Super Admin Inbox
   const handleSendShopLiveMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = shopChatInput.trim();
@@ -601,6 +596,7 @@ export default function AdminPage() {
     }
   };
 
+  // Login Handler (Always checks latest PIN from DB so newly reset PIN works immediately)
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -637,6 +633,9 @@ export default function AdminPage() {
     setIsLoggedIn(false);
   };
 
+  // =========================================================================
+  // AUTOMATED FORGOT PASSWORD HANDLER (Generates New 6-Digit PIN, Saves to DB & Emails Shopkeeper)
+  // =========================================================================
   const handleSendResetPinEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -677,8 +676,10 @@ export default function AdminPage() {
     setForgotStatusMsg(null);
 
     try {
+      // 1. Generate a brand new random 6-digit Admin PIN
       const newSixDigitPin = Math.floor(100000 + Math.random() * 900000).toString();
 
+      // 2. Update the new 6-digit PIN in Supabase `shops` table immediately
       const { error: updateErr } = await supabase
         .from('shops')
         .update({ admin_pin: newSixDigitPin })
@@ -686,9 +687,11 @@ export default function AdminPage() {
 
       if (updateErr) throw updateErr;
 
+      // 3. Update local state so Counter Admin PIN (6 Numbers) reflects the new PIN automatically
       setAdminPin(newSixDigitPin);
       setShop({ ...shop, admin_pin: newSixDigitPin });
 
+      // 4. Trigger automated email from RTS side via Google Apps Script webhook
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -719,6 +722,9 @@ export default function AdminPage() {
     }
   };
 
+  // =========================================================================
+  // SOFTWARE DOWNLOAD & UNLOCK REQUEST HANDLERS
+  // =========================================================================
   const handleDownloadSetup = async () => {
     if (!shop) return;
     const used = shop.download_count || 0;
@@ -939,6 +945,9 @@ export default function AdminPage() {
     );
   }
 
+  // =========================================================================
+  // SHOP ADMIN LOGIN GATE (With Automated Email 6-Digit PIN Reset)
+  // =========================================================================
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -988,6 +997,7 @@ export default function AdminPage() {
             </button>
           </form>
 
+          {/* Forgot 6-Digit PIN Automated Email Reset Section */}
           <div className="pt-3 border-t border-slate-900 space-y-3">
             <button
               type="button"
@@ -1044,6 +1054,9 @@ export default function AdminPage() {
   const isDownloadLocked = !(shop.download_allowed ?? true) || downloadsUsed >= maxDownloads;
   const currentSelectedFaq = SHOP_ADMIN_FAQS.find((f) => f.id === selectedFaqId) || SHOP_ADMIN_FAQS[0];
 
+  // =========================================================================
+  // LOGGED-IN SHOP ADMIN DASHBOARD
+  // =========================================================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
@@ -1280,6 +1293,7 @@ export default function AdminPage() {
                 />
               </div>
 
+              {/* 6-DIGIT ADMIN PIN FIELD (Automatically reflects reset PIN & editable anytime) */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
                 <label className="block font-bold text-slate-800 flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
@@ -1297,6 +1311,7 @@ export default function AdminPage() {
                 </p>
               </div>
 
+              {/* ALWAYS VISIBLE UPI ID + REGISTERED BANKING NAME */}
               <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2.5">
                 <div>
                   <label className="block font-bold text-emerald-950 flex items-center gap-1.5 mb-1">
@@ -1330,6 +1345,7 @@ export default function AdminPage() {
                 </p>
               </div>
 
+              {/* PAYMENT MODE TOGGLE */}
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -1361,6 +1377,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {/* ANTI-SPAM PIN GATE */}
               <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2.5">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-1.5 font-bold text-slate-900">
@@ -1394,6 +1411,7 @@ export default function AdminPage() {
                 )}
               </div>
 
+              {/* PRINT EXECUTION MODE */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Print Execution Mode</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -1425,6 +1443,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {/* TARGET COUNTER PRINTER DROPDOWN + CUSTOM INPUT */}
               <div className="space-y-2">
                 <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
                 <select
@@ -1671,7 +1690,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* 2 Separate Mode Tabs: [📚 12 Help FAQs] | [💬 Live Chat with Super Admin] */}
+            {/* 2 Separate Mode Tabs: [📚 12 Help FAQs] | [💬 Live Chat (Super Admin)] */}
             <div className="grid grid-cols-2 bg-slate-100 p-1 border-b border-slate-200 text-xs font-extrabold">
               <button
                 type="button"
@@ -1739,7 +1758,7 @@ export default function AdminPage() {
 
                 {/* Direct CTA to switch to Live Chat */}
                 <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500">Still need help with your counter?</span>
+                  <span className="text-[10px] text-slate-500">Need direct assistance?</span>
                   <button
                     type="button"
                     onClick={() => setSupportTab('livechat')}
@@ -1750,7 +1769,7 @@ export default function AdminPage() {
                 </div>
               </div>
             ) : (
-              /* TAB 2: LIVE CHAT WITH SUPER ADMIN (Same real-time engine as BusinessLandingPage) */
+              /* TAB 2: LIVE CHAT WITH SUPER ADMIN */
               <div className="flex flex-col">
                 <div className="p-3.5 max-h-64 overflow-y-auto space-y-2.5 bg-slate-50 text-xs">
                   {!shopChatSessionId ? (

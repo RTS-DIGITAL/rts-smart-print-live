@@ -31,7 +31,8 @@ import {
   Download,
   Bell,
   Megaphone,
-  Sparkles
+  Sparkles,
+  X
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -92,7 +93,27 @@ interface Inquiry {
   created_at: string;
 }
 
+interface SupportChatMessage {
+  id: string;
+  sender: 'bot' | 'user' | 'admin';
+  text: string;
+  time?: string;
+}
+
+interface SupportChatSession {
+  id: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  messages: SupportChatMessage[];
+  status: string;
+  unread_admin: boolean;
+  updated_at: string;
+  created_at: string;
+}
+
 const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
 const COMMON_PRINTERS = [
   "Microsoft Print to PDF",
@@ -120,6 +141,13 @@ export const SuperAdminPage: React.FC = () => {
   const [pinError, setPinError] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'shops' | 'inquiries' | 'pricing'>('shops');
+
+  // Live Customer Support Chat Inbox States
+  const [showLiveChatInbox, setShowLiveChatInbox] = useState(true);
+  const [supportChats, setSupportChats] = useState<SupportChatSession[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [adminReplyText, setAdminReplyText] = useState('');
+  const [sendingAdminReply, setSendingAdminReply] = useState(false);
 
   const [shops, setShops] = useState<ShopTenant[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
@@ -170,7 +198,7 @@ export const SuperAdminPage: React.FC = () => {
         const generatedSlug = details?.slug || shopName.toLowerCase().replace(/[^a-z0-9]/g, '-');
         const generatedCode = details?.pairingCode || 'Check Admin';
 
-        await fetch('https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec', {
+        await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
@@ -246,6 +274,16 @@ export const SuperAdminPage: React.FC = () => {
       if (announceData && typeof announceData.message === 'string') {
         setLandingOfferText(announceData.message);
       }
+
+      // Fetch Live Customer Support Chats
+      const { data: chatData } = await supabase
+        .from('support_chats')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (chatData) {
+        setSupportChats(chatData as SupportChatSession[]);
+      }
     } catch (err) {
       console.error('SuperAdmin load failed:', err);
     } finally {
@@ -262,10 +300,15 @@ export const SuperAdminPage: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated) return;
     const channel = supabase
-      .channel('superadmin-shops-sync')
+      .channel('superadmin-shops-and-livechat-sync')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'shops' },
+        () => fetchAllData()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'support_chats' },
         () => fetchAllData()
       )
       .subscribe();
@@ -274,6 +317,76 @@ export const SuperAdminPage: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [isAuthenticated]);
+
+  // Select a customer conversation from the left list
+  const handleSelectCustomerChat = async (chat: SupportChatSession) => {
+    setSelectedChatId(chat.id);
+    if (chat.unread_admin) {
+      await supabase.from('support_chats').update({ unread_admin: false }).eq('id', chat.id);
+      fetchAllData();
+    }
+  };
+
+  // Send Admin Reply live to customer's website chat box + email alert
+  const handleSendAdminChatReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const activeChat = supportChats.find(c => c.id === selectedChatId);
+    if (!activeChat || !adminReplyText.trim()) return;
+
+    setSendingAdminReply(true);
+    const replyText = adminReplyText.trim();
+    const newReplyMsg: SupportChatMessage = {
+      id: `adm-${Date.now()}`,
+      sender: 'admin',
+      text: replyText,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const updatedMessages = [...(activeChat.messages || []), newReplyMsg];
+    setAdminReplyText('');
+
+    try {
+      const { error } = await supabase
+        .from('support_chats')
+        .update({
+          messages: updatedMessages,
+          unread_admin: false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', activeChat.id);
+
+      if (error) throw error;
+
+      // Also dispatch email copy to customer's registered email address if Google Script supports it
+      if (activeChat.customer_email) {
+        fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'admin_chat_reply',
+            customerName: activeChat.customer_name,
+            customerEmail: activeChat.customer_email,
+            replyMessage: replyText
+          })
+        });
+      }
+
+      fetchAllData();
+    } catch (err: any) {
+      alert('Failed to send reply: ' + err.message);
+    } finally {
+      setSendingAdminReply(false);
+    }
+  };
+
+  const handleDeleteCustomerChat = async (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this customer chat conversation?')) return;
+    await supabase.from('support_chats').delete().eq('id', chatId);
+    if (selectedChatId === chatId) setSelectedChatId(null);
+    fetchAllData();
+  };
 
   const openManageModal = (shop: ShopTenant) => {
     const savedPrinter = shop.target_printer_name || 'Microsoft Print to PDF';
@@ -723,10 +836,12 @@ export const SuperAdminPage: React.FC = () => {
   );
 
   const pendingUnlockRequests = shops.filter(s => s.download_requested).length;
+  const unreadChatCount = supportChats.filter(c => c.unread_admin).length;
+  const activeSupportChat = supportChats.find(c => c.id === selectedChatId) || null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
-      <header className="bg-slate-900/85 backdrop-blur border-b border-slate-800 px-6 py-4 sticky top-0 z-40 flex justify-between items-center">
+      <header className="bg-slate-900/85 backdrop-blur border-b border-slate-800 px-6 py-4 sticky top-0 z-40 flex flex-wrap justify-between items-center gap-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-950 text-base shadow-lg shadow-emerald-500/30">
             ⚡
@@ -747,43 +862,263 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-800 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Live Customer Chat Pill Button (Matches Sample Image) */}
           <button
-            onClick={() => setActiveTab('shops')}
-            className={`px-4 py-1.5 rounded-xl font-bold transition ${
-              activeTab === 'shops' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            type="button"
+            onClick={() => setShowLiveChatInbox(!showLiveChatInbox)}
+            className={`px-4 py-2 rounded-full font-extrabold transition flex items-center gap-1.5 shadow-md ${
+              showLiveChatInbox
+                ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                : 'bg-slate-900 border border-indigo-500/40 text-indigo-300 hover:bg-slate-800'
             }`}
           >
-            Shops ({shops.length})
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span>Live Customer Chat</span>
+            {unreadChatCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black animate-bounce">
+                {unreadChatCount}
+              </span>
+            )}
           </button>
+
+          <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-800">
+            <button
+              onClick={() => setActiveTab('shops')}
+              className={`px-4 py-1.5 rounded-xl font-bold transition ${
+                activeTab === 'shops' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Shops ({shops.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('inquiries')}
+              className={`px-4 py-1.5 rounded-xl font-bold transition ${
+                activeTab === 'inquiries' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Inquiries ({inquiries.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('pricing')}
+              className={`px-4 py-1.5 rounded-xl font-bold transition ${
+                activeTab === 'pricing' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Pricing & Offers ({plans.length})
+            </button>
+          </div>
+
           <button
-            onClick={() => setActiveTab('inquiries')}
-            className={`px-4 py-1.5 rounded-xl font-bold transition ${
-              activeTab === 'inquiries' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
+            onClick={fetchAllData}
+            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
+            title="Refresh Data"
           >
-            Inquiries ({inquiries.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('pricing')}
-            className={`px-4 py-1.5 rounded-xl font-bold transition ${
-              activeTab === 'pricing' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Pricing & Offers ({plans.length})
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
-
-        <button
-          onClick={fetchAllData}
-          className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
-          title="Refresh Data"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
+        {/* ========================================================================= */}
+        {/* LIVE CUSTOMER SUPPORT CHAT INBOX (Matches Your Exact Screenshot Sample)   */}
+        {/* ========================================================================= */}
+        {showLiveChatInbox && (
+          <div className="bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+            {/* Dark Teal Header Bar */}
+            <div className="bg-gradient-to-r from-[#1a1c4b] via-[#0f3443] to-[#0b3b42] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <MessageCircle className="w-5 h-5 text-emerald-400" />
+                  <h2 className="text-base font-black text-white">Live Customer Support Chat Inbox</h2>
+                  <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                    Real-Time Sync + Email Alert
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1">
+                  Select a customer on the left to view their Name, Phone, Email & messages. Your reply appears live in their website chat box and is also emailed to their registered email address!
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fetchAllData}
+                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 border border-white/15"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Chats</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLiveChatInbox(false)}
+                  className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition border border-white/15"
+                  title="Minimize Chat Inbox"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 2-Column Split Layout */}
+            <div className="grid grid-cols-1 md:grid-cols-12 min-h-[380px]">
+              {/* Left Column: Customer List */}
+              <div className="md:col-span-4 border-r border-slate-200 bg-slate-50/70 overflow-y-auto max-h-[420px] divide-y divide-slate-200">
+                {supportChats.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    No customer chats yet. When a visitor submits their Name, Phone & Email in the Business Page chat box, they will appear here live.
+                  </div>
+                ) : (
+                  supportChats.map((chat) => {
+                    const lastMsgObj = chat.messages && chat.messages.length > 0
+                      ? chat.messages[chat.messages.length - 1]
+                      : null;
+                    const formattedDate = new Date(chat.updated_at || chat.created_at).toLocaleString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                    const isSelected = chat.id === selectedChatId;
+
+                    return (
+                      <div
+                        key={chat.id}
+                        onClick={() => handleSelectCustomerChat(chat)}
+                        className={`p-4 cursor-pointer transition relative group ${
+                          isSelected ? 'bg-teal-50/90 border-l-4 border-teal-600' : 'hover:bg-slate-100/80'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-xs text-slate-900">{chat.customer_name}</span>
+                            {chat.unread_admin && (
+                              <span className="px-2 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full">
+                                NEW
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-medium">{formattedDate}</span>
+                        </div>
+
+                        <p className="text-[11px] font-bold text-slate-700 mt-1 flex flex-wrap items-center gap-1">
+                          <span>📞 {chat.customer_phone}</span>
+                          <span>•</span>
+                          <span className="text-slate-600">✉️ {chat.customer_email}</span>
+                        </p>
+
+                        <div className="flex items-center justify-between gap-2 mt-1.5">
+                          <p className="text-xs text-slate-500 truncate">
+                            {lastMsgObj ? lastMsgObj.text : 'Connected to live chat'}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteCustomerChat(chat.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 transition"
+                            title="Delete Conversation"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Right Column: Active Conversation & Reply Input */}
+              <div className="md:col-span-8 flex flex-col justify-between bg-white">
+                {/* Top Customer Info Bar */}
+                <div className="px-6 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                  {activeSupportChat ? (
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">{activeSupportChat.customer_name}</h3>
+                      <p className="text-xs text-slate-500">
+                        📞 {activeSupportChat.customer_phone} • ✉️ {activeSupportChat.customer_email}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <h3 className="font-extrabold text-sm text-slate-900">Select a customer from the left list</h3>
+                      <p className="text-xs text-slate-400">Customer Name, Phone Number, and Email will appear here.</p>
+                    </div>
+                  )}
+
+                  {activeSupportChat && (
+                    <a
+                      href={`https://wa.me/91${activeSupportChat.customer_phone.replace(/[^0-9]/g, '').slice(-10)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>WhatsApp Customer</span>
+                    </a>
+                  )}
+                </div>
+
+                {/* Middle Chat History Area */}
+                <div className="p-6 flex-1 overflow-y-auto max-h-[280px] space-y-3 bg-slate-50/40 text-xs">
+                  {!activeSupportChat ? (
+                    <div className="h-44 flex items-center justify-center text-slate-400 text-xs">
+                      👈 Click on a customer conversation on the left to read and reply.
+                    </div>
+                  ) : (
+                    (activeSupportChat.messages || []).map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.sender === 'admin' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`rounded-2xl px-4 py-2.5 max-w-[78%] leading-relaxed shadow-sm ${
+                            msg.sender === 'admin'
+                              ? 'bg-[#0b5c58] text-white font-semibold'
+                              : msg.sender === 'user'
+                              ? 'bg-white border-2 border-teal-500/40 text-slate-900 font-semibold'
+                              : 'bg-slate-100 border border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          <span className="text-[9px] font-black uppercase opacity-75 block mb-0.5">
+                            {msg.sender === 'admin'
+                              ? '👨‍💻 Admin Reply'
+                              : msg.sender === 'user'
+                              ? `👤 ${activeSupportChat.customer_name}`
+                              : '🤖 Welcome Bot'}
+                            {msg.time ? ` • ${msg.time}` : ''}
+                          </span>
+                          <p className="whitespace-pre-line">{msg.text}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Bottom Reply Input Bar */}
+                <form
+                  onSubmit={handleSendAdminChatReply}
+                  className="p-3.5 bg-white border-t border-slate-200 flex items-center gap-3"
+                >
+                  <input
+                    type="text"
+                    disabled={!activeSupportChat || sendingAdminReply}
+                    placeholder="Type your reply to the customer (e.g. Yes, this offer is available for a limited time!)..."
+                    value={adminReplyText}
+                    onChange={(e) => setAdminReplyText(e.target.value)}
+                    className="flex-1 px-4 py-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl outline-none focus:border-teal-600 text-slate-800 disabled:opacity-60"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!activeSupportChat || sendingAdminReply || !adminReplyText.trim()}
+                    className="px-5 py-2.5 bg-slate-500 hover:bg-[#0b5c58] disabled:bg-slate-300 text-white font-extrabold rounded-xl text-xs transition shrink-0 shadow"
+                  >
+                    {sendingAdminReply ? 'Sending...' : 'Send Reply →'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'shops' && (
           <div className="space-y-4">
             {/* PUBLIC BUSINESS LANDING PAGE OFFER & UPDATE BANNER CONTROLLER */}

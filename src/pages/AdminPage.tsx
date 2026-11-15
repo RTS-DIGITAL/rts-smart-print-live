@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
@@ -26,7 +26,10 @@ import {
   Download,
   Bell,
   Send,
-  MessageCircle
+  MessageCircle,
+  HelpCircle,
+  X,
+  Languages
 } from 'lucide-react';
 
 interface ShopData {
@@ -80,6 +83,13 @@ interface PricingRule {
   price_per_page: number;
 }
 
+interface SupportChatMessage {
+  id: string;
+  sender: 'bot' | 'user' | 'admin';
+  text: string;
+  time?: string;
+}
+
 const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
@@ -101,6 +111,94 @@ const COMMON_PRINTERS = [
   "Canon G3010 series",
   "POS-58-Series",
   "POS-80-Printer"
+];
+
+// 12 Official Shopkeeper FAQs (Cleaned, Confirmed & Bilingual)
+const SHOP_ADMIN_FAQS = [
+  {
+    id: 'q1',
+    qEn: '1. What is RTS Smart Print?',
+    aEn: 'RTS Smart Print is an automated printing system for your shop. Customers scan your counter QR code, upload their file, choose copies and colour, and pay by UPI or cash. Your shop computer receives the order and prints it.',
+    qMl: '1. എന്താണ് RTS Smart Print?',
+    aMl: 'നിങ്ങളുടെ കടയ്ക്കായുള്ള ഒരു ഓട്ടോമേറ്റഡ് പ്രിന്റിംഗ് സംവിധാനമാണ് RTS Smart Print. ഉപഭോക്താക്കൾ കൗണ്ടറിലെ QR കോഡ് സ്കാൻ ചെയ്ത് ഫയൽ അപ്‌ലോഡ് ചെയ്യുകയും UPI വഴിയോ ക്യാഷ് ആയോ പണമടയ്ക്കുകയും ചെയ്യുന്നു. ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിൽ എത്തുകയും തനിയെ പ്രിന്റ് ആകുകയും ചെയ്യുന്നു.'
+  },
+  {
+    id: 'q2',
+    qEn: '2. How much does it cost?',
+    aEn: 'The Starter Station plan is ₹199 per month. It includes a 7-day free trial. You can see the plan details on the pricing section of the website, or ask RTS Support in the Live Chat tab for current offers.',
+    qMl: '2. ഇതിന് എത്രയാണ് നിരക്ക്?',
+    aMl: 'Starter Station പ്ലാനിന് പ്രതിമാസം ₹199 ആണ്. ഇതിൽ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ഉൾപ്പെടുന്നു. നിലവിലെ ഓഫറുകൾ അറിയാൻ Live Chat ടാബ് വഴി സൂപ്പർ അഡ്മിനോട് ചോദിക്കാവുന്നതാണ്.'
+  },
+  {
+    id: 'q3',
+    qEn: '3. Is there a free trial?',
+    aEn: 'Yes, the Starter Station plan includes a 7-day free trial with no card or upfront payment required to start. When the trial ends, you can renew your subscription to continue receiving orders without interruption.',
+    qMl: '3. സൗജന്യ ട്രയൽ ലഭ്യമാണോ?',
+    aMl: 'അതെ, കാർഡോ മുൻകൂർ പേയ്‌മെന്റോ ഇല്ലാതെ തന്നെ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭിക്കും. ട്രയൽ അവസാനിക്കുമ്പോൾ സബ്‌സ്‌ക്രിപ്ഷൻ പുതുക്കി സേവനം തുടരാവുന്നതാണ്.'
+  },
+  {
+    id: 'q4',
+    qEn: '4. Does RTS Smart Print take a commission on my payments?',
+    aEn: 'No. Customer UPI payments go 100% directly to your own UPI ID, and cash payments are collected directly at your counter — both with 0% platform commission.',
+    qMl: '4. എന്റെ പേയ്‌മെന്റുകളിൽ നിന്ന് കമ്മീഷൻ ഈടാക്കുമോ?',
+    aMl: 'ഇല്ല. കസ്റ്റമർ നൽകുന്ന UPI പേയ്‌മെന്റുകൾ നേരിട്ട് നിങ്ങളുടെ ബാങ്ക് UPI ID-യിലേക്കും ക്യാഷ് പേയ്‌മെന്റുകൾ നേരിട്ട് കൗണ്ടറിലേക്കും ലഭിക്കുന്നു (0% കമ്മീഷൻ).'
+  },
+  {
+    id: 'q5',
+    qEn: "5. How do I change my shop's printing prices?",
+    aEn: 'In this Shop Admin Dashboard, scroll to the "Dynamic Page Rate" card. Change the rate for A4, Legal, Letter, Colour, Black & White, Single-sided or Double-sided printing. The new prices are saved automatically and appear on the customer screen immediately without restarting anything.',
+    qMl: '5. പ്രിന്റിംഗ് നിരക്കുകൾ എങ്ങനെ മാറ്റാം?',
+    aMl: 'ഈ ഡാഷ്‌ബോർഡിലെ "Dynamic Page Rate" കാർഡിൽ A4, Legal, Letter, B&W, Color നിരക്കുകൾ മാറ്റിയാൽ ഉടൻ തന്നെ അത് സേവ് ആകുകയും കസ്റ്റമറുടെ സ്ക്രീനിൽ തത്സമയം മാറുകയും ചെയ്യും.'
+  },
+  {
+    id: 'q6',
+    qEn: '6. How do I connect my shop computer to RTS Smart Print?',
+    aEn: '1. Copy your permanent 6-digit pairing code from this dashboard.\n2. Download the PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Install and run it on your shop computer.\n4. Enter the 6-digit pairing code when asked.\nThe pairing code never changes on refresh. You can download the agent up to 3 times (request unlock if reinstalling).',
+    qMl: '6. കടയിലെ കമ്പ്യൂട്ടർ എങ്ങനെ കണക്റ്റ് ചെയ്യാം?',
+    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക.\nഈ കോഡ് ഒരിക്കലും മാറില്ല. സുരക്ഷയ്ക്കായി 3 തവണ വരെ സോഫ്റ്റ്‌വെയർ ഡൗൺലോഡ് ചെയ്യാം.'
+  },
+  {
+    id: 'q7',
+    qEn: '7. Do I need to install anything on my phone?',
+    aEn: 'No app is needed for customers or your phone. Customers simply scan the QR code with their phone camera and use the web page. You only need the PC Print Agent on your shop computer.',
+    qMl: '7. ഫോണിൽ ആപ്പ് ഇൻസ്റ്റാൾ ചെയ്യേണ്ടതുണ്ടോ?',
+    aMl: 'ഇല്ല. കസ്റ്റമേഴ്സിന് ഫോൺ ക്യാമറ വഴി QR കോഡ് സ്കാൻ ചെയ്ത് നേരിട്ട് വെബ് പേജിലൂടെ ഫയൽ അയക്കാം. കടയിലെ കമ്പ്യൂട്ടറിൽ മാത്രം PC Print Agent ഉണ്ടായാൽ മതി.'
+  },
+  {
+    id: 'q8',
+    qEn: '8. What do I need before I start?',
+    aEn: 'You need a Windows computer, an internet connection, a printer connected to that computer, your UPI ID (or cash collection at counter), and a phone to test with.',
+    qMl: '8. തുടങ്ങുന്നതിന് എന്തെല്ലാം ആവശ്യമാണ്?',
+    aMl: 'ഒരു വിൻഡോസ് കമ്പ്യൂട്ടർ, ഇന്റർനെറ്റ് കണക്ഷൻ, കമ്പ്യൂട്ടറുമായി ഘടിപ്പിച്ച പ്രിന്റർ, നിങ്ങളുടെ UPI ID (അല്ലെങ്കിൽ ക്യാഷ് കൗണ്ടർ) എന്നിവ മാത്രം മതി.'
+  },
+  {
+    id: 'q9',
+    qEn: '9. How do I print the QR code for my counter?',
+    aEn: 'Click the green "Print Counter Standee" button at the top of this Shop Admin Dashboard. Print the A4 QR standee and place it on your counter for customers to scan.',
+    qMl: '9. കൗണ്ടറിൽ വെക്കാനുള്ള QR കോഡ് എങ്ങനെ പ്രിന്റ് ചെയ്യാം?',
+    aMl: 'മുകളിലുള്ള പച്ച നിറത്തിലുള്ള "Print Counter Standee" ബട്ടൺ ക്ലിക്ക് ചെയ്ത് QR കോഡ് പ്രിന്റ് എടുത്ത് കൗണ്ടറിൽ സ്ഥാപിക്കാം.'
+  },
+  {
+    id: 'q10',
+    qEn: '10. What happens when a customer places an order?',
+    aEn: 'The order appears in your Live Print Queue showing order number, file name, copies, amount, and status. In Auto-Pilot mode, printing starts automatically after payment is confirmed. In Manual Approval mode, press "Print Now" after checking the order, or press Reject/Trash to discard it.',
+    qMl: '10. കസ്റ്റമർ ഓർഡർ നൽകുമ്പോൾ എന്ത് സംഭവിക്കും?',
+    aMl: 'ഓർഡർ ഉടൻ തന്നെ "Live Print Queue"-ൽ കാണാം. Auto-Pilot മോഡിൽ പേയ്‌മെന്റ് കഴിഞ്ഞാൽ തനിയെ പ്രിന്റ് ആകും. Manual മോഡിൽ "Print Now" ക്ലിക്ക് ചെയ്യുമ്പോൾ പ്രിന്റ് ആകും.'
+  },
+  {
+    id: 'q11',
+    qEn: '11. How long are customer files kept?',
+    aEn: 'You choose how long customer files are kept in Counter Configuration: 1 hour, 4 hours, 12 hours, or 24 hours. When that time ends, files are removed automatically from the Shop Admin Dashboard and cloud database.',
+    qMl: '11. ഉപഭോക്താക്കളുടെ ഫയലുകൾ എത്ര സമയം സൂക്ഷിക്കും?',
+    aMl: '1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ എന്നിങ്ങനെ നിങ്ങൾ തിരഞ്ഞെടുക്കുന്ന സമയത്തിന് ശേഷം ഫയലുകൾ ഡാഷ്‌ബോർഡിൽ നിന്നും ക്ലൗഡ് ഡാറ്റാബേസിൽ നിന്നും തനിയെ ഡിലീറ്റ് ആകും.'
+  },
+  {
+    id: 'q12',
+    qEn: '12. Who do I contact if I have a problem?',
+    aEn: 'First check that your printer is switched on, has paper, is selected in Counter Configuration, and RTS-Print-Setup.exe is running with internet. If the issue continues, switch to the "Live Chat with Super Admin" tab above to message RTS Support directly!',
+    qMl: '12. എന്തെങ്കിലും സഹായം ആവശ്യമുണ്ടെങ്കിൽ ആരെ ബന്ധപ്പെടണം?',
+    aMl: 'പ്രിന്റർ ഓൺ ആണെന്നും പേപ്പർ ഉണ്ടെന്നും ഉറപ്പാക്കുക. കൂടുതൽ സഹായത്തിനായി ഈ ചാറ്റ് ബോക്സിലെ "Live Chat with Super Admin" ടാബിൽ ക്ലിക്ക് ചെയ്ത് സൂപ്പർ അഡ്മിനുമായി നേരിട്ട് ചാറ്റ് ചെയ്യാം!'
+  }
 ];
 
 export default function AdminPage() {
@@ -144,12 +242,66 @@ export default function AdminPage() {
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
 
+  // =========================================================================
+  // SHOP ADMIN HELP & LIVE SUPPORT CHAT BOX STATES (FAQ Tab + Super Admin Live Chat Tab)
+  // =========================================================================
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportTab, setSupportTab] = useState<'faq' | 'livechat'>('faq');
+  const [faqLang, setFaqLang] = useState<'en' | 'ml'>('en');
+  const [selectedFaqId, setSelectedFaqId] = useState<string>('q1');
+
+  const [chatTimeoutMinutes, setChatTimeoutMinutes] = useState<number>(10);
+  const [shopChatSessionId, setShopChatSessionId] = useState<string | null>(null);
+  const [shopChatStartedAt, setShopChatStartedAt] = useState<number | null>(null);
+  const [startingShopChat, setStartingShopChat] = useState(false);
+  const [shopChatInput, setShopChatInput] = useState('');
+  const [sendingShopChat, setSendingShopChat] = useState(false);
+  const [shopChatMessages, setShopChatMessages] = useState<SupportChatMessage[]>([]);
+  const lastShopMsgCountRef = useRef<number>(0);
+  const shopChatEndRef = useRef<HTMLDivElement>(null);
+
+  // Subtle chime sound when Super Admin replies to Shop Admin
+  const playReplyChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(987.77, ctx.currentTime);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {
+      // Ignore audio block
+    }
+  };
+
   useEffect(() => {
     const sessionKey = `rts_auth_${activeSlug}`;
     if (localStorage.getItem(sessionKey) === 'true') {
       setIsLoggedIn(true);
     }
+
+    const savedChatId = sessionStorage.getItem(`rts_shop_chat_id_${activeSlug}`);
+    const savedChatStart = sessionStorage.getItem(`rts_shop_chat_start_${activeSlug}`);
+    if (savedChatId) setShopChatSessionId(savedChatId);
+    if (savedChatStart) setShopChatStartedAt(Number(savedChatStart));
   }, [activeSlug]);
+
+  const resetShopChatToFresh = () => {
+    sessionStorage.removeItem(`rts_shop_chat_id_${activeSlug}`);
+    sessionStorage.removeItem(`rts_shop_chat_start_${activeSlug}`);
+    setShopChatSessionId(null);
+    setShopChatStartedAt(null);
+    setShopChatInput('');
+    setShopChatMessages([]);
+    lastShopMsgCountRef.current = 0;
+  };
 
   const loadShopData = async () => {
     try {
@@ -219,6 +371,17 @@ export default function AdminPage() {
         .eq('shop_id', shopRes.id);
 
       if (pricingRes) setPricing(pricingRes);
+
+      // Load Super Admin customizable chat timeout minutes
+      const { data: announceData } = await supabase
+        .from('site_announcements')
+        .select('chat_timeout_minutes')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (announceData?.chat_timeout_minutes) {
+        setChatTimeoutMinutes(Number(announceData.chat_timeout_minutes));
+      }
     } catch (err) {
       console.error('Failed to load shop admin:', err);
     } finally {
@@ -251,7 +414,193 @@ export default function AdminPage() {
     };
   }, [shop?.id]);
 
-  // Login Handler (Always checks latest PIN from DB so newly reset PIN works immediately)
+  // Auto-Expire Shop Admin Live Chat Session after customizable timeout (5, 10, 15, 20 min)
+  useEffect(() => {
+    if (!shopChatSessionId || !shopChatStartedAt) return;
+    const timeoutMs = (chatTimeoutMinutes || 10) * 60 * 1000;
+
+    const checkExpiry = () => {
+      if (Date.now() - shopChatStartedAt >= timeoutMs) {
+        resetShopChatToFresh();
+      }
+    };
+
+    checkExpiry();
+    const timer = setInterval(checkExpiry, 5000);
+    return () => clearInterval(timer);
+  }, [shopChatSessionId, shopChatStartedAt, chatTimeoutMinutes]);
+
+  // Real-time + 3-second polling sync for Shop Admin <-> Super Admin Live Chat
+  useEffect(() => {
+    if (!shopChatSessionId) return;
+
+    async function fetchShopChat() {
+      const { data, error } = await supabase
+        .from('support_chats')
+        .select('*')
+        .eq('id', shopChatSessionId)
+        .maybeSingle();
+
+      if (error || !data) {
+        resetShopChatToFresh();
+        return;
+      }
+
+      if (Array.isArray(data.messages)) {
+        if (data.messages.length > lastShopMsgCountRef.current) {
+          const newest = data.messages[data.messages.length - 1];
+          if (newest?.sender === 'admin') {
+            playReplyChime();
+          }
+        }
+        lastShopMsgCountRef.current = data.messages.length;
+        setShopChatMessages(data.messages);
+      }
+    }
+
+    fetchShopChat();
+    const poll = setInterval(fetchShopChat, 3000);
+
+    const chatSub = supabase
+      .channel(`shop-admin-support-${shopChatSessionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'support_chats', filter: `id=eq.${shopChatSessionId}` },
+        () => fetchShopChat()
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'support_chats', filter: `id=eq.${shopChatSessionId}` },
+        () => resetShopChatToFresh()
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(poll);
+      supabase.removeChannel(chatSub);
+    };
+  }, [shopChatSessionId]);
+
+  useEffect(() => {
+    shopChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [shopChatMessages, supportOpen, supportTab]);
+
+  // Start Live Chat Session from Shop Admin to Super Admin (First Submit sends 1 email alert)
+  const handleStartShopLiveChat = async () => {
+    if (!shop) return;
+    setStartingShopChat(true);
+
+    try {
+      const startTimestamp = Date.now();
+      const displayShopLabel = `[SHOP: ${shop.pairing_code || shop.slug}] ${shop.name}`;
+      const shopPhone = shop.phone || 'No Phone';
+      const shopEmail = shop.owner_email || 'info@rtsdigitalseva.online';
+
+      const initialMsgs: SupportChatMessage[] = [
+        {
+          id: `sys-${startTimestamp}`,
+          sender: 'bot',
+          text: faqLang === 'en'
+            ? `✅ Connected to RTS Super Admin! Hello ${shop.name} (Code: ${shop.pairing_code}), type your message below and Super Admin will reply here live.`
+            : `✅ RTS Super Admin-മായി കണക്റ്റ് ചെയ്തു! നമസ്കാരം ${shop.name} (Code: ${shop.pairing_code}), നിങ്ങളുടെ സന്ദേശം താഴെ ടൈപ്പ് ചെയ്യുക.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ];
+
+      const { data: newChat, error } = await supabase
+        .from('support_chats')
+        .insert([
+          {
+            customer_name: displayShopLabel,
+            customer_phone: shopPhone,
+            customer_email: shopEmail,
+            messages: initialMsgs,
+            status: 'active',
+            unread_admin: true
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      sessionStorage.setItem(`rts_shop_chat_id_${activeSlug}`, newChat.id);
+      sessionStorage.setItem(`rts_shop_chat_start_${activeSlug}`, String(startTimestamp));
+
+      setShopChatSessionId(newChat.id);
+      setShopChatStartedAt(startTimestamp);
+      setShopChatMessages(initialMsgs);
+      lastShopMsgCountRef.current = initialMsgs.length;
+
+      // Send ONE-TIME email alert to Super Admin on First Submit ONLY
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'live_chat_alert',
+          customerName: displayShopLabel,
+          customerPhone: shopPhone,
+          customerEmail: shopEmail,
+          message: `Shop Admin (${shop.name} - Pairing Code: ${shop.pairing_code}) just connected to Live Support Chat!`
+        })
+      });
+    } catch (err: any) {
+      alert('Could not start live chat: ' + (err.message || 'Check connection'));
+    } finally {
+      setStartingShopChat(false);
+    }
+  };
+
+  // Send message from Shop Admin to Super Admin Inbox (No duplicate emails during active timer)
+  const handleSendShopLiveMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = shopChatInput.trim();
+    if (!trimmed || !shopChatSessionId) return;
+
+    if (shopChatStartedAt && Date.now() - shopChatStartedAt >= (chatTimeoutMinutes || 10) * 60 * 1000) {
+      resetShopChatToFresh();
+      return;
+    }
+
+    setSendingShopChat(true);
+    setShopChatInput('');
+
+    try {
+      const { data: currentRow } = await supabase
+        .from('support_chats')
+        .select('messages')
+        .eq('id', shopChatSessionId)
+        .maybeSingle();
+
+      const baseMsgs = Array.isArray(currentRow?.messages) ? currentRow.messages : shopChatMessages;
+
+      const newMsg: SupportChatMessage = {
+        id: `u-${Date.now()}`,
+        sender: 'user',
+        text: trimmed,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      const updated = [...baseMsgs, newMsg];
+      setShopChatMessages(updated);
+      lastShopMsgCountRef.current = updated.length;
+
+      await supabase
+        .from('support_chats')
+        .update({
+          messages: updated,
+          unread_admin: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', shopChatSessionId);
+    } catch (err) {
+      console.error('Failed to send shop chat message:', err);
+    } finally {
+      setSendingShopChat(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -288,9 +637,6 @@ export default function AdminPage() {
     setIsLoggedIn(false);
   };
 
-  // =========================================================================
-  // AUTOMATED FORGOT PASSWORD HANDLER (Generates New 6-Digit PIN, Saves to DB & Emails Shopkeeper)
-  // =========================================================================
   const handleSendResetPinEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -331,10 +677,8 @@ export default function AdminPage() {
     setForgotStatusMsg(null);
 
     try {
-      // 1. Generate a brand new random 6-digit Admin PIN
       const newSixDigitPin = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // 2. Update the new 6-digit PIN in Supabase `shops` table immediately
       const { error: updateErr } = await supabase
         .from('shops')
         .update({ admin_pin: newSixDigitPin })
@@ -342,11 +686,9 @@ export default function AdminPage() {
 
       if (updateErr) throw updateErr;
 
-      // 3. Update local state so Counter Admin PIN (6 Numbers) reflects the new PIN automatically
       setAdminPin(newSixDigitPin);
       setShop({ ...shop, admin_pin: newSixDigitPin });
 
-      // 4. Trigger automated email from RTS side via Google Apps Script webhook
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -377,9 +719,6 @@ export default function AdminPage() {
     }
   };
 
-  // =========================================================================
-  // SOFTWARE DOWNLOAD & UNLOCK REQUEST HANDLERS
-  // =========================================================================
   const handleDownloadSetup = async () => {
     if (!shop) return;
     const used = shop.download_count || 0;
@@ -600,9 +939,6 @@ export default function AdminPage() {
     );
   }
 
-  // =========================================================================
-  // SHOP ADMIN LOGIN GATE (With Automated Email 6-Digit PIN Reset)
-  // =========================================================================
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -652,7 +988,6 @@ export default function AdminPage() {
             </button>
           </form>
 
-          {/* Forgot 6-Digit PIN Automated Email Reset Section */}
           <div className="pt-3 border-t border-slate-900 space-y-3">
             <button
               type="button"
@@ -707,12 +1042,10 @@ export default function AdminPage() {
   const downloadsUsed = shop.download_count || 0;
   const maxDownloads = shop.max_downloads || 3;
   const isDownloadLocked = !(shop.download_allowed ?? true) || downloadsUsed >= maxDownloads;
+  const currentSelectedFaq = SHOP_ADMIN_FAQS.find((f) => f.id === selectedFaqId) || SHOP_ADMIN_FAQS[0];
 
-  // =========================================================================
-  // LOGGED-IN SHOP ADMIN DASHBOARD
-  // =========================================================================
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-900 text-lg">
@@ -947,7 +1280,6 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* 6-DIGIT ADMIN PIN FIELD (Automatically reflects reset PIN & editable anytime) */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
                 <label className="block font-bold text-slate-800 flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
@@ -965,7 +1297,6 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* ALWAYS VISIBLE UPI ID + REGISTERED BANKING NAME */}
               <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2.5">
                 <div>
                   <label className="block font-bold text-emerald-950 flex items-center gap-1.5 mb-1">
@@ -999,7 +1330,6 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* PAYMENT MODE TOGGLE */}
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -1031,7 +1361,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* ANTI-SPAM PIN GATE */}
               <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2.5">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-1.5 font-bold text-slate-900">
@@ -1065,7 +1394,6 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* PRINT EXECUTION MODE */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <span className="font-bold text-slate-800 block text-xs">Print Execution Mode</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -1097,7 +1425,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* TARGET COUNTER PRINTER DROPDOWN + CUSTOM INPUT */}
               <div className="space-y-2">
                 <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
                 <select
@@ -1301,6 +1628,238 @@ export default function AdminPage() {
           </div>
         </div>
       </main>
+
+      {/* ========================================================================= */}
+      {/* FLOATING SHOP ADMIN HELP & LIVE SUPPORT WIDGET (12 FAQs + Live Chat Tab)  */}
+      {/* ========================================================================= */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
+        {supportOpen && (
+          <div className="w-[360px] sm:w-[400px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">
+            {/* Widget Top Header */}
+            <div className="bg-[#0b3b42] text-white px-4 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center font-black text-emerald-300 text-base">
+                  ⚡
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs sm:text-sm text-white leading-tight">
+                    RTS Shop Admin Support
+                  </h4>
+                  <span className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {shop.name} (Code: {shop.pairing_code})
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFaqLang(faqLang === 'en' ? 'ml' : 'en')}
+                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-emerald-200 flex items-center gap-1 border border-white/15"
+                >
+                  <Languages className="w-3 h-3" />
+                  <span>{faqLang === 'en' ? 'മലയാളം' : 'EN'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSupportOpen(false)}
+                  className="p-1 text-slate-300 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 2 Separate Mode Tabs: [📚 12 Help FAQs] | [💬 Live Chat with Super Admin] */}
+            <div className="grid grid-cols-2 bg-slate-100 p-1 border-b border-slate-200 text-xs font-extrabold">
+              <button
+                type="button"
+                onClick={() => setSupportTab('faq')}
+                className={`py-2 rounded-xl transition flex items-center justify-center gap-1.5 ${
+                  supportTab === 'faq'
+                    ? 'bg-white text-[#0b3b42] shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span>12 Help FAQs</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSupportTab('livechat')}
+                className={`py-2 rounded-xl transition flex items-center justify-center gap-1.5 ${
+                  supportTab === 'livechat'
+                    ? 'bg-[#0b5c58] text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Live Chat (Super Admin)</span>
+              </button>
+            </div>
+
+            {/* TAB 1: 12 SHOPKEEPER FAQS */}
+            {supportTab === 'faq' ? (
+              <div className="p-3.5 max-h-[380px] overflow-y-auto space-y-3 bg-slate-50 text-xs">
+                {/* Selected Question & Answer Card */}
+                <div className="bg-white border-2 border-emerald-500/40 rounded-2xl p-3.5 shadow-sm space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-emerald-700 block">
+                    {faqLang === 'en' ? currentSelectedFaq.qEn : currentSelectedFaq.qMl}
+                  </span>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                    {faqLang === 'en' ? currentSelectedFaq.aEn : currentSelectedFaq.aMl}
+                  </p>
+                </div>
+
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 pt-1">
+                  {faqLang === 'en' ? 'Tap any question below:' : 'ചുവടെയുള്ള ഏത് ചോദ്യവും തിരഞ്ഞെടുക്കാം:'}
+                </p>
+
+                {/* All 12 Questions List */}
+                <div className="space-y-1.5">
+                  {SHOP_ADMIN_FAQS.map((item) => {
+                    const isSelected = item.id === selectedFaqId;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedFaqId(item.id)}
+                        className={`w-full text-left px-3 py-2 rounded-xl font-bold text-[11px] transition border ${
+                          isSelected
+                            ? 'bg-[#0b5c58] text-white border-[#0b5c58]'
+                            : 'bg-white hover:bg-emerald-50 text-slate-800 border-slate-200'
+                        }`}
+                      >
+                        {faqLang === 'en' ? item.qEn : item.qMl}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Direct CTA to switch to Live Chat */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">Still need help with your counter?</span>
+                  <button
+                    type="button"
+                    onClick={() => setSupportTab('livechat')}
+                    className="text-[11px] font-extrabold text-teal-700 hover:underline flex items-center gap-1"
+                  >
+                    <span>Chat Live with Super Admin →</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* TAB 2: LIVE CHAT WITH SUPER ADMIN (Same real-time engine as BusinessLandingPage) */
+              <div className="flex flex-col">
+                <div className="p-3.5 max-h-64 overflow-y-auto space-y-2.5 bg-slate-50 text-xs">
+                  {!shopChatSessionId ? (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-2">
+                      <p className="font-bold text-slate-800">
+                        👋 {faqLang === 'en' ? 'Direct Super Admin Support' : 'സൂപ്പർ അഡ്മിൻ ലൈവ് ചാറ്റ്'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        {faqLang === 'en'
+                          ? `Click below to start a live chat for ${shop.name} (Code: ${shop.pairing_code}). Super Admin will be notified immediately.`
+                          : `${shop.name} (Code: ${shop.pairing_code}) കടയുടെ പേരിൽ സൂപ്പർ അഡ്മിനുമായി തത്സമയം ചാറ്റ് ചെയ്യാൻ താഴെ ക്ലിക്ക് ചെയ്യുക.`}
+                      </p>
+                    </div>
+                  ) : (
+                    shopChatMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`rounded-2xl px-3.5 py-2.5 max-w-[86%] leading-relaxed ${
+                            msg.sender === 'user'
+                              ? 'bg-[#0b5c58] text-white font-semibold'
+                              : msg.sender === 'admin'
+                              ? 'bg-emerald-50 border-2 border-emerald-400 text-slate-900 font-semibold shadow-sm'
+                              : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
+                          }`}
+                        >
+                          {msg.sender === 'admin' && (
+                            <span className="text-[9px] font-black uppercase text-emerald-700 block mb-0.5">
+                              👨‍💻 RTS Super Admin Reply
+                            </span>
+                          )}
+                          <p className="whitespace-pre-line">{msg.text}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div ref={shopChatEndRef} />
+                </div>
+
+                {!shopChatSessionId ? (
+                  <div className="p-3.5 bg-white border-t border-slate-200 space-y-2">
+                    <div className="text-[11px] bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-600 space-y-0.5">
+                      <div><strong>Shop:</strong> {shop.name} (Code: <code>{shop.pairing_code}</code>)</div>
+                      <div><strong>Phone:</strong> {shop.phone || 'N/A'} • <strong>Email:</strong> {shop.owner_email || 'N/A'}</div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={startingShopChat}
+                      onClick={handleStartShopLiveChat}
+                      className="w-full py-2.5 bg-[#0b4b54] hover:bg-[#093b42] text-white font-extrabold text-xs rounded-xl transition shadow flex items-center justify-center gap-1.5"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>
+                        {startingShopChat
+                          ? 'Connecting to Super Admin...'
+                          : 'Start Live Chat with Super Admin →'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-white border-t border-slate-200">
+                    <form
+                      onSubmit={handleSendShopLiveMessage}
+                      className="p-2.5 flex items-center gap-2"
+                    >
+                      <input
+                        type="text"
+                        placeholder="Type message to Super Admin..."
+                        value={shopChatInput}
+                        onChange={(e) => setShopChatInput(e.target.value)}
+                        className="flex-1 px-3.5 py-2 text-xs border border-slate-300 rounded-full outline-none focus:border-teal-700 text-slate-800"
+                      />
+                      <button
+                        type="submit"
+                        disabled={sendingShopChat}
+                        className="px-4 py-2 bg-[#0b5c58] hover:bg-teal-700 text-white font-bold text-xs rounded-full transition shrink-0"
+                      >
+                        Send →
+                      </button>
+                    </form>
+                    <div className="px-3.5 pb-2 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Auto-refreshes after {chatTimeoutMinutes} min</span>
+                      <button
+                        type="button"
+                        onClick={resetShopChatToFresh}
+                        className="text-teal-700 hover:underline font-bold"
+                      >
+                        Reset Chat
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Floating Toggle Button at Bottom-Right of Shop Admin */}
+        <button
+          type="button"
+          onClick={() => setSupportOpen(!supportOpen)}
+          className="px-4 py-3 rounded-full bg-[#0b5c58] hover:bg-teal-700 text-white font-extrabold text-xs shadow-xl flex items-center gap-2 border border-teal-400/40"
+        >
+          <MessageCircle className="w-4 h-4" />
+          <span>Shop Help & Super Admin Chat</span>
+        </button>
+      </div>
     </div>
   );
 }

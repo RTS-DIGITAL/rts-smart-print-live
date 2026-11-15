@@ -34,7 +34,11 @@ import {
   Sparkles,
   X,
   Volume2,
-  VolumeX
+  VolumeX,
+  FileSpreadsheet,
+  Building2,
+  CreditCard,
+  Printer
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -63,6 +67,16 @@ interface ShopTenant {
   download_requested?: boolean;
   admin_message?: string | null;
   targeted_message?: string | null;
+  // Gateway, Split & 8 PM Statement Fields
+  gateway_enabled?: boolean;
+  gateway_provider?: string | null;
+  gateway_key_id?: string | null;
+  gateway_key_secret?: string | null;
+  split_payment_enabled?: boolean;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_ifsc?: string | null;
+  daily_statement_enabled?: boolean;
 }
 
 interface PlatformPlan {
@@ -114,6 +128,18 @@ interface SupportChatSession {
   created_at: string;
 }
 
+interface ShopTransactionRow {
+  id: string;
+  shop_id: string;
+  order_number: string;
+  amount: number;
+  payment_mode: string;
+  collection_type: string;
+  payment_ref?: string;
+  status: string;
+  created_at: string;
+}
+
 const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
@@ -142,7 +168,7 @@ export const SuperAdminPage: React.FC = () => {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'shops' | 'inquiries' | 'pricing'>('shops');
+  const [activeTab, setActiveTab] = useState<'shops' | 'inquiries' | 'pricing' | 'statements'>('shops');
 
   // Live Customer Support Chat Inbox States
   const [showLiveChatInbox, setShowLiveChatInbox] = useState(true);
@@ -160,8 +186,17 @@ export const SuperAdminPage: React.FC = () => {
   const [shops, setShops] = useState<ShopTenant[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
+  const [allTransactions, setAllTransactions] = useState<ShopTransactionRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Super Admin Statements & Central Split Controller States
+  const [ledgerShopFilter, setLedgerShopFilter] = useState<string>('ALL');
+  const [ledgerPeriodFilter, setLedgerPeriodFilter] = useState<'today' | '7days' | '30days'>('30days');
+  const [masterSplitPaused, setMasterSplitPaused] = useState<boolean>(true);
+  const [masterGatewayProvider, setMasterGatewayProvider] = useState<string>('cashfree');
+  const [masterGatewayAppId, setMasterGatewayAppId] = useState<string>('');
+  const [dispatchingAllStatements, setDispatchingAllStatements] = useState<boolean>(false);
 
   const [editingShop, setEditingShop] = useState<ShopTenant | null>(null);
   const [isCustomPrinterModal, setIsCustomPrinterModal] = useState(false);
@@ -356,6 +391,17 @@ export const SuperAdminPage: React.FC = () => {
       if (chatData) {
         setSupportChats(chatData as SupportChatSession[]);
       }
+
+      // Fetch 30-Day Shop Transactions Ledger across all shops
+      const { data: txData } = await supabase
+        .from('shop_transactions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (txData) {
+        setAllTransactions(txData as ShopTransactionRow[]);
+      }
     } catch (err) {
       console.error('SuperAdmin load failed:', err);
     } finally {
@@ -376,6 +422,11 @@ export const SuperAdminPage: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'shops' },
+        () => fetchAllData()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shop_transactions' },
         () => fetchAllData()
       )
       .on(
@@ -470,6 +521,58 @@ export const SuperAdminPage: React.FC = () => {
     fetchAllData();
   };
 
+  // Send Consolidated Daily 8:00 PM Statements to All Active Shops
+  const handleDispatchAllDailyStatements = async () => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const eligibleShops = shops.filter(s => s.owner_email && (s.daily_statement_enabled ?? true));
+    if (eligibleShops.length === 0) {
+      alert('No shops have an owner email configured for daily statements.');
+      return;
+    }
+
+    if (!window.confirm(`Send today's consolidated 8:00 PM statement email to ${eligibleShops.length} shop(s)?`)) return;
+
+    setDispatchingAllStatements(true);
+    try {
+      for (const s of eligibleShops) {
+        const shopTxs = allTransactions.filter(
+          tx => tx.shop_id === s.id && tx.status !== 'rejected' && new Date(tx.created_at).getTime() >= startOfToday.getTime()
+        );
+        const totalAmt = shopTxs.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const directAmt = shopTxs
+          .filter(r => r.collection_type !== 'SPLIT_SETTLEMENT')
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const splitAmt = shopTxs
+          .filter(r => r.collection_type === 'SPLIT_SETTLEMENT')
+          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'daily_statement',
+            email: s.owner_email,
+            shopName: s.name,
+            pairingCode: s.pairing_code,
+            periodLabel: 'TODAY (8:00 PM DAILY DIGEST)',
+            totalOrders: shopTxs.length,
+            totalAmount: totalAmt.toFixed(2),
+            directShopAmount: directAmt.toFixed(2),
+            splitSettlementAmount: splitAmt.toFixed(2)
+          })
+        });
+      }
+      alert(`✅ Daily 8:00 PM consolidated statements dispatched to ${eligibleShops.length} shop(s)!`);
+    } catch (err: any) {
+      alert('Error dispatching statements: ' + err.message);
+    } finally {
+      setDispatchingAllStatements(false);
+    }
+  };
+
   const openManageModal = (shop: ShopTenant) => {
     const savedPrinter = shop.target_printer_name || 'Microsoft Print to PDF';
     setIsCustomPrinterModal(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
@@ -482,7 +585,16 @@ export const SuperAdminPage: React.FC = () => {
       download_allowed: shop.download_allowed ?? true,
       download_requested: shop.download_requested ?? false,
       admin_message: shop.admin_message ?? '',
-      targeted_message: shop.targeted_message ?? ''
+      targeted_message: shop.targeted_message ?? '',
+      gateway_enabled: shop.gateway_enabled ?? false,
+      gateway_provider: shop.gateway_provider ?? 'razorpay',
+      gateway_key_id: shop.gateway_key_id ?? '',
+      gateway_key_secret: shop.gateway_key_secret ?? '',
+      split_payment_enabled: shop.split_payment_enabled ?? false,
+      bank_account_name: shop.bank_account_name ?? '',
+      bank_account_number: shop.bank_account_number ?? '',
+      bank_ifsc: shop.bank_ifsc ?? '',
+      daily_statement_enabled: shop.daily_statement_enabled ?? true
     });
   };
 
@@ -826,7 +938,16 @@ export const SuperAdminPage: React.FC = () => {
           download_allowed: Boolean(editingShop.download_allowed ?? true),
           download_requested: Boolean(editingShop.download_requested ?? false),
           admin_message: editingShop.admin_message?.trim() || null,
-          targeted_message: editingShop.targeted_message?.trim() || null
+          targeted_message: editingShop.targeted_message?.trim() || null,
+          gateway_enabled: Boolean(editingShop.gateway_enabled ?? false),
+          gateway_provider: editingShop.gateway_provider || 'razorpay',
+          gateway_key_id: editingShop.gateway_key_id?.trim() || null,
+          gateway_key_secret: editingShop.gateway_key_secret?.trim() || null,
+          split_payment_enabled: Boolean(editingShop.split_payment_enabled ?? false),
+          bank_account_name: editingShop.bank_account_name?.trim() || null,
+          bank_account_number: editingShop.bank_account_number?.trim() || null,
+          bank_ifsc: editingShop.bank_ifsc?.toUpperCase().trim() || null,
+          daily_statement_enabled: Boolean(editingShop.daily_statement_enabled ?? true)
         })
         .eq('id', editingShop.id);
 
@@ -921,6 +1042,29 @@ export const SuperAdminPage: React.FC = () => {
   const unreadChatCount = supportChats.filter(c => c.unread_admin).length;
   const activeSupportChat = supportChats.find(c => c.id === selectedChatId) || null;
 
+  // Filter Super Admin Transactions Ledger
+  const filteredAdminTransactions = allTransactions.filter((tx) => {
+    if (tx.status === 'rejected') return false;
+    if (ledgerShopFilter !== 'ALL' && tx.shop_id !== ledgerShopFilter) return false;
+
+    const txTime = new Date(tx.created_at).getTime();
+    const now = Date.now();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    if (ledgerPeriodFilter === 'today') return txTime >= startOfToday.getTime();
+    if (ledgerPeriodFilter === '7days') return txTime >= now - 7 * 24 * 60 * 60 * 1000;
+    return txTime >= now - 30 * 24 * 60 * 60 * 1000;
+  });
+
+  const adminTotalGross = filteredAdminTransactions.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const adminDirectShopTotal = filteredAdminTransactions
+    .filter(r => r.collection_type !== 'SPLIT_SETTLEMENT')
+    .reduce((s, r) => s + Number(r.amount || 0), 0);
+  const adminSplitSettlementTotal = filteredAdminTransactions
+    .filter(r => r.collection_type === 'SPLIT_SETTLEMENT')
+    .reduce((s, r) => s + Number(r.amount || 0), 0);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
       <header className="bg-slate-900/85 backdrop-blur border-b border-slate-800 px-6 py-4 sticky top-0 z-40 flex flex-wrap justify-between items-center gap-3">
@@ -988,6 +1132,15 @@ export const SuperAdminPage: React.FC = () => {
               }`}
             >
               Pricing & Offers ({plans.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('statements')}
+              className={`px-4 py-1.5 rounded-xl font-bold transition flex items-center gap-1 ${
+                activeTab === 'statements' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Statements & Split</span>
             </button>
           </div>
 
@@ -1449,6 +1602,16 @@ export const SuperAdminPage: React.FC = () => {
                             <span className="font-extrabold text-white text-sm block">{shop.name}</span>
                             <span className="text-[11px] font-mono text-emerald-400">/shop/{shop.slug}</span>
                             <span className="text-[10px] text-slate-500 block font-mono">ID: {shop.admin_username || shop.slug}</span>
+                            {shop.gateway_enabled && (
+                              <span className="inline-block mt-1 mr-1 text-[9px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-md">
+                                ⚡ Own PG: {(shop.gateway_provider || 'razorpay').toUpperCase()}
+                              </span>
+                            )}
+                            {shop.split_payment_enabled && (
+                              <span className="inline-block mt-1 mr-1 text-[9px] font-black uppercase bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-md">
+                                🏦 Split Opted-In
+                              </span>
+                            )}
                             {shop.admin_message && (
                               <span className="inline-block mt-1 mr-1 text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md truncate max-w-[180px]" title={shop.admin_message}>
                                 💬 {shop.admin_message}
@@ -1884,6 +2047,242 @@ export const SuperAdminPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* ========================================================================= */}
+        {/* NEW TAB: 30-DAY STATEMENTS, DIRECT vs SPLIT AUDIT & COMING SOON GATEWAY   */}
+        {/* ========================================================================= */}
+        {activeTab === 'statements' && (
+          <div className="space-y-6">
+            {/* RTS CENTRAL SPLIT GATEWAY MASTER CONTROLLER (COMING SOON / PAUSED MODE) */}
+            <div className="bg-gradient-to-r from-teal-950/80 via-slate-900 to-indigo-950/80 border-2 border-teal-500/40 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-teal-400" />
+                    <h2 className="text-base font-black text-white">
+                      RTS Central Split Payment Gateway Controller (Cashfree Easy Split / Razorpay Route)
+                    </h2>
+                    <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                      masterSplitPaused
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-emerald-500 text-slate-950'
+                    }`}>
+                      {masterSplitPaused ? 'PAUSED • COMING SOON' : 'LIVE & ACTIVE'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Keep this paused in "Coming Soon" mode until your Current Account & Cashfree/Razorpay Split API keys are ready. Meanwhile, shops can use their own QR Scanner or their own Self Gateway keys.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setMasterSplitPaused(!masterSplitPaused)}
+                  className={`px-4 py-2 rounded-xl font-black text-xs transition shadow ${
+                    masterSplitPaused
+                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  }`}
+                >
+                  {masterSplitPaused ? '⏸️ Status: Coming Soon (Paused)' : '▶️ Status: Active'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">Master Split Gateway Provider</label>
+                  <select
+                    value={masterGatewayProvider}
+                    onChange={(e) => setMasterGatewayProvider(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold outline-none"
+                  >
+                    <option value="cashfree">Cashfree Payments (Easy Split)</option>
+                    <option value="razorpay">Razorpay (Route Split)</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-slate-400 font-bold mb-1">
+                    RTS Master Split API Key / App ID (Enter when account is ready)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Coming Soon — Paste your Cashfree/Razorpay Master App ID here when ready..."
+                    value={masterGatewayAppId}
+                    onChange={(e) => setMasterGatewayAppId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-teal-300 font-mono outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 30-DAY MULTI-SHOP STATEMENT & AUDIT LEDGER */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                    All-Shop 30-Day Transaction & Settlement Audit Ledger
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Separates Direct Shop Collections (Shop's own UPI/Cash/Gateway) from RTS Central Split Collections for 100% accounting safety.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={dispatchingAllStatements}
+                  onClick={handleDispatchAllDailyStatements}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>
+                    {dispatchingAllStatements
+                      ? 'Sending 8 PM Statements...'
+                      : 'Send Today 8:00 PM Statement Email to All Shops'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Filter Bar: Select Shop & Select Period (Today, 7 Days, 30 Days) */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <select
+                    value={ledgerShopFilter}
+                    onChange={(e) => setLedgerShopFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-white font-bold outline-none focus:border-emerald-500"
+                  >
+                    <option value="ALL">All Registered Shops ({shops.length})</option>
+                    {shops.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        [{s.pairing_code}] {s.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {[
+                    { id: 'today', label: 'Today' },
+                    { id: '7days', label: 'Last 7 Days' },
+                    { id: '30days', label: 'Last 30 Days (1 Month)' }
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setLedgerPeriodFilter(p.id as any)}
+                      className={`px-3.5 py-2 rounded-xl font-bold text-xs transition ${
+                        ledgerPeriodFilter === p.id
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3 Summary KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-400 block">
+                    Total Gross Print Volume
+                  </span>
+                  <span className="text-2xl font-black font-mono text-white mt-1 block">
+                    ₹{adminTotalGross.toFixed(2)}
+                  </span>
+                  <span className="text-[11px] text-emerald-400 font-bold">
+                    {filteredAdminTransactions.length} Completed Orders
+                  </span>
+                </div>
+
+                <div className="bg-emerald-950/30 border border-emerald-500/30 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                    Direct Shop Collection (Shop UPI / Cash / Own PG)
+                  </span>
+                  <span className="text-2xl font-black font-mono text-emerald-300 mt-1 block">
+                    ₹{adminDirectShopTotal.toFixed(2)}
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Settled 100% directly to Shopkeeper (No Super Admin liability)
+                  </span>
+                </div>
+
+                <div className="bg-teal-950/30 border border-teal-500/30 p-4 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-teal-400 block">
+                    RTS Central Split Collection (Coming Soon)
+                  </span>
+                  <span className="text-2xl font-black font-mono text-teal-300 mt-1 block">
+                    ₹{adminSplitSettlementTotal.toFixed(2)}
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Tracked separately for automatic bank split payout
+                  </span>
+                </div>
+              </div>
+
+              {/* Transactions Table */}
+              <div className="overflow-x-auto max-h-96 border border-slate-800 rounded-2xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 sticky top-0">
+                    <tr>
+                      <th className="py-3 px-4">Date & Time</th>
+                      <th className="py-3 px-4">Shop Name & Code</th>
+                      <th className="py-3 px-4">Order #</th>
+                      <th className="py-3 px-4">Payment Mode</th>
+                      <th className="py-3 px-4">Collection Channel</th>
+                      <th className="py-3 px-4 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                    {filteredAdminTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-500">
+                          No transactions recorded for the selected filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAdminTransactions.map((tx) => {
+                        const txShop = shops.find(s => s.id === tx.shop_id);
+                        return (
+                          <tr key={tx.id} className="hover:bg-slate-800/30">
+                            <td className="py-2.5 px-4 text-[11px] text-slate-400">
+                              {new Date(tx.created_at).toLocaleString('en-IN', {
+                                day: '2-digit',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </td>
+                            <td className="py-2.5 px-4 font-bold text-white">
+                              {txShop ? `${txShop.name} (${txShop.pairing_code})` : tx.shop_id}
+                            </td>
+                            <td className="py-2.5 px-4 font-mono text-emerald-400 font-bold">{tx.order_number}</td>
+                            <td className="py-2.5 px-4">
+                              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-200 font-bold text-[10px]">
+                                {tx.payment_mode}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                                tx.collection_type === 'SPLIT_SETTLEMENT'
+                                  ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              }`}>
+                                {tx.collection_type === 'SPLIT_SETTLEMENT' ? 'RTS Split' : 'Direct Shop'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono font-black text-white">
+                              ₹{Number(tx.amount || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {editingShop && (
@@ -1892,7 +2291,7 @@ export const SuperAdminPage: React.FC = () => {
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div>
                 <h3 className="text-base font-black text-white">Remote Shop Manager: {editingShop.name}</h3>
-                <p className="text-[11px] text-slate-400">Configure credentials, downloads, printer, and shop notices</p>
+                <p className="text-[11px] text-slate-400">Configure credentials, downloads, gateway keys, bank & notices</p>
               </div>
               <button
                 type="button"
@@ -2076,6 +2475,80 @@ export const SuperAdminPage: React.FC = () => {
                     onChange={(e) => setEditingShop({ ...editingShop, upi_name: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                   />
+                </div>
+              </div>
+
+              {/* Shop Self Gateway & Split Bank Account Details in Super Admin Modal */}
+              <div className="p-3 bg-indigo-950/20 border border-indigo-800/40 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-extrabold text-indigo-300 flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5" />
+                    Shop's Self Payment Gateway & Split Bank Info
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({ ...editingShop, gateway_enabled: !editingShop.gateway_enabled })}
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                      editingShop.gateway_enabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {editingShop.gateway_enabled ? 'Self PG: ON' : 'Self PG: OFF'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Gateway Provider</label>
+                    <select
+                      value={editingShop.gateway_provider || 'razorpay'}
+                      onChange={(e) => setEditingShop({ ...editingShop, gateway_provider: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white outline-none"
+                    >
+                      <option value="razorpay">Razorpay</option>
+                      <option value="cashfree">Cashfree</option>
+                      <option value="phonepe">PhonePe PG</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Gateway Key ID / App ID</label>
+                    <input
+                      type="text"
+                      placeholder="rzp_live_..."
+                      value={editingShop.gateway_key_id || ''}
+                      onChange={(e) => setEditingShop({ ...editingShop, gateway_key_id: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-white font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-indigo-800/30">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Bank Holder Name</label>
+                    <input
+                      type="text"
+                      value={editingShop.bank_account_name || ''}
+                      onChange={(e) => setEditingShop({ ...editingShop, bank_account_name: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-1 text-white outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Bank A/c No</label>
+                    <input
+                      type="text"
+                      value={editingShop.bank_account_number || ''}
+                      onChange={(e) => setEditingShop({ ...editingShop, bank_account_number: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-1 text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">IFSC Code</label>
+                    <input
+                      type="text"
+                      value={editingShop.bank_ifsc || ''}
+                      onChange={(e) => setEditingShop({ ...editingShop, bank_ifsc: e.target.value.toUpperCase() })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-1 text-white font-mono uppercase outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 

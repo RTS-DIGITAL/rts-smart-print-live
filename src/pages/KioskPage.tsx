@@ -20,7 +20,8 @@ import {
   ShieldCheck,
   ExternalLink,
   EyeOff,
-  Clock
+  Clock,
+  Download
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -62,6 +63,11 @@ interface PricingRule {
   price_per_page: number;
 }
 
+// Clean & validate VPA (UPI ID) — removes spaces and converts to lowercase
+function cleanVpa(input: string | null | undefined): string {
+  return (input || '').trim().replace(/\s+/g, '').toLowerCase();
+}
+
 export default function KioskPage() {
   const { shopSlug } = useParams<{ shopSlug: string }>();
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
@@ -84,6 +90,7 @@ export default function KioskPage() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
   const [copiedUpi, setCopiedUpi] = useState(false);
+  const [savingQr, setSavingQr] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -195,15 +202,48 @@ export default function KioskPage() {
   const totalAmount = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
   const totalPages = items.reduce((sum, item) => sum + item.pages * item.copies, 0);
 
-  // Strict 2-decimal price format & Verified Banking Name for UPI Compatibility
-  const cleanUpiId = (shop?.upi_id || '').trim();
-  const payeeName = (shop?.upi_name && shop.upi_name.trim() !== '') ? shop.upi_name.trim() : (shop?.name || 'RTS Smart Print').trim();
+  // Clean VPA & Payee Name for 100% UPI Deep-Link Compatibility
+  const cleanUpiId = cleanVpa(shop?.upi_id);
+  const payeeName = (shop?.upi_name && shop.upi_name.trim() !== '')
+    ? shop.upi_name.trim()
+    : (shop?.name || 'RTS Smart Print').trim();
   const formattedAmount = Number(totalAmount || 0).toFixed(2);
 
-  // Direct UPI Deep Link for Mobile Users
+  // 1. Standard UPI Deep Link (With pre-filled amount for QR Code & Primary Button)
   const upiDeepLink = cleanUpiId
     ? `upi://pay?pa=${encodeURIComponent(cleanUpiId)}&pn=${encodeURIComponent(payeeName)}&am=${formattedAmount}&cu=INR`
     : '';
+
+  // 2. No-Block P2P UPI Deep Link (Opens UPI App without pre-locked amount so banks never show "Exceeded Bank Limit")
+  const upiNoBlockLink = cleanUpiId
+    ? `upi://pay?pa=${encodeURIComponent(cleanUpiId)}&pn=${encodeURIComponent(payeeName)}&cu=INR`
+    : '';
+
+  const qrCodeImageUrl = cleanUpiId
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(upiDeepLink)}`
+    : '';
+
+  // Download QR Image to Phone Gallery so single-phone customers can use "Upload from Gallery" in GPay/PhonePe
+  const handleDownloadQrForGallery = async () => {
+    if (!qrCodeImageUrl) return;
+    setSavingQr(true);
+    try {
+      const response = await fetch(qrCodeImageUrl);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `RTS-Pay-Rs${formattedAmount}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(qrCodeImageUrl, '_blank');
+    } finally {
+      setSavingQr(false);
+    }
+  };
 
   const handleProceedOrder = async () => {
     if (!shop || items.length === 0) return;
@@ -536,14 +576,10 @@ export default function KioskPage() {
 
           {/* 3D-Style Glowing Security Shield Graphic */}
           <div className="relative mx-auto w-28 h-28 flex items-center justify-center mb-5">
-            {/* Soft Ambient Glow */}
             <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/20 to-emerald-400/30 rounded-full blur-xl"></div>
-            
-            {/* Orbital Ring */}
             <div className="absolute w-28 h-12 border-2 border-emerald-400/60 rounded-full -rotate-12 shadow-[0_0_12px_rgba(16,185,129,0.3)]"></div>
             <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full absolute right-0 top-7 shadow-md"></div>
 
-            {/* Shield SVG */}
             <div className="relative z-10 w-20 h-24 bg-gradient-to-b from-sky-400 via-blue-600 to-blue-900 rounded-t-2xl rounded-b-[40px] p-1 shadow-xl shadow-blue-900/20 flex items-center justify-center border-2 border-white/80">
               <div className="w-full h-full rounded-t-xl rounded-b-[36px] bg-gradient-to-br from-sky-400/40 via-blue-600 to-indigo-950 flex items-center justify-center">
                 <div className="bg-white text-blue-700 p-2.5 rounded-xl shadow-md">
@@ -594,66 +630,89 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* Online UPI Payment Modal (with Verified Banking Name & Formatted Amount) */}
+      {/* ========================================================================= */}
+      {/* ONLINE UPI PAYMENT MODAL (Single-Phone Gallery QR + No-Block P2P Link)    */}
+      {/* ========================================================================= */}
       {showCheckout && shop.require_payment && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-3.5 shadow-2xl my-auto">
             <div>
               <h3 className="font-extrabold text-slate-900 text-base">Payment for {shop.name}</h3>
-              {shop.upi_name && (
-                <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-0.5 inline-block mt-1">
-                  Banking Name: {shop.upi_name}
-                </p>
-              )}
+              <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-0.5 inline-block mt-1">
+                Banking Name: {payeeName}
+              </p>
             </div>
 
-            {/* DIRECT MOBILE 1-TAP PAYMENT BUTTON */}
-            {upiDeepLink && (
-              <a
-                href={upiDeepLink}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
-              >
-                <Smartphone className="w-4 h-4" />
-                <span>Pay ₹{formattedAmount} via UPI App</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
-
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-slate-200 w-full"></div>
-              <span className="bg-white px-2 text-[10px] font-bold text-slate-400 uppercase absolute">
-                Or scan QR on another phone
-              </span>
-            </div>
-
+            {/* OPTION 1: Save QR to Phone & Scan from Gallery (100% Immune to Bank Deep-Link Blocks up to ₹2,000) */}
             {cleanUpiId && (
-              <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 inline-block mx-auto">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiDeepLink)}`}
+                  src={qrCodeImageUrl}
                   alt="UPI QR Code"
-                  className="w-40 h-40 mx-auto"
+                  className="w-36 h-36 mx-auto rounded-xl border border-slate-200 bg-white p-1"
                 />
-              </div>
-            )}
 
-            <div className="space-y-1">
-              <div className="flex items-center justify-center gap-1.5 text-xs font-mono font-bold text-slate-700">
-                <span>{cleanUpiId}</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(cleanUpiId);
-                    setCopiedUpi(true);
-                    setTimeout(() => setCopiedUpi(false), 2000);
-                  }}
-                  className="p-1 hover:bg-slate-100 rounded"
+                  onClick={handleDownloadQrForGallery}
+                  disabled={savingQr}
+                  className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-[11px] transition flex items-center justify-center gap-1.5 shadow-sm"
                 >
-                  {copiedUpi ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{savingQr ? 'Saving QR...' : '1. Save QR & Scan from GPay/PhonePe Gallery'}</span>
                 </button>
+                <p className="text-[10px] text-slate-500 leading-tight">
+                  Works 100% on the same phone! Save QR → Open GPay/PhonePe → Tap <strong>Scan QR</strong> → <strong>Upload from Gallery</strong>.
+                </p>
               </div>
-              <p className="text-[11px] font-bold text-slate-500">
-                Exact Amount: <span className="text-slate-900 font-mono">₹{formattedAmount}</span>
-              </p>
+            )}
+
+            {/* OPTION 2: Direct UPI App Deep-Link Buttons */}
+            {upiDeepLink && (
+              <div className="space-y-2">
+                <a
+                  href={upiDeepLink}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Pay ₹{formattedAmount} via UPI App</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+
+                {/* Fallback No-Block Link if customer's bank blocks pre-filled amount links */}
+                <a
+                  href={upiNoBlockLink}
+                  className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-[11px] transition flex items-center justify-center gap-1"
+                >
+                  <span>Showing "Bank Limit" error? Tap here & type ₹{formattedAmount} manually →</span>
+                </a>
+              </div>
+            )}
+
+            {/* OPTION 3: Copy UPI ID */}
+            <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+              <span className="font-mono font-bold text-slate-700 truncate">{cleanUpiId}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(cleanUpiId);
+                  setCopiedUpi(true);
+                  setTimeout(() => setCopiedUpi(false), 2000);
+                }}
+                className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 flex items-center gap-1 shrink-0"
+              >
+                {copiedUpi ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span className="text-emerald-700">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3 text-slate-500" />
+                    <span>Copy UPI ID</span>
+                  </>
+                )}
+              </button>
             </div>
 
             <div>

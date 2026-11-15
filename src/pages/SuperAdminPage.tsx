@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   ShieldCheck, 
@@ -32,7 +32,9 @@ import {
   Bell,
   Megaphone,
   Sparkles,
-  X
+  X,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -149,6 +151,12 @@ export const SuperAdminPage: React.FC = () => {
   const [adminReplyText, setAdminReplyText] = useState('');
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
 
+  // Customizable Chat Session Timeout (5, 10, 15, 20 minutes) & Alert Sound States
+  const [chatTimeoutMinutes, setChatTimeoutMinutes] = useState<number>(10);
+  const [savingTimeout, setSavingTimeout] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const soundEnabledRef = useRef<boolean>(true);
+
   const [shops, setShops] = useState<ShopTenant[]>([]);
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
@@ -177,6 +185,65 @@ export const SuperAdminPage: React.FC = () => {
   const [formYearlyPrice, setFormYearlyPrice] = useState('2,499');
   const [formTrialDays, setFormTrialDays] = useState('7');
   const [formPricingSaving, setFormPricingSaving] = useState(false);
+
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  // Built-in Web Audio API Notification Chime (No external MP3 needed)
+  const playChatAlertSound = () => {
+    if (!soundEnabledRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+
+      // First Chime Note
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      gain1.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start();
+      osc1.stop(ctx.currentTime + 0.25);
+
+      // Second Higher Chime Note
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.16); // D6
+      gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.16);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(ctx.currentTime + 0.16);
+      osc2.stop(ctx.currentTime + 0.55);
+    } catch (err) {
+      console.error('Audio play blocked by browser:', err);
+    }
+  };
+
+  // Handler to update Customizable Chat Auto-Refresh Timer (5, 10, 15, 20 Minutes)
+  const handleUpdateChatTimeout = async (minutes: number) => {
+    setChatTimeoutMinutes(minutes);
+    setSavingTimeout(true);
+    try {
+      await supabase
+        .from('site_announcements')
+        .upsert({
+          id: 1,
+          chat_timeout_minutes: minutes,
+          updated_at: new Date().toISOString()
+        });
+    } catch (err) {
+      console.error('Failed to update chat timeout:', err);
+    } finally {
+      setSavingTimeout(false);
+    }
+  };
 
   const calculateDaysRemaining = (approvedAt: string | null, totalDays: number): { days: number; isExpired: boolean } => {
     if (!approvedAt) return { days: totalDays, isExpired: false };
@@ -264,15 +331,20 @@ export const SuperAdminPage: React.FC = () => {
         }
       }
 
-      // Check site_announcements table for Public Business Landing Page message
+      // Check site_announcements table for Public Business Landing Page message & Chat Timer
       const { data: announceData } = await supabase
         .from('site_announcements')
-        .select('message')
+        .select('message, chat_timeout_minutes')
         .eq('id', 1)
         .maybeSingle();
 
-      if (announceData && typeof announceData.message === 'string') {
-        setLandingOfferText(announceData.message);
+      if (announceData) {
+        if (typeof announceData.message === 'string') {
+          setLandingOfferText(announceData.message);
+        }
+        if (announceData.chat_timeout_minutes) {
+          setChatTimeoutMinutes(Number(announceData.chat_timeout_minutes));
+        }
       }
 
       // Fetch Live Customer Support Chats
@@ -309,7 +381,17 @@ export const SuperAdminPage: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'support_chats' },
-        () => fetchAllData()
+        (payload) => {
+          // Play Alert Chime whenever a customer starts a new chat or sends a new message (unread_admin = true)
+          const newRecord = payload.new as any;
+          if (
+            payload.eventType === 'INSERT' ||
+            (payload.eventType === 'UPDATE' && newRecord?.unread_admin === true)
+          ) {
+            playChatAlertSound();
+          }
+          fetchAllData();
+        }
       )
       .subscribe();
 
@@ -863,7 +945,7 @@ export const SuperAdminPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Live Customer Chat Pill Button (Matches Sample Image) */}
+          {/* Live Customer Chat Pill Button */}
           <button
             type="button"
             onClick={() => setShowLiveChatInbox(!showLiveChatInbox)}
@@ -921,26 +1003,63 @@ export const SuperAdminPage: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
         {/* ========================================================================= */}
-        {/* LIVE CUSTOMER SUPPORT CHAT INBOX (Matches Your Exact Screenshot Sample)   */}
+        {/* LIVE CUSTOMER SUPPORT CHAT INBOX (With Auto-Reset Timer & Sound Alert)    */}
         {/* ========================================================================= */}
         {showLiveChatInbox && (
           <div className="bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
             {/* Dark Teal Header Bar */}
             <div className="bg-gradient-to-r from-[#1a1c4b] via-[#0f3443] to-[#0b3b42] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <MessageCircle className="w-5 h-5 text-emerald-400" />
                   <h2 className="text-base font-black text-white">Live Customer Support Chat Inbox</h2>
                   <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                    Real-Time Sync + Email Alert
+                    Real-Time Sync + First Submit Email Alert
                   </span>
                 </div>
                 <p className="text-xs text-slate-300 mt-1">
-                  Select a customer on the left to view their Name, Phone, Email & messages. Your reply appears live in their website chat box and is also emailed to their registered email address!
+                  Select a customer on the left to view their Name, Phone, Email & messages. Customer chat box auto-resets after the timer set on the right!
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Alert Sound Toggle & Test Chime Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextState = !soundEnabled;
+                    setSoundEnabled(nextState);
+                    soundEnabledRef.current = nextState;
+                    if (nextState) playChatAlertSound();
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 border ${
+                    soundEnabled
+                      ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300 hover:bg-emerald-500/30'
+                      : 'bg-white/10 border-white/15 text-slate-300 hover:bg-white/20'
+                  }`}
+                  title="Toggle Incoming Chat Alert Sound"
+                >
+                  {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                  <span>{soundEnabled ? 'Sound On' : 'Muted'}</span>
+                </button>
+
+                {/* Customizable Auto-Refresh Timer Selector (5, 10, 15, 20 Min) */}
+                <div className="flex items-center gap-1.5 bg-white/10 border border-white/15 rounded-xl px-2.5 py-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-300" />
+                  <span className="text-[11px] font-bold text-slate-200">Auto-Reset:</span>
+                  <select
+                    value={chatTimeoutMinutes}
+                    disabled={savingTimeout}
+                    onChange={(e) => handleUpdateChatTimeout(Number(e.target.value))}
+                    className="bg-slate-900 text-amber-300 font-extrabold text-xs rounded-lg px-2 py-0.5 outline-none border border-slate-700 cursor-pointer"
+                  >
+                    <option value={5}>5 Min</option>
+                    <option value={10}>10 Min</option>
+                    <option value={15}>15 Min</option>
+                    <option value={20}>20 Min</option>
+                  </select>
+                </div>
+
                 <button
                   type="button"
                   onClick={fetchAllData}

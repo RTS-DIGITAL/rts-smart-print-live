@@ -29,7 +29,11 @@ import {
   MessageCircle,
   HelpCircle,
   X,
-  Languages
+  Languages,
+  Calendar,
+  FileSpreadsheet,
+  Building2,
+  Clock
 } from 'lucide-react';
 
 interface ShopData {
@@ -61,6 +65,16 @@ interface ShopData {
   download_requested?: boolean;
   admin_message?: string | null;
   targeted_message?: string | null;
+  // New Gateway, Split & 8 PM Statement Fields
+  gateway_enabled?: boolean;
+  gateway_provider?: string | null;
+  gateway_key_id?: string | null;
+  gateway_key_secret?: string | null;
+  split_payment_enabled?: boolean;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_ifsc?: string | null;
+  daily_statement_enabled?: boolean;
 }
 
 interface OrderRow {
@@ -73,6 +87,18 @@ interface OrderRow {
   created_at: string;
   copies: number;
   page_count: number;
+  payment_ref?: string;
+}
+
+interface TransactionLedgerRow {
+  id: string;
+  order_number: string;
+  amount: number;
+  payment_mode: string;
+  collection_type: string;
+  payment_ref?: string;
+  status: string;
+  created_at: string;
 }
 
 interface PricingRule {
@@ -241,6 +267,25 @@ export default function AdminPage() {
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
 
+  // Self Payment Gateway (Razorpay / Cashfree / PhonePe) & Split Bank States
+  const [gatewayEnabled, setGatewayEnabled] = useState(false);
+  const [gatewayProvider, setGatewayProvider] = useState('razorpay');
+  const [gatewayKeyId, setGatewayKeyId] = useState('');
+  const [gatewayKeySecret, setGatewayKeySecret] = useState('');
+
+  const [splitPaymentEnabled, setSplitPaymentEnabled] = useState(false);
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankIfsc, setBankIfsc] = useState('');
+  const [dailyStatementEnabled, setDailyStatementEnabled] = useState(true);
+
+  // 1-Month Statement & Transaction Ledger States
+  const [transactions, setTransactions] = useState<TransactionLedgerRow[]>([]);
+  const [statementRange, setStatementRange] = useState<'today' | '7days' | '30days' | 'custom'>('today');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [sendingStatementEmail, setSendingStatementEmail] = useState(false);
+
   // Shop Admin Floating Help & Live Support Chat States
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportTab, setSupportTab] = useState<'faq' | 'livechat'>('faq');
@@ -309,7 +354,7 @@ export default function AdminPage() {
 
       if (shopErr || !shopRes) throw new Error('Shop not found');
 
-      // Automatic Storage & Queue Purge
+      // 1. Automatic Storage & Queue Purge (1h, 4h, 12h, 24h)
       const retentionHours = shopRes.auto_delete_hours || 1;
       const expirationThreshold = new Date(Date.now() - retentionHours * 60 * 60 * 1000).toISOString();
 
@@ -332,6 +377,14 @@ export default function AdminPage() {
         await supabase.from('print_orders').delete().in('id', idsToDelete);
       }
 
+      // 2. Auto-clean transaction ledger rows older than 31 days (protects Free Tier DB storage)
+      const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+      await supabase
+        .from('shop_transactions')
+        .delete()
+        .eq('shop_id', shopRes.id)
+        .lt('created_at', thirtyOneDaysAgo);
+
       setShop(shopRes);
       setShopName(shopRes.name || '');
       setPhone(shopRes.phone || '');
@@ -352,6 +405,17 @@ export default function AdminPage() {
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
       setAutoDeleteHours(shopRes.auto_delete_hours || 24);
 
+      // Load Self Gateway & Split Settings
+      setGatewayEnabled(Boolean(shopRes.gateway_enabled));
+      setGatewayProvider(shopRes.gateway_provider || 'razorpay');
+      setGatewayKeyId(shopRes.gateway_key_id || '');
+      setGatewayKeySecret(shopRes.gateway_key_secret || '');
+      setSplitPaymentEnabled(Boolean(shopRes.split_payment_enabled));
+      setBankAccountName(shopRes.bank_account_name || shopRes.upi_name || '');
+      setBankAccountNumber(shopRes.bank_account_number || '');
+      setBankIfsc(shopRes.bank_ifsc || '');
+      setDailyStatementEnabled(shopRes.daily_statement_enabled ?? true);
+
       const { data: ordersRes } = await supabase
         .from('print_orders')
         .select('*')
@@ -360,6 +424,31 @@ export default function AdminPage() {
         .limit(30);
 
       if (ordersRes) setOrders(ordersRes);
+
+      // Load 30-Day Lightweight Transaction Ledger
+      const { data: txRes } = await supabase
+        .from('shop_transactions')
+        .select('*')
+        .eq('shop_id', shopRes.id)
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (txRes && txRes.length > 0) {
+        setTransactions(txRes as TransactionLedgerRow[]);
+      } else if (ordersRes) {
+        // Fallback to active orders if shop_transactions table is empty
+        const fallbackTx: TransactionLedgerRow[] = ordersRes.map((o: any) => ({
+          id: o.id,
+          order_number: o.order_number,
+          amount: Number(o.total_amount || 0),
+          payment_mode: o.payment_ref === 'CASH_AT_COUNTER' ? 'CASH' : 'UPI / GATEWAY',
+          collection_type: shopRes.split_payment_enabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
+          payment_ref: o.payment_ref || 'DIRECT',
+          status: o.status,
+          created_at: o.created_at
+        }));
+        setTransactions(fallbackTx);
+      }
 
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
@@ -399,6 +488,11 @@ export default function AdminPage() {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'shop_transactions', filter: `shop_id=eq.${shop.id}` },
+        () => loadShopData()
+      )
+      .on(
+        'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'shops', filter: `id=eq.${shop.id}` },
         () => loadShopData()
       )
@@ -408,6 +502,23 @@ export default function AdminPage() {
       supabase.removeChannel(channel);
     };
   }, [shop?.id]);
+
+  // Automatic 8:00 PM Daily Consolidated Statement Watcher
+  useEffect(() => {
+    if (!shop || !dailyStatementEnabled || !shop.owner_email) return;
+
+    const checkEightPmDigest = () => {
+      const now = new Date();
+      const todayKey = `rts_8pm_statement_${shop.id}_${now.toISOString().slice(0, 10)}`;
+      if (now.getHours() >= 20 && !localStorage.getItem(todayKey)) {
+        localStorage.setItem(todayKey, 'sent');
+        handleSendStatementEmail(true);
+      }
+    };
+
+    const digestInterval = setInterval(checkEightPmDigest, 60000);
+    return () => clearInterval(digestInterval);
+  }, [shop, dailyStatementEnabled, transactions]);
 
   // Auto-Expire Shop Admin Live Chat Session after customizable timeout (5, 10, 15, 20 min)
   useEffect(() => {
@@ -527,7 +638,6 @@ export default function AdminPage() {
       setShopChatMessages(initialMsgs);
       lastShopMsgCountRef.current = initialMsgs.length;
 
-      // Send ONE-TIME email alert to Super Admin on First Submit ONLY
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -596,7 +706,7 @@ export default function AdminPage() {
     }
   };
 
-  // Login Handler (Always checks latest PIN from DB so newly reset PIN works immediately)
+  // Login Handler
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -633,9 +743,7 @@ export default function AdminPage() {
     setIsLoggedIn(false);
   };
 
-  // =========================================================================
-  // AUTOMATED FORGOT PASSWORD HANDLER (Generates New 6-Digit PIN, Saves to DB & Emails Shopkeeper)
-  // =========================================================================
+  // Automated Forgot Password Handler
   const handleSendResetPinEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
@@ -676,10 +784,8 @@ export default function AdminPage() {
     setForgotStatusMsg(null);
 
     try {
-      // 1. Generate a brand new random 6-digit Admin PIN
       const newSixDigitPin = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // 2. Update the new 6-digit PIN in Supabase `shops` table immediately
       const { error: updateErr } = await supabase
         .from('shops')
         .update({ admin_pin: newSixDigitPin })
@@ -687,11 +793,9 @@ export default function AdminPage() {
 
       if (updateErr) throw updateErr;
 
-      // 3. Update local state so Counter Admin PIN (6 Numbers) reflects the new PIN automatically
       setAdminPin(newSixDigitPin);
       setShop({ ...shop, admin_pin: newSixDigitPin });
 
-      // 4. Trigger automated email from RTS side via Google Apps Script webhook
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -722,9 +826,7 @@ export default function AdminPage() {
     }
   };
 
-  // =========================================================================
-  // SOFTWARE DOWNLOAD & UNLOCK REQUEST HANDLERS
-  // =========================================================================
+  // Software Download & Unlock Request Handlers
   const handleDownloadSetup = async () => {
     if (!shop) return;
     const used = shop.download_count || 0;
@@ -804,7 +906,17 @@ export default function AdminPage() {
           counter_pin: counterPin,
           admin_pin: cleanAdminPin,
           auto_print_enabled: autoPrintEnabled,
-          auto_delete_hours: autoDeleteHours
+          auto_delete_hours: autoDeleteHours,
+          // Save Self Payment Gateway, Split Bank & 8 PM Statement Settings
+          gateway_enabled: gatewayEnabled,
+          gateway_provider: gatewayProvider,
+          gateway_key_id: gatewayKeyId.trim() || null,
+          gateway_key_secret: gatewayKeySecret.trim() || null,
+          split_payment_enabled: splitPaymentEnabled,
+          bank_account_name: bankAccountName.trim() || null,
+          bank_account_number: bankAccountNumber.trim() || null,
+          bank_ifsc: bankIfsc.toUpperCase().trim() || null,
+          daily_statement_enabled: dailyStatementEnabled
         })
         .eq('id', shop.id);
 
@@ -821,7 +933,24 @@ export default function AdminPage() {
 
   const handleApproveOrder = async (orderNumber: string) => {
     try {
+      const target = orders.find((o) => o.order_number === orderNumber);
       await supabase.from('print_orders').update({ status: 'paid' }).eq('order_number', orderNumber);
+
+      // Record into 30-day lightweight transaction ledger
+      if (shop && target) {
+        await supabase.from('shop_transactions').insert([
+          {
+            shop_id: shop.id,
+            order_number: orderNumber,
+            amount: Number(target.total_amount || 0),
+            payment_mode: target.payment_ref === 'CASH_AT_COUNTER' ? 'CASH' : gatewayEnabled ? gatewayProvider.toUpperCase() : 'UPI',
+            collection_type: splitPaymentEnabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
+            payment_ref: target.payment_ref || 'COUNTER_APPROVED',
+            status: 'paid'
+          }
+        ]);
+      }
+
       loadShopData();
     } catch (err: any) {
       alert('Error approving order: ' + err.message);
@@ -845,6 +974,138 @@ export default function AdminPage() {
   const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
     await supabase.from('pricing_rules').update({ price_per_page: newPrice }).eq('id', ruleId);
     loadShopData();
+  };
+
+  // Filter Transactions by Date Range (Today, 7 Days, 30 Days / 1 Month, or Custom)
+  const getFilteredTransactions = (): TransactionLedgerRow[] => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    return transactions.filter((tx) => {
+      if (tx.status === 'rejected') return false;
+      const txTime = new Date(tx.created_at).getTime();
+
+      if (statementRange === 'today') {
+        return txTime >= startOfToday;
+      }
+      if (statementRange === '7days') {
+        return txTime >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
+      }
+      if (statementRange === '30days') {
+        return txTime >= now.getTime() - 30 * 24 * 60 * 60 * 1000;
+      }
+      if (statementRange === 'custom') {
+        const start = customStartDate ? new Date(customStartDate).getTime() : 0;
+        const end = customEndDate ? new Date(customEndDate).getTime() + 86400000 : Infinity;
+        return txTime >= start && txTime <= end;
+      }
+      return true;
+    });
+  };
+
+  // Send Consolidated Daily 8 PM Statement Email (or On-Demand Statement)
+  const handleSendStatementEmail = async (silent: boolean = false) => {
+    if (!shop || !shop.owner_email) {
+      if (!silent) alert('Please save an Owner Email in Counter Configuration first.');
+      return;
+    }
+
+    setSendingStatementEmail(true);
+    try {
+      const filtered = getFilteredTransactions();
+      const totalAmount = filtered.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      const directTotal = filtered
+        .filter((r) => r.collection_type !== 'SPLIT_SETTLEMENT')
+        .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      const splitTotal = filtered
+        .filter((r) => r.collection_type === 'SPLIT_SETTLEMENT')
+        .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'daily_statement',
+          email: shop.owner_email,
+          shopName: shop.name,
+          pairingCode: shop.pairing_code,
+          periodLabel: statementRange.toUpperCase(),
+          totalOrders: filtered.length,
+          totalAmount: totalAmount.toFixed(2),
+          directShopAmount: directTotal.toFixed(2),
+          splitSettlementAmount: splitTotal.toFixed(2)
+        })
+      });
+
+      if (!silent) {
+        alert(`📧 Consolidated Statement (${filtered.length} orders • ₹${totalAmount.toFixed(2)}) emailed to ${shop.owner_email}!`);
+      }
+    } catch (err) {
+      if (!silent) alert('Failed to email statement.');
+    } finally {
+      setSendingStatementEmail(false);
+    }
+  };
+
+  // Print / Save PDF Statement for up to 1 Month
+  const handlePrintStatementReport = () => {
+    if (!shop) return;
+    const filtered = getFilteredTransactions();
+    const totalRev = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+
+    const rowsHtml = filtered
+      .map(
+        (r) => `
+        <tr>
+          <td>${new Date(r.created_at).toLocaleString('en-IN')}</td>
+          <td><strong>${r.order_number}</strong></td>
+          <td>${r.payment_mode}</td>
+          <td>${r.collection_type === 'SPLIT_SETTLEMENT' ? 'RTS Split Settlement' : 'Direct Shop Collection'}</td>
+          <td style="text-align:right;font-weight:bold;">₹${Number(r.amount || 0).toFixed(2)}</td>
+        </tr>`
+      )
+      .join('');
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${shop.name} - Print Earnings Statement</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 30px; color: #0f172a; }
+            h1 { margin: 0 0 4px 0; font-size: 22px; }
+            p { margin: 0 0 16px 0; font-size: 12px; color: #475569; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+            th { background: #f1f5f9; }
+            .summary { margin-top: 16px; font-size: 14px; font-weight: bold; text-align: right; }
+          </style>
+        </head>
+        <body>
+          <h1>${shop.name} — Print Earnings & Transaction Statement</h1>
+          <p>Shop Code: ${shop.pairing_code} | Period: ${statementRange.toUpperCase()} | Generated: ${new Date().toLocaleString('en-IN')}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Order #</th>
+                <th>Mode</th>
+                <th>Settlement Type</th>
+                <th style="text-align:right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml || '<tr><td colspan="5">No transactions in selected period.</td></tr>'}</tbody>
+          </table>
+          <div class="summary">Total Orders: ${filtered.length} | Total Collection: ₹${totalRev.toFixed(2)}</div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   };
 
   const handlePrintStandee = () => {
@@ -945,9 +1206,6 @@ export default function AdminPage() {
     );
   }
 
-  // =========================================================================
-  // SHOP ADMIN LOGIN GATE (With Automated Email 6-Digit PIN Reset)
-  // =========================================================================
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -997,7 +1255,6 @@ export default function AdminPage() {
             </button>
           </form>
 
-          {/* Forgot 6-Digit PIN Automated Email Reset Section */}
           <div className="pt-3 border-t border-slate-900 space-y-3">
             <button
               type="button"
@@ -1053,6 +1310,15 @@ export default function AdminPage() {
   const maxDownloads = shop.max_downloads || 3;
   const isDownloadLocked = !(shop.download_allowed ?? true) || downloadsUsed >= maxDownloads;
   const currentSelectedFaq = SHOP_ADMIN_FAQS.find((f) => f.id === selectedFaqId) || SHOP_ADMIN_FAQS[0];
+
+  const filteredTransactions = getFilteredTransactions();
+  const totalPeriodRevenue = filteredTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const directShopRevenue = filteredTransactions
+    .filter((tx) => tx.collection_type !== 'SPLIT_SETTLEMENT')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const splitSettlementRevenue = filteredTransactions
+    .filter((tx) => tx.collection_type === 'SPLIT_SETTLEMENT')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
 
   // =========================================================================
   // LOGGED-IN SHOP ADMIN DASHBOARD
@@ -1283,17 +1549,29 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Owner Email (Statements)</label>
+                  <input
+                    type="email"
+                    placeholder="shop@gmail.com"
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
               </div>
 
-              {/* 6-DIGIT ADMIN PIN FIELD (Automatically reflects reset PIN & editable anytime) */}
+              {/* 6-DIGIT ADMIN PIN FIELD */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
                 <label className="block font-bold text-slate-800 flex items-center gap-1.5">
                   <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
@@ -1311,12 +1589,12 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* ALWAYS VISIBLE UPI ID + REGISTERED BANKING NAME */}
+              {/* ALWAYS VISIBLE UPI ID + REGISTERED BANKING NAME (Scanner Option) */}
               <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2.5">
                 <div>
                   <label className="block font-bold text-emerald-950 flex items-center gap-1.5 mb-1">
                     <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
-                    Shop Direct UPI ID (GPay / PhonePe / Paytm)
+                    Shop Direct UPI ID (QR Scanner Collection)
                   </label>
                   <input
                     type="text"
@@ -1341,8 +1619,174 @@ export default function AdminPage() {
                 </div>
 
                 <p className="text-[10px] text-emerald-700 leading-tight">
-                  Customer payments go 100% directly into this UPI ID. Entering your exact bank account holder name prevents UPI name-mismatch warnings.
+                  Generates your shop's direct UPI QR code. Customer payments scanned on this QR go 100% directly into your UPI ID.
                 </p>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* NEW: SELF PAYMENT GATEWAY INTEGRATION BOX (Razorpay / Cashfree / PhonePe) */}
+              {/* ========================================================================= */}
+              <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-indigo-950 flex items-center gap-1.5 text-xs">
+                      <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                      Self Payment Gateway (Optional)
+                    </span>
+                    <span className="text-[10px] text-indigo-700 block">
+                      Connect your own Razorpay / Cashfree / PhonePe Key
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setGatewayEnabled(!gatewayEnabled)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      gatewayEnabled ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {gatewayEnabled ? 'ACTIVE (ON)' : 'OFF'}
+                  </button>
+                </div>
+
+                {gatewayEnabled && (
+                  <div className="space-y-2 pt-1 border-t border-indigo-200/60">
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-950 mb-1">Select Gateway Provider</label>
+                      <select
+                        value={gatewayProvider}
+                        onChange={(e) => setGatewayProvider(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl border border-indigo-300 bg-white font-bold text-indigo-950 outline-none"
+                      >
+                        <option value="razorpay">Razorpay Payment Gateway</option>
+                        <option value="cashfree">Cashfree Payments</option>
+                        <option value="phonepe">PhonePe PG</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                        {gatewayProvider === 'razorpay' ? 'Razorpay Key ID (e.g. rzp_live_...)' : 'App ID / Merchant Key ID'}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={gatewayProvider === 'razorpay' ? 'rzp_live_xxxxxxxxxxxx' : 'Enter API Key / App ID'}
+                        value={gatewayKeyId}
+                        onChange={(e) => setGatewayKeyId(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-indigo-300 font-mono text-xs bg-white text-slate-900 outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                        Secret Key / Salt Key (Optional for Client Checkout)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="••••••••••••••••"
+                        value={gatewayKeySecret}
+                        onChange={(e) => setGatewayKeySecret(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-indigo-300 font-mono text-xs bg-white text-slate-900 outline-none"
+                      />
+                    </div>
+
+                    <p className="text-[10px] text-indigo-800 leading-tight">
+                      ✅ When ON, customers clicking "Pay via UPI" on your kiosk pay directly through your {gatewayProvider.toUpperCase()} account and auto-print starts immediately on payment success!
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* ========================================================================= */}
+              {/* NEW: RTS AUTOMATIC SPLIT SETTLEMENT (COMING SOON - PAUSED TOGGLE + BANK)  */}
+              {/* ========================================================================= */}
+              <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-teal-700" />
+                      <span className="font-extrabold text-teal-950 text-xs">RTS Auto-Split Settlement</span>
+                      <span className="text-[9px] font-black uppercase bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full">
+                        Coming Soon
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-teal-700 block">
+                      1-Click UPI collection & direct bank split settlement
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSplitPaymentEnabled(!splitPaymentEnabled)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      splitPaymentEnabled ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {splitPaymentEnabled ? 'OPTED IN' : 'PAUSED / OFF'}
+                  </button>
+                </div>
+
+                {splitPaymentEnabled && (
+                  <div className="space-y-2 pt-1 border-t border-teal-200/60">
+                    <p className="text-[10px] font-semibold text-amber-900 bg-amber-100/80 border border-amber-300 rounded-xl p-2 leading-tight">
+                      ⏳ RTS Central Split Gateway is currently in <strong>Coming Soon (Paused)</strong> mode. Pre-fill your bank details below to be ready when activated by Super Admin.
+                    </p>
+                    <div>
+                      <label className="block text-[11px] font-bold text-teal-950 mb-1">Bank Account Holder Name</label>
+                      <input
+                        type="text"
+                        placeholder="Exact name as per bank passbook"
+                        value={bankAccountName}
+                        onChange={(e) => setBankAccountName(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-teal-300 bg-white text-slate-900 outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-teal-950 mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          placeholder="Bank A/c No"
+                          value={bankAccountNumber}
+                          onChange={(e) => setBankAccountNumber(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-teal-300 font-mono bg-white text-slate-900 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-teal-950 mb-1">IFSC Code</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. SBIN0001234"
+                          value={bankIfsc}
+                          onChange={(e) => setBankIfsc(e.target.value.toUpperCase())}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-teal-300 font-mono uppercase bg-white text-slate-900 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ========================================================================= */}
+              {/* NEW: DAILY 8:00 PM CONSOLIDATED EMAIL STATEMENT TOGGLE                    */}
+              {/* ========================================================================= */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                    <Mail className="w-3.5 h-3.5 text-emerald-600" />
+                    Daily 8:00 PM Statement Email
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    Sends 1 consolidated summary email daily at 8 PM
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDailyStatementEnabled(!dailyStatementEnabled)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    dailyStatementEnabled ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {dailyStatementEnabled ? 'ON (8 PM)' : 'OFF'}
+                </button>
               </div>
 
               {/* PAYMENT MODE TOGGLE */}
@@ -1359,7 +1803,7 @@ export default function AdminPage() {
                     }`}
                   >
                     <Smartphone className="w-4 h-4" />
-                    Direct UPI QR
+                    Direct UPI / Gateway
                   </button>
 
                   <button
@@ -1518,7 +1962,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Right Column: Live Queue */}
+        {/* Right Column: Live Queue, Dynamic Page Rate & 1-Month Statement Ledger */}
         <div className="md:col-span-2 space-y-6">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
@@ -1645,6 +2089,162 @@ export default function AdminPage() {
               ))}
             </div>
           </div>
+
+          {/* ========================================================================= */}
+          {/* NEW: 1-MONTH TRANSACTION & SETTLEMENT STATEMENT LEDGER (8 PM Digest)      */}
+          {/* ========================================================================= */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  Print Earnings & 30-Day Statement Ledger
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Lightweight 1-month accounting record • Consolidated email sent daily at 8:00 PM
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePrintStatementReport}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-[11px] transition flex items-center gap-1"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print / PDF</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingStatementEmail}
+                  onClick={() => handleSendStatementEmail(false)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px] transition flex items-center gap-1 shadow-sm"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{sendingStatementEmail ? 'Emailing...' : 'Email Statement Now'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Period Filter Pills (Today, 7 Days, 30 Days / 1 Month, Custom) */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {[
+                  { id: 'today', label: 'Today' },
+                  { id: '7days', label: 'Last 7 Days' },
+                  { id: '30days', label: 'Last 30 Days (1 Month)' },
+                  { id: 'custom', label: 'Custom Dates' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStatementRange(tab.id as any)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition ${
+                      statementRange === tab.id
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {statementRange === 'custom' && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px]"
+                  />
+                  <span className="text-slate-400">to</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px]"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Summary KPI Cards (Separates Direct Shop Collection vs Split Settlement) */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold uppercase text-emerald-700 block">Total Period Collection</span>
+                <span className="text-lg font-black font-mono text-emerald-950">₹{totalPeriodRevenue.toFixed(2)}</span>
+                <span className="text-[10px] text-emerald-600 block">{filteredTransactions.length} Orders</span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold uppercase text-slate-500 block">Direct Shop (UPI/Cash/Own PG)</span>
+                <span className="text-lg font-black font-mono text-slate-900">₹{directShopRevenue.toFixed(2)}</span>
+                <span className="text-[10px] text-slate-400 block">100% In Your Account</span>
+              </div>
+
+              <div className="bg-teal-50/60 border border-teal-200 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold uppercase text-teal-700 block">RTS Split Collection</span>
+                <span className="text-lg font-black font-mono text-teal-950">₹{splitSettlementRevenue.toFixed(2)}</span>
+                <span className="text-[10px] text-teal-600 block">Coming Soon Mode</span>
+              </div>
+            </div>
+
+            {/* Compact Statement Table */}
+            <div className="overflow-x-auto max-h-60 border border-slate-100 rounded-2xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100 sticky top-0">
+                  <tr>
+                    <th className="py-2 px-3">Date & Time</th>
+                    <th className="py-2 px-3">Order #</th>
+                    <th className="py-2 px-3">Mode</th>
+                    <th className="py-2 px-3">Collection Channel</th>
+                    <th className="py-2 px-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400 text-xs">
+                        No transactions recorded in this date range.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTransactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-50/60">
+                        <td className="py-2 px-3 text-[11px] text-slate-500">
+                          {new Date(tx.created_at).toLocaleString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="py-2 px-3 font-mono font-bold text-slate-900">{tx.order_number}</td>
+                        <td className="py-2 px-3">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
+                            {tx.payment_mode}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                            tx.collection_type === 'SPLIT_SETTLEMENT'
+                              ? 'bg-teal-100 text-teal-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {tx.collection_type === 'SPLIT_SETTLEMENT' ? 'RTS Split' : 'Direct Shop'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                          ₹{Number(tx.amount || 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -1654,7 +2254,6 @@ export default function AdminPage() {
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
         {supportOpen && (
           <div className="w-[360px] sm:w-[400px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">
-            {/* Widget Top Header */}
             <div className="bg-[#0b3b42] text-white px-4 py-3.5 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center font-black text-emerald-300 text-base">
@@ -1690,7 +2289,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* 2 Separate Mode Tabs: [📚 12 Help FAQs] | [💬 Live Chat (Super Admin)] */}
             <div className="grid grid-cols-2 bg-slate-100 p-1 border-b border-slate-200 text-xs font-extrabold">
               <button
                 type="button"
@@ -1718,10 +2316,8 @@ export default function AdminPage() {
               </button>
             </div>
 
-            {/* TAB 1: 12 SHOPKEEPER FAQS */}
             {supportTab === 'faq' ? (
               <div className="p-3.5 max-h-[380px] overflow-y-auto space-y-3 bg-slate-50 text-xs">
-                {/* Selected Question & Answer Card */}
                 <div className="bg-white border-2 border-emerald-500/40 rounded-2xl p-3.5 shadow-sm space-y-1.5">
                   <span className="text-[10px] font-black uppercase text-emerald-700 block">
                     {faqLang === 'en' ? currentSelectedFaq.qEn : currentSelectedFaq.qMl}
@@ -1735,7 +2331,6 @@ export default function AdminPage() {
                   {faqLang === 'en' ? 'Tap any question below:' : 'ചുവടെയുള്ള ഏത് ചോദ്യവും തിരഞ്ഞെടുക്കാം:'}
                 </p>
 
-                {/* All 12 Questions List */}
                 <div className="space-y-1.5">
                   {SHOP_ADMIN_FAQS.map((item) => {
                     const isSelected = item.id === selectedFaqId;
@@ -1756,7 +2351,6 @@ export default function AdminPage() {
                   })}
                 </div>
 
-                {/* Direct CTA to switch to Live Chat */}
                 <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
                   <span className="text-[10px] text-slate-500">Need direct assistance?</span>
                   <button
@@ -1769,7 +2363,6 @@ export default function AdminPage() {
                 </div>
               </div>
             ) : (
-              /* TAB 2: LIVE CHAT WITH SUPER ADMIN */
               <div className="flex flex-col">
                 <div className="p-3.5 max-h-64 overflow-y-auto space-y-2.5 bg-slate-50 text-xs">
                   {!shopChatSessionId ? (
@@ -1869,7 +2462,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Floating Toggle Button at Bottom-Right of Shop Admin */}
         <button
           type="button"
           onClick={() => setSupportOpen(!supportOpen)}

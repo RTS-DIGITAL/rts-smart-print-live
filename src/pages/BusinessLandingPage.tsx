@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
   Zap, 
@@ -48,9 +48,12 @@ type TrustModalType = 'privacy' | 'terms' | 'refund' | 'about' | 'contact' | nul
 
 interface ChatMessage {
   id: string;
-  sender: 'bot' | 'user';
+  sender: 'bot' | 'user' | 'admin';
   text: string;
+  time?: string;
 }
+
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
 const TEXTS = {
   en: {
@@ -158,15 +161,27 @@ export const BusinessLandingPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [activeModal, setActiveModal] = useState<TrustModalType>(null);
 
+  // Live Chat & Pre-Chat Customer Details State
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatSessionId, setChatSessionId] = useState<string | null>(
+    () => localStorage.getItem('rts_live_chat_session_id')
+  );
+  const [chatUser, setChatUser] = useState({
+    name: localStorage.getItem('rts_live_chat_name') || '',
+    phone: localStorage.getItem('rts_live_chat_phone') || '',
+    email: localStorage.getItem('rts_live_chat_email') || ''
+  });
+  const [startingChat, setStartingChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
+  const [sendingChatMsg, setSendingChatMsg] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       sender: 'bot',
-      text: '👋 Namaskaram! Welcome to RTS Smart Print Support (RTS Reliable Technology Services). നമസ്കാരം! എങ്ങനെ സഹായിക്കാനാകും? Tap a topic below:'
+      text: '👋 Namaskaram! Tap a quick topic below or connect with our Admin for live chat:'
     }
   ]);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
     businessName: '',
@@ -237,6 +252,53 @@ export const BusinessLandingPage: React.FC = () => {
     };
   }, []);
 
+  // Sync Live Chat Session with Super Admin Replies in Real-Time
+  useEffect(() => {
+    if (!chatSessionId) return;
+
+    async function fetchExistingChat() {
+      const { data, error } = await supabase
+        .from('support_chats')
+        .select('*')
+        .eq('id', chatSessionId)
+        .maybeSingle();
+
+      if (error || !data) {
+        localStorage.removeItem('rts_live_chat_session_id');
+        setChatSessionId(null);
+        return;
+      }
+
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        setChatMessages(data.messages);
+      }
+    }
+
+    fetchExistingChat();
+
+    const chatChannel = supabase
+      .channel(`live-chat-${chatSessionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'support_chats', filter: `id=eq.${chatSessionId}` },
+        (payload) => {
+          const updatedMsgs = (payload.new as any)?.messages;
+          if (Array.isArray(updatedMsgs)) {
+            setChatMessages(updatedMsgs);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(chatChannel);
+    };
+  }, [chatSessionId]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, chatOpen]);
+
   // Extract Custom Form Dropdown Prices set in Super Admin
   const planWithCustomForm = allPlansForForm.find(
     (p) => p.form_monthly_price || p.form_yearly_price || p.form_trial_days
@@ -254,40 +316,22 @@ export const BusinessLandingPage: React.FC = () => {
       answerMl: 'RTS Reliable Technology Services (Kerala, India) പുറത്തിറക്കുന്ന ഓട്ടോമേറ്റഡ് ക്യുആർ പ്രിന്റിംഗ് കിയോസ്ക് സിസ്റ്റമാണ് RTS Smart Print. ഉപഭോക്താക്കൾക്ക് QR സ്കാൻ ചെയ്ത് ഫയലുകൾ അപ്‌ലോഡ് ചെയ്ത് 0% കമ്മീഷനിൽ നേരിട്ട് UPI വഴി പണമടച്ച് പ്രിന്റ് എടുക്കാം.'
     },
     {
-      id: 'how_order',
-      label: '📱 How a customer orders',
-      answerEn: '5 Simple Steps: 1. Scan Counter QR Code -> 2. Upload PDF/Image & choose copies/color -> 3. Pay via Direct UPI or Cash -> 4. Live Order appears on Shop PC -> 5. Prints via Auto-Pilot Mode (automatic after payment) or Manual Mode (after shop approval).',
-      answerMl: '5 ഘട്ടങ്ങൾ: 1. കടയിലെ QR സ്കാൻ ചെയ്യുന്നു -> 2. ഫയൽ അപ്‌ലോഡ് ചെയ്യുന്നു -> 3. UPI/Cash പേയ്‌മെന്റ് നൽകുന്നു -> 4. ഓർഡർ കമ്പ്യൂട്ടറിലെ Live Print Queue-ൽ എത്തുന്നു -> 5. Auto-Pilot Mode അഥവാ Manual Mode വഴി പ്രിന്റ് ചെയ്യുന്നു.'
-    },
-    {
       id: 'pricing',
-      label: '💰 How pricing works',
+      label: '🔥 Current Plan Offers',
       answerEn: `Our plans start at ₹${dbPlans[0]?.offer_price || customMonthly}/${dbPlans[0]?.billing_period || 'month'} and include a ${customTrialDays}-Day Free Trial. There is 0% platform commission on your customer payments.`,
       answerMl: `പ്ലാനുകൾ ₹${dbPlans[0]?.offer_price || customMonthly} മുതൽ ആരംഭിക്കുന്നു (${customTrialDays} ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭ്യമാണ്). കസ്റ്റമർ പേയ്‌മെന്റുകൾക്ക് 0% കമ്മീഷനാണ്.`
     },
     {
       id: 'file_deletion',
-      label: '⏱️ How long files are kept (1, 4, 12, 24h)',
+      label: '⏱️ File Auto-Delete (1/4/12/24h)',
       answerEn: 'Customer privacy first: Uploaded files are automatically removed from the dashboard and database based on the schedule set by the shop (1 hour, 4 hours, 12 hours, or 24 hours).',
       answerMl: 'Customer privacy first: കടയുടമ തിരഞ്ഞെടുക്കുന്ന സമയക്രമം അനുസരിച്ച് (1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ) ഫയലുകൾ dashboard-ൽ നിന്നും database-ൽ നിന്നും തനിയെ നീക്കം ചെയ്യപ്പെടും.'
     },
     {
-      id: 'print_modes',
-      label: '⚙️ Auto-Pilot Mode vs Manual Mode',
-      answerEn: 'Auto-Pilot Mode prints automatically after payment is confirmed. Manual Mode holds the job in the Live Print Queue and prints only after the shop approves each order.',
-      answerMl: 'Auto-Pilot Mode-ൽ പേയ്‌മെന്റ് കൺഫേം ആയ ഉടൻ പ്രിന്റ് ആകുന്നു. Manual Mode-ൽ കടയുടമ ഓർഡർ പരിശോധിച്ച് അപ്രൂവ് ചെയ്ത ശേഷം മാത്രം പ്രിന്റ് ആകുന്നു.'
-    },
-    {
       id: 'start_trial',
-      label: '🚀 How to start a trial or sign up',
+      label: '🚀 Start Free Trial',
       answerEn: 'Click "Activate Free Trial" on this page and fill in your Shop Name, WhatsApp number, Email, and Printer Model to register your station.',
       answerMl: 'ഈ പേജിലെ "സൗജന്യ ട്രയൽ ആരംഭിക്കൂ" എന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് നിങ്ങളുടെ കടയുടെ പേര്, ഫോൺ നമ്പർ, ഇമെയിൽ എന്നിവ പൂരിപ്പിച്ച് സൈൻ അപ്പ് ചെയ്യാം.'
-    },
-    {
-      id: 'contact_support',
-      label: '✉️ How to contact RTS Support',
-      answerEn: 'You can reach RTS Reliable Technology Services Support directly at info@rtsdigitalseva.online or click the "Contact RTS Support" button on this page.',
-      answerMl: 'സഹായത്തിനായി info@rtsdigitalseva.online എന്ന ഇമെയിലിലോ പേജിലെ "Contact RTS Support" ബട്ടൺ വഴിയോ ബന്ധപ്പെടാവുന്നതാണ്.'
     }
   ];
 
@@ -309,7 +353,7 @@ export const BusinessLandingPage: React.FC = () => {
         }
       ]);
 
-      await fetch('https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec', {
+      await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
@@ -345,43 +389,134 @@ export const BusinessLandingPage: React.FC = () => {
     document.getElementById('rts-support-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSelectChatTopic = (option: typeof CHAT_FAQ_OPTIONS[0]) => {
-    setChatMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, sender: 'user', text: option.label },
-      { id: `b-${Date.now() + 1}`, sender: 'bot', text: lang === 'en' ? option.answerEn : option.answerMl }
-    ]);
+  const handleSelectChatTopic = async (option: typeof CHAT_FAQ_OPTIONS[0]) => {
+    const uMsg: ChatMessage = { id: `u-${Date.now()}`, sender: 'user', text: option.label };
+    const bMsg: ChatMessage = {
+      id: `b-${Date.now() + 1}`,
+      sender: 'bot',
+      text: lang === 'en' ? option.answerEn : option.answerMl
+    };
+    const updated = [...chatMessages, uMsg, bMsg];
+    setChatMessages(updated);
+
+    if (chatSessionId) {
+      await supabase
+        .from('support_chats')
+        .update({ messages: updated, updated_at: new Date().toISOString() })
+        .eq('id', chatSessionId);
+    }
   };
 
-  const handleSendCustomChat = (e: React.FormEvent) => {
+  // Step 1 in Chat: Customer submits Name, Phone, Email to unlock live message box & notify Admin
+  const handleStartLiveChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatUser.name.trim() || !chatUser.phone.trim() || !chatUser.email.trim()) return;
+
+    setStartingChat(true);
+    try {
+      const initialMsgs: ChatMessage[] = [
+        ...chatMessages,
+        {
+          id: `sys-${Date.now()}`,
+          sender: 'bot',
+          text: lang === 'en'
+            ? `✅ Hi ${chatUser.name}! You are now connected to RTS Admin. Type your question below and our Admin will reply here directly.`
+            : `✅ നമസ്കാരം ${chatUser.name}! നിങ്ങൾ ഇപ്പോൾ അഡ്മിനുമായി കണക്റ്റ് ചെയ്തിരിക്കുന്നു. നിങ്ങളുടെ ചോദ്യം താഴെ ടൈപ്പ് ചെയ്യുക, അഡ്മിൻ ഇവിടെ നേരിട്ട് മറുപടി നൽകും.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ];
+
+      const { data: newChat, error } = await supabase
+        .from('support_chats')
+        .insert([
+          {
+            customer_name: chatUser.name.trim(),
+            customer_phone: chatUser.phone.trim(),
+            customer_email: chatUser.email.trim(),
+            messages: initialMsgs,
+            status: 'active',
+            unread_admin: true
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      localStorage.setItem('rts_live_chat_session_id', newChat.id);
+      localStorage.setItem('rts_live_chat_name', chatUser.name.trim());
+      localStorage.setItem('rts_live_chat_phone', chatUser.phone.trim());
+      localStorage.setItem('rts_live_chat_email', chatUser.email.trim());
+
+      setChatSessionId(newChat.id);
+      setChatMessages(initialMsgs);
+
+      // Send immediate email notification to Admin that customer joined chat
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'live_chat_alert',
+          customerName: chatUser.name.trim(),
+          customerPhone: chatUser.phone.trim(),
+          customerEmail: chatUser.email.trim(),
+          message: 'Customer submitted details in chat box and is ready for live chat!'
+        })
+      });
+    } catch (err: any) {
+      alert('Failed to connect live chat: ' + (err.message || 'Please check connection'));
+    } finally {
+      setStartingChat(false);
+    }
+  };
+
+  // Step 2 in Chat: Customer types direct message -> Goes straight to Super Admin Live Chat & Admin Email
+  const handleSendCustomChat = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = chatInput.trim();
-    if (!trimmed) return;
+    if (!trimmed || !chatSessionId) return;
 
-    const lower = trimmed.toLowerCase();
-    let matchedOption = null;
-    if (lower.includes('price') || lower.includes('cost') || lower.includes('plan') || lower.includes('offer')) {
-      matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'pricing');
-    } else if (lower.includes('delete') || lower.includes('privacy') || lower.includes('hour')) {
-      matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'file_deletion');
-    } else if (lower.includes('trial') || lower.includes('sign up') || lower.includes('register')) {
-      matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'start_trial');
-    } else if (lower.includes('order') || lower.includes('scan')) {
-      matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'how_order');
-    } else if (lower.includes('contact') || lower.includes('email') || lower.includes('support')) {
-      matchedOption = CHAT_FAQ_OPTIONS.find(o => o.id === 'contact_support');
-    }
+    setSendingChatMsg(true);
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      sender: 'user',
+      text: trimmed,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
 
-    const fallbackText = lang === 'en'
-      ? "Thank you for your question. RTS Support will reply personally. Please click 'Contact RTS Support' or email info@rtsdigitalseva.online."
-      : "നിങ്ങളുടെ ചോദ്യത്തിന് നന്ദി. RTS Support ടീം മറുപടി നൽകുന്നതാണ്. കൂടുതൽ സഹായത്തിനായി info@rtsdigitalseva.online-ൽ ബന്ധപ്പെടുക.";
-
-    setChatMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, sender: 'user', text: trimmed },
-      { id: `b-${Date.now() + 1}`, sender: 'bot', text: matchedOption ? (lang === 'en' ? matchedOption.answerEn : matchedOption.answerMl) : fallbackText }
-    ]);
+    const updatedMessages = [...chatMessages, userMsg];
+    setChatMessages(updatedMessages);
     setChatInput('');
+
+    try {
+      await supabase
+        .from('support_chats')
+        .update({
+          messages: updatedMessages,
+          unread_admin: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', chatSessionId);
+
+      // Send immediate email notification to Admin with the customer's exact message
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'live_chat_alert',
+          customerName: chatUser.name,
+          customerPhone: chatUser.phone,
+          customerEmail: chatUser.email,
+          message: trimmed
+        })
+      });
+    } catch (err) {
+      console.error('Failed to send live chat message:', err);
+    } finally {
+      setSendingChatMsg(false);
+    }
   };
 
   return (
@@ -1218,63 +1353,149 @@ export const BusinessLandingPage: React.FC = () => {
         </div>
       )}
 
-      {/* Floating Chat Bot Widget */}
+      {/* ========================================================================= */}
+      {/* FLOATING LIVE SUPPORT CHAT WIDGET (With Pre-Chat Form & Admin Live Chat)  */}
+      {/* ========================================================================= */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
         {chatOpen && (
-          <div className="w-[340px] sm:w-[360px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">
-            <div className="bg-teal-900 text-white px-4 py-3.5 flex items-center justify-between">
+          <div className="w-[350px] sm:w-[375px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">
+            {/* Header */}
+            <div className="bg-[#0b3b42] text-white px-4 py-3.5 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center font-black text-emerald-300">⚡</div>
+                <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center font-black text-emerald-300 text-base">
+                  ⚡
+                </div>
                 <div>
-                  <h4 className="font-extrabold text-xs sm:text-sm text-white">RTS Smart Print Support Bot</h4>
-                  <span className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1">
+                  <h4 className="font-extrabold text-xs sm:text-sm text-white leading-tight">
+                    RTS Smart Print Live Support
+                  </h4>
+                  <span className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1 mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Online • Instant Reply
+                    Connected to Admin • Instant Reply
                   </span>
                 </div>
               </div>
-              <button type="button" onClick={() => setChatOpen(false)} className="p-1 text-slate-300 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                className="p-1 text-slate-300 hover:text-white"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3.5 max-h-80 overflow-y-auto space-y-3 bg-slate-50 text-xs">
+            {/* Messages & Quick FAQ Pills Area */}
+            <div className="p-3.5 max-h-64 overflow-y-auto space-y-2.5 bg-slate-50 text-xs">
               {chatMessages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`rounded-2xl px-3.5 py-2.5 max-w-[88%] leading-relaxed ${
-                    msg.sender === 'user' ? 'bg-teal-800 text-white font-semibold' : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
-                  }`}>
-                    {msg.text}
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`rounded-2xl px-3.5 py-2.5 max-w-[86%] leading-relaxed ${
+                      msg.sender === 'user'
+                        ? 'bg-[#0b5c58] text-white font-semibold'
+                        : msg.sender === 'admin'
+                        ? 'bg-emerald-50 border-2 border-emerald-400 text-slate-900 font-semibold shadow-sm'
+                        : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
+                    }`}
+                  >
+                    {msg.sender === 'admin' && (
+                      <span className="text-[9px] font-black uppercase text-emerald-700 block mb-0.5">
+                        👨‍💻 RTS Admin Reply
+                      </span>
+                    )}
+                    <p className="whitespace-pre-line">{msg.text}</p>
                   </div>
                 </div>
               ))}
 
-              <div className="pt-1 flex flex-col gap-1.5">
+              <div className="pt-1 flex flex-wrap gap-1.5">
                 {CHAT_FAQ_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
                     onClick={() => handleSelectChatTopic(opt)}
-                    className="text-left px-3 py-2 rounded-full bg-slate-200/80 hover:bg-emerald-100 text-slate-800 font-bold text-[11px] transition border border-slate-300/60 w-fit"
+                    className={`px-3 py-1.5 rounded-full font-bold text-[11px] transition border ${
+                      opt.id === 'pricing'
+                        ? 'bg-amber-100/90 hover:bg-amber-200 text-amber-900 border-amber-300'
+                        : 'bg-slate-200/80 hover:bg-emerald-100 text-slate-800 border-slate-300/60'
+                    }`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
+              <div ref={chatEndRef} />
             </div>
 
-            <form onSubmit={handleSendCustomChat} className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Type your question..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-full outline-none focus:border-teal-600 text-slate-800"
-              />
-              <button type="submit" className="px-3.5 py-2 bg-teal-700 hover:bg-teal-600 text-white font-bold text-xs rounded-full">
-                Send →
-              </button>
-            </form>
+            {/* Pre-Chat Details Form (Name, Phone, Email) OR Unlocked Live Message Box */}
+            {!chatSessionId ? (
+              <form
+                onSubmit={handleStartLiveChat}
+                className="p-3.5 bg-white border-t border-slate-200 space-y-2.5"
+              >
+                <p className="text-[11px] font-extrabold text-[#0b3b42] flex items-center gap-1.5">
+                  <span>💬 Enter your details to chat live with Admin:</span>
+                </p>
+
+                <input
+                  type="text"
+                  required
+                  placeholder="Your Full Name *"
+                  value={chatUser.name}
+                  onChange={(e) => setChatUser({ ...chatUser, name: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none focus:border-teal-700 text-slate-800"
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Phone Number *"
+                    value={chatUser.phone}
+                    onChange={(e) => setChatUser({ ...chatUser, phone: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none focus:border-teal-700 text-slate-800"
+                  />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Your Email *"
+                    value={chatUser.email}
+                    onChange={(e) => setChatUser({ ...chatUser, email: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl outline-none focus:border-teal-700 text-slate-800"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={startingChat}
+                  className="w-full py-2.5 bg-[#0b4b54] hover:bg-[#093b42] text-white font-extrabold text-xs rounded-xl transition shadow flex items-center justify-center gap-1.5"
+                >
+                  <span>{startingChat ? 'Connecting to Admin...' : 'Start Live Chat with Admin →'}</span>
+                </button>
+              </form>
+            ) : (
+              <form
+                onSubmit={handleSendCustomChat}
+                className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  placeholder="Type your message to Admin (e.g. is this offer available)..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  className="flex-1 px-3.5 py-2 text-xs border border-slate-300 rounded-full outline-none focus:border-teal-700 text-slate-800"
+                />
+                <button
+                  type="submit"
+                  disabled={sendingChatMsg}
+                  className="px-4 py-2 bg-[#0b5c58] hover:bg-teal-700 text-white font-bold text-xs rounded-full transition flex items-center gap-1 shrink-0"
+                >
+                  <span>Send →</span>
+                </button>
+              </form>
+            )}
           </div>
         )}
 

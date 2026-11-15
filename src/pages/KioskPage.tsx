@@ -44,7 +44,6 @@ interface ShopConfig {
   counter_pin: string;
   auto_print_enabled: boolean;
   auto_delete_hours?: number | null;
-  // Self Payment Gateway & Split Settings from Shop Admin
   gateway_enabled?: boolean;
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
@@ -70,12 +69,10 @@ interface PricingRule {
   price_per_page: number;
 }
 
-// Clean & validate VPA (UPI ID) — removes spaces and converts to lowercase
 function cleanVpa(input: string | null | undefined): string {
   return (input || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
-// Dynamically load Razorpay Checkout SDK when a shop has enabled their own Razorpay Key
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
     if ((window as any).Razorpay) {
@@ -225,34 +222,25 @@ export default function KioskPage() {
   const totalAmount = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
   const totalPages = items.reduce((sum, item) => sum + item.pages * item.copies, 0);
 
-  // Clean VPA & Payee Name for 100% UPI Deep-Link Compatibility
   const cleanUpiId = cleanVpa(shop?.upi_id);
   const payeeName = (shop?.upi_name && shop.upi_name.trim() !== '')
     ? shop.upi_name.trim()
     : (shop?.name || 'RTS Smart Print').trim();
   const formattedAmount = Number(totalAmount || 0).toFixed(2);
 
-  // Check if shopkeeper has configured & enabled their own Payment Gateway Key
   const hasActiveShopGateway = Boolean(
     shop?.gateway_enabled && shop?.gateway_key_id && shop.gateway_key_id.trim() !== ''
   );
   const activeGatewayProvider = (shop?.gateway_provider || 'razorpay').toLowerCase();
 
-  // 1. Standard UPI Deep Link (With pre-filled amount for QR Code & Primary Button)
   const upiDeepLink = cleanUpiId
     ? `upi://pay?pa=${encodeURIComponent(cleanUpiId)}&pn=${encodeURIComponent(payeeName)}&am=${formattedAmount}&cu=INR`
-    : '';
-
-  // 2. No-Block P2P UPI Deep Link (Opens UPI App without pre-locked amount so banks never show "Exceeded Bank Limit")
-  const upiNoBlockLink = cleanUpiId
-    ? `upi://pay?pa=${encodeURIComponent(cleanUpiId)}&pn=${encodeURIComponent(payeeName)}&cu=INR`
     : '';
 
   const qrCodeImageUrl = cleanUpiId
     ? `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(upiDeepLink)}`
     : '';
 
-  // Download QR Image to Phone Gallery so single-phone customers can use "Upload from Gallery" in GPay/PhonePe
   const handleDownloadQrForGallery = async () => {
     if (!qrCodeImageUrl) return;
     setSavingQr(true);
@@ -274,33 +262,34 @@ export default function KioskPage() {
     }
   };
 
-  // Master Order Creation + Lightweight 30-Day Ledger Recording
+  // RESTORED ORIGINAL WORKING ORDER STATUS LOGIC FOR PC AGENT & MANUAL APPROVAL
   const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
 
     try {
-      const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
-      const isCashMode = !shop.require_payment;
+      // Fresh check of shop's latest auto_print_enabled setting from DB
+      const { data: latestShop } = await supabase
+        .from('shops')
+        .select('auto_print_enabled, require_payment, split_payment_enabled')
+        .eq('id', shop.id)
+        .maybeSingle();
+
+      const isAutoPilot = latestShop ? Boolean(latestShop.auto_print_enabled) : Boolean(shop.auto_print_enabled);
+      const isCashMode = !(latestShop ? latestShop.require_payment : shop.require_payment);
       const isGatewayVerified = Boolean(verifiedGatewayPaymentId);
 
-      // If paid via verified Gateway OR Auto-Pilot is enabled, mark as 'paid' so PC Agent prints automatically!
-      let targetStatus = 'pending';
-      if (isGatewayVerified) {
-        targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
-      } else if (isCashMode) {
-        targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
-      } else {
-        targetStatus = shop.auto_print_enabled ? 'paid' : 'waiting_counter_approval';
-      }
+      // EXACT STATUS LOGIC:
+      // - If Auto-Pilot is ON -> 'paid' (PC Print Agent immediately picks up 'paid' jobs and prints!)
+      // - If Manual Approval is ON -> 'pending' (Shop Admin shows "Print Now" button; clicking it sets 'paid'!)
+      const targetStatus = isAutoPilot ? 'paid' : 'pending';
 
+      const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
       const finalPaymentRef = isGatewayVerified
         ? `${activeGatewayProvider.toUpperCase()}_${verifiedGatewayPaymentId}`
         : isCashMode
         ? 'CASH_AT_COUNTER'
-        : utrNumber
-        ? `UTR_${utrNumber.trim()}`
-        : 'UPI_QR_SUBMITTED';
+        : utrNumber || 'UPI_SUBMITTED';
 
       for (const item of items) {
         const fileExt = item.name.split('.').pop() || 'pdf';
@@ -337,7 +326,7 @@ export default function KioskPage() {
         if (orderError) throw orderError;
       }
 
-      // Record into 30-Day Lightweight Statement Ledger (0 MB file storage, separates Direct Shop vs Split)
+      // Non-blocking record into 30-day statement ledger
       try {
         await supabase.from('shop_transactions').insert([
           {
@@ -355,7 +344,7 @@ export default function KioskPage() {
           }
         ]);
       } catch {
-        // Non-blocking if shop_transactions table is not yet created
+        // Ignore if table not created
       }
 
       navigate(`/shop/${shop.slug}/order/${orderNumber}`);
@@ -366,7 +355,6 @@ export default function KioskPage() {
     }
   };
 
-  // Launch Shopkeeper's Own Connected Gateway (Razorpay / Cashfree / PhonePe) -> Auto-Prints on Payment Success!
   const handlePayWithShopGateway = async () => {
     if (!shop || !hasActiveShopGateway) return;
     const keyId = (shop.gateway_key_id || '').trim();
@@ -403,7 +391,6 @@ export default function KioskPage() {
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } else {
-      // If shop entered a direct Cashfree / PhonePe payment link
       if (keyId.startsWith('http://') || keyId.startsWith('https://')) {
         window.open(keyId, '_blank');
       } else {
@@ -649,7 +636,6 @@ export default function KioskPage() {
                         if (!shop.require_payment) {
                           handleProceedOrder();
                         } else if (hasActiveShopGateway && activeGatewayProvider === 'razorpay') {
-                          // If Shopkeeper enabled Razorpay, open Razorpay directly on 1st click!
                           handlePayWithShopGateway();
                         } else {
                           setShowCheckout(true);
@@ -696,7 +682,6 @@ export default function KioskPage() {
             </p>
           </div>
 
-          {/* 3D-Style Glowing Security Shield Graphic */}
           <div className="relative mx-auto w-28 h-28 flex items-center justify-center mb-5">
             <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/20 to-emerald-400/30 rounded-full blur-xl"></div>
             <div className="absolute w-28 h-12 border-2 border-emerald-400/60 rounded-full -rotate-12 shadow-[0_0_12px_rgba(16,185,129,0.3)]"></div>
@@ -711,7 +696,6 @@ export default function KioskPage() {
             </div>
           </div>
 
-          {/* 4 Security & Privacy Feature Icons Row */}
           <div className="grid grid-cols-4 gap-2 max-w-md mx-auto pb-8 px-2">
             <div className="flex flex-col items-center space-y-1.5">
               <div className="w-12 h-12 rounded-2xl bg-white/90 border border-emerald-100 shadow-sm flex items-center justify-center text-emerald-600">
@@ -743,7 +727,6 @@ export default function KioskPage() {
           </div>
         </div>
 
-        {/* Bottom Decorative Dual Blue-Green Wave */}
         <div className="w-full overflow-hidden leading-none">
           <svg viewBox="0 0 1440 110" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-14 sm:h-20 preserve-3d">
             <path d="M0 50C320 120 1120 -20 1440 40V110H0V50Z" fill="#10b981" />
@@ -766,7 +749,6 @@ export default function KioskPage() {
             </div>
 
             {hasActiveShopGateway ? (
-              /* MODE A: SHOPKEEPER ENABLED OWN GATEWAY (RAZORPAY / CASHFREE / PHONEPE) — SHOW ONLY THIS! */
               <div className="space-y-4">
                 <div className="p-4 bg-indigo-50 border-2 border-indigo-500/40 rounded-2xl space-y-3">
                   <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">
@@ -799,7 +781,6 @@ export default function KioskPage() {
                 </button>
               </div>
             ) : (
-              /* MODE B: SHOPKEEPER USES DIRECT UPI ID / QR SCANNER (Gateway is OFF) */
               <div className="space-y-3.5">
                 {cleanUpiId && (
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">

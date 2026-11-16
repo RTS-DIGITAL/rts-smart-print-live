@@ -33,7 +33,9 @@ import {
   Calendar,
   FileSpreadsheet,
   Building2,
-  Clock
+  Clock,
+  Scissors,
+  Layers
 } from 'lucide-react';
 
 interface ShopData {
@@ -65,7 +67,7 @@ interface ShopData {
   download_requested?: boolean;
   admin_message?: string | null;
   targeted_message?: string | null;
-  // New Gateway, Split & 8 PM Statement Fields
+  // Gateway, Split & 8 PM Statement Fields
   gateway_enabled?: boolean;
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
@@ -75,6 +77,10 @@ interface ShopData {
   bank_account_number?: string | null;
   bank_ifsc?: string | null;
   daily_statement_enabled?: boolean;
+  // Duplex & ID Card 2-in-1 Custom Rate Fields
+  duplex_supported?: boolean;
+  id_card_bw_price?: number | null;
+  id_card_color_price?: number | null;
 }
 
 interface OrderRow {
@@ -279,6 +285,11 @@ export default function AdminPage() {
   const [bankIfsc, setBankIfsc] = useState('');
   const [dailyStatementEnabled, setDailyStatementEnabled] = useState(true);
 
+  // Duplex & ID Card 2-in-1 Custom Pricing States
+  const [duplexSupported, setDuplexSupported] = useState(true);
+  const [idCardBwPrice, setIdCardBwPrice] = useState<number>(5);
+  const [idCardColorPrice, setIdCardColorPrice] = useState<number>(15);
+
   // 1-Month Statement & Transaction Ledger States
   const [transactions, setTransactions] = useState<TransactionLedgerRow[]>([]);
   const [statementRange, setStatementRange] = useState<'today' | '7days' | '30days' | 'custom'>('today');
@@ -415,6 +426,11 @@ export default function AdminPage() {
       setBankAccountNumber(shopRes.bank_account_number || '');
       setBankIfsc(shopRes.bank_ifsc || '');
       setDailyStatementEnabled(shopRes.daily_statement_enabled ?? true);
+
+      // Load Duplex & ID Card 2-in-1 Custom Pricing
+      setDuplexSupported(shopRes.duplex_supported ?? true);
+      setIdCardBwPrice(Number(shopRes.id_card_bw_price ?? 5));
+      setIdCardColorPrice(Number(shopRes.id_card_color_price ?? 15));
 
       const { data: ordersRes } = await supabase
         .from('print_orders')
@@ -916,7 +932,11 @@ export default function AdminPage() {
           bank_account_name: bankAccountName.trim() || null,
           bank_account_number: bankAccountNumber.trim() || null,
           bank_ifsc: bankIfsc.toUpperCase().trim() || null,
-          daily_statement_enabled: dailyStatementEnabled
+          daily_statement_enabled: dailyStatementEnabled,
+          // Save Duplex & ID Card 2-in-1 Custom Pricing
+          duplex_supported: duplexSupported,
+          id_card_bw_price: Number(idCardBwPrice || 5),
+          id_card_color_price: Number(idCardColorPrice || 15)
         })
         .eq('id', shop.id);
 
@@ -973,6 +993,13 @@ export default function AdminPage() {
 
   const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
     await supabase.from('pricing_rules').update({ price_per_page: newPrice }).eq('id', ruleId);
+    loadShopData();
+  };
+
+  // Instant onBlur save for ID Card 2-in-1 / Cropping Service Rates
+  const handleUpdateIdCardRate = async (field: 'id_card_bw_price' | 'id_card_color_price', newRate: number) => {
+    if (!shop || isNaN(newRate)) return;
+    await supabase.from('shops').update({ [field]: newRate }).eq('id', shop.id);
     loadShopData();
   };
 
@@ -1623,9 +1650,7 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* ========================================================================= */}
-              {/* NEW: SELF PAYMENT GATEWAY INTEGRATION BOX (Razorpay / Cashfree / PhonePe) */}
-              {/* ========================================================================= */}
+              {/* SELF PAYMENT GATEWAY INTEGRATION BOX (Razorpay / Cashfree / PhonePe) */}
               <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1696,9 +1721,7 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* ========================================================================= */}
-              {/* NEW: RTS AUTOMATIC SPLIT SETTLEMENT (COMING SOON - PAUSED TOGGLE + BANK)  */}
-              {/* ========================================================================= */}
+              {/* RTS AUTOMATIC SPLIT SETTLEMENT (COMING SOON - PAUSED TOGGLE + BANK) */}
               <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1765,9 +1788,7 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* ========================================================================= */}
-              {/* NEW: DAILY 8:00 PM CONSOLIDATED EMAIL STATEMENT TOGGLE                    */}
-              {/* ========================================================================= */}
+              {/* DAILY 8:00 PM CONSOLIDATED EMAIL STATEMENT TOGGLE */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
                 <div>
                   <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
@@ -1786,6 +1807,30 @@ export default function AdminPage() {
                   }`}
                 >
                   {dailyStatementEnabled ? 'ON (8 PM)' : 'OFF'}
+                </button>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* NEW: PRINTER DOUBLE-SIDED (DUPLEX) CAPABILITY TOGGLE                      */}
+              {/* ========================================================================= */}
+              <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-blue-950 flex items-center gap-1.5 text-xs">
+                    <Layers className="w-3.5 h-3.5 text-blue-600" />
+                    Printer Supports Double-Sided (Duplex)
+                  </span>
+                  <span className="text-[10px] text-blue-700 block">
+                    Shows 1-Sided / 2-Sided option to customers on Kiosk
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDuplexSupported(!duplexSupported)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    duplexSupported ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {duplexSupported ? 'YES (ON)' : 'NO (1-SIDE ONLY)'}
                 </button>
               </div>
 
@@ -2077,13 +2122,13 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Pricing Rules */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+          {/* Pricing Rules + ID Card 2-in-1 Custom Cropping Rate Box */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
             <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-emerald-600" />
               Dynamic Page Rate
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
               {pricing.map((rule) => (
                 <div key={rule.id} className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
                   <span className="text-[11px] font-bold text-slate-700 block">
@@ -2105,11 +2150,70 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+
+            {/* ========================================================================= */}
+            {/* NEW: ID CARD PRINT (2-IN-1 FRONT + BACK / CROPPING SERVICE) CUSTOM RATE   */}
+            {/* ========================================================================= */}
+            <div className="pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                  <Scissors className="w-3.5 h-3.5 text-indigo-600" />
+                  🪪 ID Print Two-in-One (Front + Back on 1 Sheet / Cropping Rate)
+                </span>
+                <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  Saves Paper • Custom 2-Side Charge
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+                <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold text-indigo-950 block">
+                      ID Print 2-in-1 (B&W)
+                    </span>
+                    <span className="text-[10px] text-indigo-600 block">
+                      Front + Back on 1 A4 Sheet
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-bold text-indigo-900">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={idCardBwPrice}
+                      onChange={(e) => setIdCardBwPrice(parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => handleUpdateIdCardRate('id_card_bw_price', parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold text-indigo-950 block">
+                      ID Print 2-in-1 (Color)
+                    </span>
+                    <span className="text-[10px] text-indigo-600 block">
+                      Front + Back on 1 A4 Sheet
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-bold text-indigo-900">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={idCardColorPrice}
+                      onChange={(e) => setIdCardColorPrice(parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => handleUpdateIdCardRate('id_card_color_price', parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* ========================================================================= */}
-          {/* NEW: 1-MONTH TRANSACTION & SETTLEMENT STATEMENT LEDGER (8 PM Digest)      */}
-          {/* ========================================================================= */}
+          {/* 1-MONTH TRANSACTION & SETTLEMENT STATEMENT LEDGER (8 PM Digest) */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>

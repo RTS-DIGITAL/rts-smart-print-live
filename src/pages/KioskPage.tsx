@@ -28,7 +28,8 @@ import {
   RotateCw,
   Sun,
   Layers,
-  X
+  X,
+  CheckCircle2
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -53,7 +54,6 @@ interface ShopConfig {
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
   split_payment_enabled?: boolean;
-  // New Duplex & ID Card 2-in-1 Pricing Fields
   duplex_supported?: boolean;
   id_card_bw_price?: number | null;
   id_card_color_price?: number | null;
@@ -74,7 +74,6 @@ interface UploadedItem {
   isColor: boolean;
   isDoubleSided: boolean;
   paperSize: string;
-  // Image Layout & PDF Page Range Options
   layoutMode: ImageLayoutType;
   pageRangeText: string;
   hasBackImage?: boolean;
@@ -105,7 +104,6 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-// Verify real file signature bytes (%PDF, JPEG FF D8 FF, PNG 89 50 4E 47)
 async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invalid'> {
   try {
     const buffer = await file.slice(0, 8).arrayBuffer();
@@ -133,7 +131,6 @@ async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invali
   }
 }
 
-// Parse custom PDF page range like "1-2" or "1,3,5" and return count of selected pages
 function countSelectedPages(rangeStr: string, maxPages: number): number {
   const cleaned = rangeStr.trim();
   if (!cleaned) return maxPages;
@@ -162,7 +159,6 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
   return pagesSet.size > 0 ? pagesSet.size : maxPages;
 }
 
-// Calculate physical A4 paper sheets needed for an item
 function calculateSheetsForItem(item: UploadedItem): number {
   const perSide = item.layoutMode === 'id_card' ? 2 : 1;
   const sidesNeeded = Math.ceil(item.pages / perSide);
@@ -222,6 +218,7 @@ export default function KioskPage() {
   const [brightness, setBrightness] = useState<number>(105);
   const [contrast, setContrast] = useState<number>(110);
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
+  const [showConfirmPopup, setShowConfirmPopup] = useState<boolean>(false);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -309,26 +306,30 @@ export default function KioskPage() {
         isColor: false,
         isDoubleSided: false,
         paperSize: 'A4',
-        layoutMode: 'fit_a4',
+        layoutMode: fileKind === 'image' ? 'id_card' : 'fit_a4',
         pageRangeText: ''
       };
       newItems.push(newItem);
     }
 
-    // If customer selected exactly 2 images at once (e.g. Front & Back of ID Card), offer to open 2-in-1 ID Card Studio automatically
-    if (newItems.length === 2 && newItems[0].fileKind === 'image' && newItems[1].fileKind === 'image') {
-      const firstItem = newItems[0];
-      const secondFile = newItems[1].originalFile;
-      setItems((prev) => [...prev, firstItem]);
-      openImageStudio(firstItem, secondFile);
-    } else {
-      setItems((prev) => [...prev, ...newItems]);
-      // If single image uploaded, allow quick access or auto-open if desired
+    if (newItems.length > 0) {
+      const firstImgItem = newItems.find(it => it.fileKind === 'image');
+      if (firstImgItem) {
+        const otherImg = newItems.find(it => it.id !== firstImgItem.id && it.fileKind === 'image');
+        const remainingPdfItems = newItems.filter(it => it.fileKind === 'pdf');
+
+        setItems(prev => [...prev, ...remainingPdfItemList(newItems)]);
+        openImageStudio(firstImgItem, otherImg ? otherImg.originalFile : undefined);
+      } else {
+        setItems(prev => [...prev, ...newItems]);
+      }
     }
 
     setIsProcessingFiles(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const remainingPdfItemList = (all: UploadedItem[]) => all.filter(it => it.fileKind === 'pdf');
 
   const openImageStudio = (item: UploadedItem, preloadedBackFile?: File) => {
     setEditingItem(item);
@@ -342,7 +343,6 @@ export default function KioskPage() {
     setContrast(110);
   };
 
-  // Helper to draw a rotated & cropped image onto an A4 canvas region
   const drawProcessedImage = (
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,
@@ -387,7 +387,6 @@ export default function KioskPage() {
     }
   };
 
-  // Render Live A4 Sheet Preview inside the Studio Modal
   useEffect(() => {
     let active = true;
     async function renderPreview() {
@@ -396,7 +395,6 @@ export default function KioskPage() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Preview scale of A4 (210mm x 297mm -> 420px x 594px)
       canvas.width = 420;
       canvas.height = 594;
       ctx.fillStyle = '#ffffff';
@@ -407,7 +405,6 @@ export default function KioskPage() {
         if (!active) return;
 
         if (studioLayout === 'id_card') {
-          // Exact ID-1 Card Size on A4 (85.6mm x 54mm -> 171px x 108px on 420x594 canvas)
           const cardW = 171;
           const cardH = 108;
           const topMargin = 36;
@@ -415,11 +412,9 @@ export default function KioskPage() {
           if (backFile) {
             const backImg = await loadImageElement(backFile);
             if (!active) return;
-            // Place Front (Left) and Back (Right) side-by-side at top of 1 A4 sheet
             drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 26, topMargin, cardW, cardH, true);
             drawProcessedImage(ctx, backImg, backRotation, backCropPct, 223, topMargin, cardW, cardH, true);
           } else {
-            // Single ID card centered at top of A4 sheet
             drawProcessedImage(
               ctx,
               frontImg,
@@ -433,7 +428,6 @@ export default function KioskPage() {
             );
           }
         } else if (studioLayout === 'half_a4') {
-          // 2 Photos on 1 A4 Sheet (Top half & Bottom half)
           const boxW = 360;
           const boxH = 250;
           drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
@@ -457,7 +451,6 @@ export default function KioskPage() {
             false
           );
         } else {
-          // Fit to Full A4 Page with clean margin
           drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 20, 20, 380, 554, false);
         }
       } catch (err) {
@@ -470,14 +463,12 @@ export default function KioskPage() {
     };
   }, [editingItem, studioLayout, frontRotation, frontCropPct, backFile, backRotation, backCropPct, brightness, contrast]);
 
-  // Generate High-Resolution 300-DPI A4 Sheet (1240 x 1754 px) so PC Print Agent prints exact real size on 1 sheet!
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     setApplyingStudio(true);
 
     try {
       const hiCanvas = document.createElement('canvas');
-      // Standard A4 @ 150-200 DPI (1240 x 1754 px) for crisp printing & fast upload
       hiCanvas.width = 1240;
       hiCanvas.height = 1754;
       const ctx = hiCanvas.getContext('2d');
@@ -489,7 +480,6 @@ export default function KioskPage() {
       const frontImg = await loadImageElement(editingItem.originalFile);
 
       if (studioLayout === 'id_card') {
-        // Exact ID-1 Standard Size (85.6mm x 54mm on 210mm x 297mm A4 -> 505px x 319px)
         const cardW = 505;
         const cardH = 319;
         const topY = 110;
@@ -545,15 +535,24 @@ export default function KioskPage() {
       const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : studioLayout;
       const composedFile = new File([blob], `${baseName}_${layoutTag}.jpg`, { type: 'image/jpeg' });
 
-      updateItem(editingItem.id, {
+      const updatedItemObj: UploadedItem = {
+        ...editingItem,
         file: composedFile,
         size: composedFile.size,
         layoutMode: studioLayout,
         pages: 1,
         hasBackImage: Boolean(backFile)
-      });
+      };
+
+      const exists = items.some(it => it.id === editingItem.id);
+      if (exists) {
+        updateItem(editingItem.id, updatedItemObj);
+      } else {
+        setItems(prev => [...prev, updatedItemObj]);
+      }
 
       setEditingItem(null);
+      setShowConfirmPopup(true);
     } catch (err: any) {
       alert('Failed to apply layout: ' + err.message);
     } finally {
@@ -571,7 +570,6 @@ export default function KioskPage() {
     );
   };
 
-  // Price Calculation: Supports Shopkeeper's Custom "ID Card 2-in-1 / Cropping" Rate + Single/Double-Sided Rules
   const calculateItemPrice = (item: UploadedItem): number => {
     const rule = pricingRules.find(
       (r) =>
@@ -581,7 +579,6 @@ export default function KioskPage() {
     );
     const standardPerPageRate = rule ? Number(rule.price_per_page) : item.isColor ? 10.0 : 2.0;
 
-    // If customer selected ID Card 2-in-1 or Half-Page 2-in-1 layout, apply shop's ID Card 2-in-1 rate
     if (item.fileKind === 'image' && (item.layoutMode === 'id_card' || (item.layoutMode === 'half_a4' && item.hasBackImage))) {
       const customIdRate = item.isColor
         ? Number(shop?.id_card_color_price || standardPerPageRate * 2)
@@ -637,7 +634,6 @@ export default function KioskPage() {
     }
   };
 
-  // RESTORED ORIGINAL WORKING ORDER STATUS LOGIC FOR PC AGENT & MANUAL APPROVAL
   const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
@@ -889,13 +885,10 @@ export default function KioskPage() {
                   <UploadCloud className="w-6 h-6" />
                 </div>
                 <h3 className="font-extrabold text-slate-900 text-sm">
-                  {isProcessingFiles ? 'Reading Documents...' : 'Tap to Select Files (PDF or ID/Document Photos)'}
+                  {isProcessingFiles ? 'Reading Documents...' : 'Tap to Select Files (PDF & Gallery Images)'}
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Supports PDF, JPG, PNG • Includes <strong>ID Card 2-in-1 (Front + Back on 1 Sheet)</strong> & Crop tool
-                </p>
-                <p className="text-[10px] text-slate-400 pt-1">
-                  🔒 Privacy Tip: Upload only required pages. Files are auto-deleted after printing.
+                  Supports PDF, JPG, PNG • You can select multiple PDFs & images at once
                 </p>
               </div>
 
@@ -911,7 +904,7 @@ export default function KioskPage() {
                       className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Add More
+                      Add More Files
                     </button>
                   </div>
 
@@ -959,7 +952,7 @@ export default function KioskPage() {
                                   className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[10px] transition flex items-center gap-1"
                                 >
                                   <Scissors className="w-3 h-3" />
-                                  <span>{item.layoutMode === 'id_card' ? 'Edit ID 2-in-1' : 'Crop / ID 2-in-1'}</span>
+                                  <span>Edit / 2-in-1</span>
                                 </button>
                               )}
                               <button
@@ -972,7 +965,6 @@ export default function KioskPage() {
                             </div>
                           </div>
 
-                          {/* PDF Page Selection Row (Only if PDF has > 1 page) */}
                           {isPdf && item.totalPdfPages > 1 && (
                             <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
                               <span className="font-semibold text-slate-600">
@@ -992,7 +984,6 @@ export default function KioskPage() {
                             </div>
                           )}
 
-                          {/* Copies, B&W / Color, Single / Double-Sided Controls */}
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] text-slate-500">Copies:</span>
@@ -1036,7 +1027,6 @@ export default function KioskPage() {
                               </button>
                             </div>
 
-                            {/* Single-Sided vs Double-Sided (Duplex) Toggle */}
                             {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
                               <div className="flex items-center gap-1">
                                 <button
@@ -1069,7 +1059,6 @@ export default function KioskPage() {
                     })}
                   </div>
 
-                  {/* Summary Bill & Real Paper Sheet Count Card */}
                   <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
                     <div className="flex justify-between items-center text-xs text-slate-400">
                       <span>Total Document Pages:</span>
@@ -1110,7 +1099,7 @@ export default function KioskPage() {
                         ? `Opening ${activeGatewayProvider.toUpperCase()}...`
                         : shop.require_payment
                         ? hasActiveShopGateway
-                          ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
+                          ? `Pay ₹{formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
                           : 'Proceed to Pay & Print'
                         : shop.auto_print_enabled
                         ? 'Send to Print (Pay Cash at Counter)'
@@ -1124,7 +1113,7 @@ export default function KioskPage() {
         </main>
       </div>
 
-      {/* Bottom Promotional Link + Security Shield & Privacy Icons Section */}
+      {/* BOTTOM FOOTER */}
       <div className="mt-10 relative pt-6 bg-gradient-to-b from-transparent via-sky-50/70 to-blue-100/60">
         <div className="max-w-xl mx-auto px-4 text-center">
           <div className="border-t border-slate-200/80 pt-5 mb-6">
@@ -1140,62 +1129,11 @@ export default function KioskPage() {
               </a>
             </p>
           </div>
-
-          <div className="relative mx-auto w-28 h-28 flex items-center justify-center mb-5">
-            <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/20 to-emerald-400/30 rounded-full blur-xl"></div>
-            <div className="absolute w-28 h-12 border-2 border-emerald-400/60 rounded-full -rotate-12 shadow-[0_0_12px_rgba(16,185,129,0.3)]"></div>
-            <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full absolute right-0 top-7 shadow-md"></div>
-
-            <div className="relative z-10 w-20 h-24 bg-gradient-to-b from-sky-400 via-blue-600 to-blue-900 rounded-t-2xl rounded-b-[40px] p-1 shadow-xl shadow-blue-900/20 flex items-center justify-center border-2 border-white/80">
-              <div className="w-full h-full rounded-t-xl rounded-b-[36px] bg-gradient-to-br from-sky-400/40 via-blue-600 to-indigo-950 flex items-center justify-center">
-                <div className="bg-white text-blue-700 p-2.5 rounded-xl shadow-md">
-                  <Lock className="w-7 h-7 stroke-[2.5]" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 gap-2 max-w-md mx-auto pb-8 px-2">
-            <div className="flex flex-col items-center space-y-1.5">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-emerald-100 shadow-sm flex items-center justify-center text-emerald-600">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">100% Safe</span>
-            </div>
-
-            <div className="flex flex-col items-center space-y-1.5 border-l border-slate-200/70 pl-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-blue-100 shadow-sm flex items-center justify-center text-blue-600">
-                <FileText className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">SSL Locked</span>
-            </div>
-
-            <div className="flex flex-col items-center space-y-1.5 border-l border-slate-200/70 pl-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-emerald-100 shadow-sm flex items-center justify-center text-emerald-600">
-                <Clock className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">Auto-Delete</span>
-            </div>
-
-            <div className="flex flex-col items-center space-y-1.5 border-l border-slate-200/70 pl-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-blue-100 shadow-sm flex items-center justify-center text-blue-700">
-                <EyeOff className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">Zero Leak</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="w-full overflow-hidden leading-none">
-          <svg viewBox="0 0 1440 110" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-14 sm:h-20 preserve-3d">
-            <path d="M0 50C320 120 1120 -20 1440 40V110H0V50Z" fill="#10b981" />
-            <path d="M0 65C400 125 1040 5 1440 60V110H0V65Z" fill="#0f296b" />
-          </svg>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* IMAGE CROP, ROTATE & ID CARD 2-IN-1 (FRONT + BACK ON 1 A4 SHEET) MODAL    */}
+      {/* IMAGE CROP, ROTATE & ID CARD 2-IN-1 STUDIO MODAL                          */}
       {/* ========================================================================= */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
@@ -1219,7 +1157,6 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* 4 Layout Mode Buttons */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
@@ -1274,7 +1211,6 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* Live A4 Sheet Preview Box */}
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
                 Live A4 Paper Sheet Preview (1 Sheet Only)
@@ -1285,7 +1221,6 @@ export default function KioskPage() {
               />
             </div>
 
-            {/* Front Image Controls + Optional Back Side Image Upload (for ID Card / 2-per-page) */}
             <div className="space-y-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold text-slate-800">1. Front Side Image:</span>
@@ -1356,7 +1291,6 @@ export default function KioskPage() {
                 </div>
               )}
 
-              {/* Xerox Clarity / Brightness Control */}
               <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
                 <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[11px] text-slate-500 w-20 shrink-0">Clarity:</span>
@@ -1395,7 +1329,33 @@ export default function KioskPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* ONLINE PAYMENT MODAL (Shows ONLY Gateway if ON, OR ONLY QR Scanner if OFF) */}
+      {/* FINAL CONFIRMATION POPUP ("Are you sure all edits are done? Continue")    */}
+      {/* ========================================================================= */}
+      {showConfirmPopup && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+              <CheckCircle2 className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-base">Layout Applied Successfully!</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Are you sure all edits are done? Click continue to review your bill and submit to print.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowConfirmPopup(false)}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition shadow-md"
+            >
+              Continue to Final Submit →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ONLINE PAYMENT MODAL                                                      */}
       {/* ========================================================================= */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">

@@ -132,7 +132,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Proceed to Pay & Print',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Submit to Counter (Staff Will Release)',
-    cropGuidance: '📌 Photo is locked steady! Drag the blue corners/edges to crop your card.',
+    cropGuidance: '📌 Tap -90° / +90° to turn sideways photos upright, then drag the blue box corners to crop.',
     useThisCrop: 'Save This Crop',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
@@ -163,7 +163,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക (സ്റ്റാഫ് പ്രിന്റ് നൽകും)',
-    cropGuidance: '📌 ഫോട്ടോ തെന്നിമാറില്ല! നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം സെലക്ട് ചെയ്യുക.',
+    cropGuidance: '📌 ഫോട്ടോ നേരെയാക്കാൻ -90° / +90° അമർത്തുക, തുടർന്ന് നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ക്രോപ്പ് ചെയ്യുക.',
     useThisCrop: 'ഈ ക്രോപ്പ് സേവ് ചെയ്യുക (Save Crop)',
     resetCrop: 'റീസെറ്റ് (Reset)',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
@@ -186,9 +186,36 @@ function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
   return { w, h, dx: (boxW - w) / 2, dy: (boxH - h) / 2 };
 }
 
-// Zero-dependency converter: Wraps a high-resolution A4 JPEG Blob into a valid 1-page A4 PDF Document!
-// This completely prevents Windows from popping up the "How do you want to print your pictures?" dialog
-// and guarantees 100% silent, automatic printing via the RTS Windows Print Agent!
+// Physically rotates an image file by +90 or -90 degrees on a clean canvas and returns a new File!
+// This completely avoids Cropper.js internal rotation bugs where rotating a portrait image pushes it off-screen into black space!
+async function rotateImageFilePhysically(sourceFile: File | Blob, deg: number, fileName: string): Promise<File> {
+  const img = await loadImageElement(sourceFile);
+  const canvas = document.createElement('canvas');
+  const rad = ((deg % 360) * Math.PI) / 180;
+  const isNinety = Math.abs(deg) % 180 === 90;
+
+  canvas.width = isNinety ? img.height : img.width;
+  canvas.height = isNinety ? img.width : img.height;
+
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  }
+
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Rotate blob failed'))), 'image/jpeg', 0.94);
+  });
+  canvas.width = 0;
+  canvas.height = 0;
+  return new File([blob], fileName, { type: 'image/jpeg' });
+}
+
+// FIXED BINARY-SAFE PDF GENERATOR:
+// Uses pure ASCII headers + exact byte offsets so Adobe Acrobat & Windows Print Agent never show a blank page!
 async function convertJpegBlobToA4PdfBlob(
   jpegBlob: Blob,
   imgWidth: number,
@@ -206,7 +233,7 @@ async function convertJpegBlobToA4PdfBlob(
   const offsets: number[] = [];
   let byteOffset = 0;
 
-  const pushText = (str: string) => {
+  const pushAscii = (str: string) => {
     const bytes = encoder.encode(str);
     chunks.push(bytes);
     byteOffset += bytes.length;
@@ -221,48 +248,50 @@ async function convertJpegBlobToA4PdfBlob(
     offsets[objNum] = byteOffset;
   };
 
-  pushText('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
+  // Pure ASCII PDF 1.4 Header + Exact 4-byte binary comment
+  pushAscii('%PDF-1.4\n');
+  pushBinary(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
 
   // Object 1: Catalog
   recordObjOffset(1);
-  pushText('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  pushAscii('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
 
   // Object 2: Pages
   recordObjOffset(2);
-  pushText('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+  pushAscii('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
 
   // Object 3: Page (A4 Portrait)
   recordObjOffset(3);
-  pushText(
+  pushAscii(
     `3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`
   );
 
   // Object 4: JPEG Image XObject Stream
   recordObjOffset(4);
-  pushText(
+  pushAscii(
     `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
   );
   pushBinary(jpegBytes);
-  pushText('\nendstream\nendobj\n');
+  pushAscii('\nendstream\nendobj\n');
 
   // Object 5: Page Content Stream (Draws the A4 image across the entire A4 page)
   const contentStream = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
   const contentBytes = encoder.encode(contentStream);
   recordObjOffset(5);
-  pushText(`5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n`);
+  pushAscii(`5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n`);
   pushBinary(contentBytes);
-  pushText('\nendstream\nendobj\n');
+  pushAscii('\nendstream\nendobj\n');
 
   // Xref Table
   const xrefStart = byteOffset;
-  pushText('xref\n0 6\n0000000000 65535 f \n');
+  pushAscii('xref\n0 6\n0000000000 65535 f \n');
   for (let i = 1; i <= 5; i++) {
     const padded = String(offsets[i]).padStart(10, '0');
-    pushText(`${padded} 00000 n \n`);
+    pushAscii(`${padded} 00000 n \n`);
   }
 
   // Trailer
-  pushText(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`);
+  pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`);
 
   return new Blob(chunks, { type: 'application/pdf' });
 }
@@ -281,7 +310,7 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-// Load Cropper.js v1.6.2 CSS & JS from cdnjs.cloudflare.com with pinned version
+// Load Cropper.js v1.6.2 CSS & JS from cdnjs.cloudflare.com with clean, non-blocking corner handles
 function loadCropperAssets(): Promise<boolean> {
   return new Promise((resolve) => {
     if (!document.querySelector(`link[href="${CROPPER_CSS_URL}"]`)) {
@@ -290,31 +319,38 @@ function loadCropperAssets(): Promise<boolean> {
       link.href = CROPPER_CSS_URL;
       document.head.appendChild(link);
     }
-    // Inject custom CSS to make Cropper handles large, bright, and easy to drag on mobile touchscreens
-    if (!document.getElementById('rts-cropper-touch-styles')) {
+    // Clean, slim handles so small crop boxes (ID card / Square) are never covered by huge blue squares!
+    const existingStyle = document.getElementById('rts-cropper-touch-styles');
+    const cssText = `
+      .cropper-point {
+        width: 10px !important;
+        height: 10px !important;
+        background-color: #38bdf8 !important;
+        opacity: 0.95 !important;
+        border-radius: 50% !important;
+        border: 1.5px solid #ffffff !important;
+      }
+      .cropper-point.point-se {
+        width: 12px !important;
+        height: 12px !important;
+      }
+      .cropper-line {
+        background-color: #38bdf8 !important;
+        opacity: 0.6 !important;
+      }
+      .cropper-view-box {
+        outline: 2px solid #38bdf8 !important;
+      }
+    `;
+    if (!existingStyle) {
       const style = document.createElement('style');
       style.id = 'rts-cropper-touch-styles';
-      style.innerHTML = `
-        .cropper-point {
-          width: 18px !important;
-          height: 18px !important;
-          background-color: #38bdf8 !important;
-          opacity: 0.95 !important;
-          border-radius: 4px !important;
-        }
-        .cropper-point.point-se {
-          width: 22px !important;
-          height: 22px !important;
-        }
-        .cropper-line {
-          background-color: #38bdf8 !important;
-        }
-        .cropper-view-box {
-          outline: 2px solid #38bdf8 !important;
-        }
-      `;
+      style.innerHTML = cssText;
       document.head.appendChild(style);
+    } else {
+      existingStyle.innerHTML = cssText;
     }
+
     if ((window as any).Cropper) {
       resolve(true);
       return;
@@ -505,6 +541,7 @@ export default function KioskPage() {
   const [brightness, setBrightness] = useState<number>(105);
   const [contrast, setContrast] = useState<number>(110);
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
+  const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
 
   // Interactive Cropper.js State for Front & Back Images
   const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
@@ -753,7 +790,7 @@ export default function KioskPage() {
         movable: false, // Prevents image from sliding away under the finger
         zoomOnTouch: false, // Prevents accidental two-finger image flying away; use + / - zoom buttons if needed
         zoomOnWheel: false,
-        autoCropArea: 0.96, // Starts covering the full photo edge-to-edge
+        autoCropArea: 0.94, // Starts covering the photo cleanly edge-to-edge
         responsive: true,
         restore: false,
         checkOrientation: true, // Sideways phone photos display upright
@@ -801,7 +838,7 @@ export default function KioskPage() {
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high'
     });
-    if (!croppedCanvas) return null;
+    if (!croppedCanvas || croppedCanvas.width === 0 || croppedCanvas.height === 0) return null;
 
     const blob: Blob | null = await new Promise((res) =>
       croppedCanvas.toBlob((b: Blob | null) => res(b), 'image/jpeg', 0.92)
@@ -855,42 +892,29 @@ export default function KioskPage() {
     }
   };
 
-  // Rotate Left (-90°) / Right (+90°) in Cropper.js and automatically re-fit the rotated image inside the box!
-  const handleRotateCropper = (deg: number) => {
-    if (cropperInstanceRef.current && isCropperReady) {
-      const c = cropperInstanceRef.current;
-      c.rotate(deg);
+  // TRUE PHYSICAL CANVAS ROTATION (-90° / +90°):
+  // Physically rotates the image file and reloads it centered in Cropper.js so the image NEVER shifts off-screen into black space!
+  const handleRotateCropper = async (deg: number) => {
+    if (isRotatingFile) return;
+    const targetFile = activeCropSide === 'front' ? frontFile : backFile;
+    if (!targetFile) return;
 
-      // Re-fit the rotated image inside the container so it never gets cut off
-      const containerData = c.getContainerData();
-      const canvasData = c.getCanvasData();
-      if (containerData && canvasData && canvasData.naturalWidth && canvasData.naturalHeight) {
-        const currentRot = Math.abs(c.getImageData()?.rotate || 0) % 180;
-        const imgW = currentRot === 90 ? canvasData.naturalHeight : canvasData.naturalWidth;
-        const imgH = currentRot === 90 ? canvasData.naturalWidth : canvasData.naturalHeight;
-        const scale = Math.min(containerData.width / imgW, containerData.height / imgH) * 0.94;
-        const newW = imgW * scale;
-        const newH = imgH * scale;
-
-        c.setCanvasData({
-          left: (containerData.width - newW) / 2,
-          top: (containerData.height - newH) / 2,
-          width: newW,
-          height: newH
-        });
-        c.setCropBoxData({
-          left: (containerData.width - newW) / 2,
-          top: (containerData.height - newH) / 2,
-          width: newW,
-          height: newH
-        });
-      }
-    } else {
+    setIsRotatingFile(true);
+    try {
+      const rotatedFile = await rotateImageFilePhysically(targetFile, deg, targetFile.name);
       if (activeCropSide === 'front') {
-        setFrontRotation((r) => (r + deg + 360) % 360);
+        setFrontFile(rotatedFile);
+        setCroppedFrontBlob(null);
+        setFrontRotation(0);
       } else {
-        setBackRotation((r) => (r + deg + 360) % 360);
+        setBackFile(rotatedFile);
+        setCroppedBackBlob(null);
+        setBackRotation(0);
       }
+    } catch (err) {
+      console.error('Physical rotation error:', err);
+    } finally {
+      setIsRotatingFile(false);
     }
   };
 
@@ -945,7 +969,8 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Draws rotated, trimmed, and proportionally fitted image onto an A4 canvas region without squashing
+  // Draws rotated, trimmed, and proportionally fitted image onto an A4 canvas region without squashing.
+  // Also auto-rotates vertical ID card crops to landscape when autoLandscapeForIdCard = true!
   const drawProcessedImage = (
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,
@@ -955,10 +980,19 @@ export default function KioskPage() {
     targetY: number,
     targetW: number,
     targetH: number,
-    drawCutBorder: boolean
+    drawCutBorder: boolean,
+    autoLandscapeForIdCard: boolean = false
   ) => {
     const offCanvas = document.createElement('canvas');
-    const rad = ((rotationDeg % 360) * Math.PI) / 180;
+
+    // If printing an ID card (which is horizontal 95x60mm) and the cropped image is taller than wide (vertical),
+    // automatically turn it 90 degrees so it fills the horizontal ID card box at full size!
+    let effectiveRotation = rotationDeg;
+    if (autoLandscapeForIdCard && img.height > img.width * 1.15 && rotationDeg % 180 === 0) {
+      effectiveRotation = (rotationDeg + 90) % 360;
+    }
+
+    const rad = ((effectiveRotation % 360) * Math.PI) / 180;
     const sin = Math.abs(Math.sin(rad));
     const cos = Math.abs(Math.cos(rad));
 
@@ -1038,8 +1072,8 @@ export default function KioskPage() {
             const backSource: File | Blob = croppedBackBlob || backFile;
             const backImg = await loadImageElement(backSource);
             if (!active) return;
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 15, topMargin, cardW, cardH, true);
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 215, topMargin, cardW, cardH, true);
+            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 15, topMargin, cardW, cardH, true, true);
+            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 215, topMargin, cardW, cardH, true, true);
           } else {
             drawProcessedImage(
               ctx,
@@ -1050,6 +1084,7 @@ export default function KioskPage() {
               topMargin,
               cardW,
               cardH,
+              true,
               true
             );
           }
@@ -1118,7 +1153,7 @@ export default function KioskPage() {
     contrast
   ]);
 
-  // Generate High-Resolution A4 Sheet (1240 x 1754 px) AND convert it to an A4 PDF file (`.pdf`)
+  // Generate High-Resolution A4 Sheet (1240 x 1754 px) AND convert it to a binary-valid A4 PDF file (`.pdf`)
   // so Windows PC Agent prints it 100% automatically without opening the Windows "Print Pictures" dialog!
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
@@ -1166,8 +1201,8 @@ export default function KioskPage() {
 
         if (backFile) {
           const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 45, topY, cardW, cardH, true);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 635, topY, cardW, cardH, true);
+          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 45, topY, cardW, cardH, true, true);
+          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 635, topY, cardW, cardH, true, true);
         } else {
           drawProcessedImage(
             ctx,
@@ -1178,6 +1213,7 @@ export default function KioskPage() {
             topY,
             cardW,
             cardH,
+            true,
             true
           );
         }
@@ -2010,7 +2046,7 @@ export default function KioskPage() {
                   <span>A4 Page Layout & ID Card 2-in-1 Crop Studio</span>
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Photo is locked steady — drag blue corners/edges like Paint & fit onto 1 A4 PDF
+                  Photo is locked steady — rotate upright & drag blue corners like Paint
                 </p>
               </div>
               <button
@@ -2154,7 +2190,12 @@ export default function KioskPage() {
               </div>
 
               {cropperSourceUrl ? (
-                <div className="w-full h-60 sm:h-64 max-h-[55vh] bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center">
+                <div className="w-full h-60 sm:h-64 max-h-[55vh] bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center relative">
+                  {isRotatingFile && (
+                    <div className="absolute inset-0 bg-slate-950/70 z-20 flex items-center justify-center text-xs font-bold text-emerald-400">
+                      Rotating Photo...
+                    </div>
+                  )}
                   <img
                     ref={cropperImageRef}
                     src={cropperSourceUrl}
@@ -2191,6 +2232,7 @@ export default function KioskPage() {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
+                      disabled={isRotatingFile}
                       onClick={() => handleRotateCropper(-90)}
                       className="min-h-[44px] px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
                       title="Rotate Left (-90°)"
@@ -2200,6 +2242,7 @@ export default function KioskPage() {
                     </button>
                     <button
                       type="button"
+                      disabled={isRotatingFile}
                       onClick={() => handleRotateCropper(90)}
                       className="min-h-[44px] px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
                       title="Rotate Right (+90°)"

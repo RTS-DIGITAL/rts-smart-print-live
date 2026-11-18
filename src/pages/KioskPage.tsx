@@ -174,6 +174,16 @@ function cleanVpa(input: string | null | undefined): string {
   return (input || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
+// Proportional scaling helper so ID cards and documents are never stretched or squashed
+function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
+  const safeSrcW = Math.max(1, srcW);
+  const safeSrcH = Math.max(1, srcH);
+  const s = Math.min(boxW / safeSrcW, boxH / safeSrcH);
+  const w = safeSrcW * s;
+  const h = safeSrcH * s;
+  return { w, h, dx: (boxW - w) / 2, dy: (boxH - h) / 2 };
+}
+
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
     if ((window as any).Razorpay) {
@@ -274,6 +284,8 @@ async function compressLargeImageInBrowser(file: File): Promise<File> {
     ctx.drawImage(img, 0, 0, targetW, targetH);
 
     const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.88));
+    canvas.width = 0;
+    canvas.height = 0;
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
   } catch {
@@ -393,6 +405,7 @@ export default function KioskPage() {
   const [croppedFrontBlob, setCroppedFrontBlob] = useState<Blob | null>(null);
   const [croppedBackBlob, setCroppedBackBlob] = useState<Blob | null>(null);
   const [cropAppliedToast, setCropAppliedToast] = useState<string | null>(null);
+  const [isCropperReady, setIsCropperReady] = useState<boolean>(false);
   const cropperImageRef = useRef<HTMLImageElement>(null);
   const cropperInstanceRef = useRef<any>(null);
 
@@ -579,18 +592,20 @@ export default function KioskPage() {
     setContrast(110);
   };
 
-  // Manage Cropper.js active image URL for Front or Back side
+  // Manage Cropper.js active image URL for Front or Back side (Created once per file, revoked on cleanup)
   useEffect(() => {
     if (!editingItem) {
       if (cropperInstanceRef.current) {
         cropperInstanceRef.current.destroy();
         cropperInstanceRef.current = null;
       }
+      setIsCropperReady(false);
       setCropperSourceUrl(null);
       return;
     }
     const targetFile = activeCropSide === 'front' ? frontFile : backFile;
     if (!targetFile) {
+      setIsCropperReady(false);
       setCropperSourceUrl(null);
       return;
     }
@@ -601,7 +616,7 @@ export default function KioskPage() {
     };
   }, [editingItem, activeCropSide, frontFile, backFile]);
 
-  // Initialize Cropper.js instance whenever cropperSourceUrl or cropShape changes
+  // Initialize Cropper.js instance whenever cropperSourceUrl changes (starts edge-to-edge with autoCropArea: 1)
   useEffect(() => {
     let mounted = true;
     async function initCropper() {
@@ -613,6 +628,7 @@ export default function KioskPage() {
         cropperInstanceRef.current.destroy();
         cropperInstanceRef.current = null;
       }
+      setIsCropperReady(false);
 
       const CropperClass = (window as any).Cropper;
       if (!CropperClass) return;
@@ -624,34 +640,50 @@ export default function KioskPage() {
         aspectRatio,
         viewMode: 1,
         dragMode: 'move',
-        autoCropArea: 0.92,
+        autoCropArea: 1, // Starts covering the full photo edge-to-edge
         responsive: true,
         restore: false,
+        checkOrientation: true, // Sideways phone photos display upright
         guides: true,
         center: true,
         highlight: false,
         cropBoxMovable: true,
         cropBoxResizable: true,
-        toggleDragModeOnDblclick: false
+        toggleDragModeOnDblclick: false,
+        ready() {
+          if (mounted) {
+            setIsCropperReady(true);
+          }
+        }
       });
     }
     initCropper();
 
     return () => {
       mounted = false;
+      setIsCropperReady(false);
       if (cropperInstanceRef.current) {
         cropperInstanceRef.current.destroy();
         cropperInstanceRef.current = null;
       }
     };
-  }, [cropperSourceUrl, cropShape]);
+  }, [cropperSourceUrl]);
 
-  // "Use this crop" button handler — extracts cropped region from Cropper.js and updates Live A4 Preview
+  // Update aspect ratio immediately without resetting the photo when dropdown changes
+  const handleChangeCropShape = (newShape: CropShapeType) => {
+    setCropShape(newShape);
+    if (cropperInstanceRef.current && isCropperReady) {
+      const ratio = newShape === 'id_card' ? 1.586 : newShape === 'square' ? 1 : NaN;
+      cropperInstanceRef.current.setAspectRatio(ratio);
+    }
+  };
+
+  // "Use this crop" button handler — exports cropped region at max 2000px, quality 0.92, white background, frees canvas memory
   const handleUseThisCrop = () => {
-    if (!cropperInstanceRef.current) return;
+    if (!cropperInstanceRef.current || !isCropperReady) return;
     const croppedCanvas = cropperInstanceRef.current.getCroppedCanvas({
-      maxWidth: 1600,
-      maxHeight: 1600,
+      maxWidth: 2000,
+      maxHeight: 2000,
       fillColor: '#ffffff',
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high'
@@ -660,9 +692,15 @@ export default function KioskPage() {
 
     croppedCanvas.toBlob(
       (blob: Blob | null) => {
+        // Free temporary canvas memory immediately after export
+        croppedCanvas.width = 0;
+        croppedCanvas.height = 0;
+
         if (!blob) return;
         if (activeCropSide === 'front') {
           setCroppedFrontBlob(blob);
+          setFrontRotation(0);
+          setFrontCropPct(0);
           setCropAppliedToast(
             lang === 'en' ? '✅ Front crop applied to A4 preview!' : '✅ മുൻവശം ക്രോപ്പ് ചെയ്തു!'
           );
@@ -671,6 +709,8 @@ export default function KioskPage() {
           }
         } else {
           setCroppedBackBlob(blob);
+          setBackRotation(0);
+          setBackCropPct(0);
           setCropAppliedToast(
             lang === 'en' ? '✅ Back crop applied to A4 preview!' : '✅ പിൻവശം ക്രോപ്പ് ചെയ്തു!'
           );
@@ -682,10 +722,12 @@ export default function KioskPage() {
     );
   };
 
-  // "Reset" button handler in Cropper.js
+  // "Reset" button handler in Cropper.js (resets back to full photo and selected shape)
   const handleResetCropper = () => {
-    if (cropperInstanceRef.current) {
+    if (cropperInstanceRef.current && isCropperReady) {
       cropperInstanceRef.current.reset();
+      const ratio = cropShape === 'id_card' ? 1.586 : cropShape === 'square' ? 1 : NaN;
+      cropperInstanceRef.current.setAspectRatio(ratio);
     }
     if (activeCropSide === 'front') {
       setCroppedFrontBlob(null);
@@ -698,9 +740,9 @@ export default function KioskPage() {
     }
   };
 
-  // Rotate Left / Right in Cropper.js
+  // Rotate Left (-90°) / Right (+90°) in Cropper.js
   const handleRotateCropper = (deg: number) => {
-    if (cropperInstanceRef.current) {
+    if (cropperInstanceRef.current && isCropperReady) {
       cropperInstanceRef.current.rotate(deg);
     } else {
       if (activeCropSide === 'front') {
@@ -738,7 +780,7 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Helper to draw a rotated & cropped image onto an A4 canvas region
+  // UPDATED WITH fitInside: Draws rotated, trimmed, and proportionally fitted image onto an A4 canvas region without squashing
   const drawProcessedImage = (
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,
@@ -760,27 +802,39 @@ export default function KioskPage() {
     const srcW = Math.max(10, img.width - trimX * 2);
     const srcH = Math.max(10, img.height - trimY * 2);
 
-    offCanvas.width = Math.round(srcW * cos + srcH * sin);
-    offCanvas.height = Math.round(srcW * sin + srcH * cos);
+    offCanvas.width = Math.max(1, Math.round(srcW * cos + srcH * sin));
+    offCanvas.height = Math.max(1, Math.round(srcW * sin + srcH * cos));
 
     const offCtx = offCanvas.getContext('2d');
     if (offCtx) {
+      offCtx.fillStyle = '#ffffff';
+      offCtx.fillRect(0, 0, offCanvas.width, offCanvas.height);
       offCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
       offCtx.translate(offCanvas.width / 2, offCanvas.height / 2);
       offCtx.rotate(rad);
       offCtx.drawImage(img, trimX, trimY, srcW, srcH, -srcW / 2, -srcH / 2, srcW, srcH);
     }
 
-    ctx.drawImage(offCanvas, targetX, targetY, targetW, targetH);
+    // Fill target box background with clean white
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(targetX, targetY, targetW, targetH);
+
+    // Scale proportionally inside target box using fitInside so ID cards/documents are never stretched
+    const { w, h, dx, dy } = fitInside(offCanvas.width, offCanvas.height, targetW, targetH);
+    ctx.drawImage(offCanvas, 0, 0, offCanvas.width, offCanvas.height, targetX + dx, targetY + dy, w, h);
 
     if (drawCutBorder) {
-      ctx.save();
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = Math.max(1, targetW * 0.004);
       ctx.setLineDash([6, 4]);
       ctx.strokeRect(targetX - 4, targetY - 4, targetW + 8, targetH + 8);
-      ctx.restore();
     }
+    ctx.restore();
+
+    // Free temporary offscreen canvas memory
+    offCanvas.width = 0;
+    offCanvas.height = 0;
   };
 
   // Render Live A4 Sheet Preview inside the Studio Modal (Matched proportionally to 560x354 high-res output)
@@ -915,16 +969,20 @@ export default function KioskPage() {
       let finalFrontBlob = croppedFrontBlob;
       let finalBackBlob = croppedBackBlob;
 
-      if (cropperInstanceRef.current) {
+      if (cropperInstanceRef.current && isCropperReady) {
         const autoCanvas = cropperInstanceRef.current.getCroppedCanvas({
-          maxWidth: 1600,
-          maxHeight: 1600,
-          fillColor: '#ffffff'
+          maxWidth: 2000,
+          maxHeight: 2000,
+          fillColor: '#ffffff',
+          imageSmoothingEnabled: true,
+          imageSmoothingQuality: 'high'
         });
         if (autoCanvas) {
           const autoBlob: Blob | null = await new Promise((res) =>
             autoCanvas.toBlob((b: Blob | null) => res(b), 'image/jpeg', 0.92)
           );
+          autoCanvas.width = 0;
+          autoCanvas.height = 0;
           if (autoBlob) {
             if (activeCropSide === 'front' && !finalFrontBlob) finalFrontBlob = autoBlob;
             if (activeCropSide === 'back' && !finalBackBlob) finalBackBlob = autoBlob;
@@ -1009,8 +1067,12 @@ export default function KioskPage() {
         hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.92);
       });
 
+      // Free temporary high-res canvas memory
+      hiCanvas.width = 0;
+      hiCanvas.height = 0;
+
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
-      const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : studioLayout;
+      const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_crop`;
       const composedFile = new File([blob], `${baseName}_${layoutTag}.jpg`, { type: 'image/jpeg' });
 
       updateItem(editingItem.id, {
@@ -1754,8 +1816,8 @@ export default function KioskPage() {
       {/* PROFESSIONAL CROPPER.JS + A4 PAGE LAYOUT & ID CARD 2-IN-1 STUDIO MODAL    */}
       {/* ========================================================================= */}
       {editingItem && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[95vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div>
                 <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
@@ -1763,7 +1825,7 @@ export default function KioskPage() {
                   <span>A4 Page Layout & ID Card 2-in-1 Crop Studio</span>
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Drag, pinch-zoom, rotate & place Front + Back on 1 A4 sheet
+                  Drag edges or corners like Paint, pinch-zoom, rotate & fit onto 1 A4 sheet
                 </p>
               </div>
               <button
@@ -1781,7 +1843,7 @@ export default function KioskPage() {
                 type="button"
                 onClick={() => {
                   setStudioLayout('id_card');
-                  setCropShape('id_card');
+                  handleChangeCropShape('id_card');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'id_card'
@@ -1797,7 +1859,7 @@ export default function KioskPage() {
                 type="button"
                 onClick={() => {
                   setStudioLayout('fit_a4');
-                  setCropShape('free');
+                  handleChangeCropShape('free');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'fit_a4'
@@ -1813,7 +1875,7 @@ export default function KioskPage() {
                 type="button"
                 onClick={() => {
                   setStudioLayout('half_a4');
-                  setCropShape('free');
+                  handleChangeCropShape('free');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'half_a4'
@@ -1829,7 +1891,7 @@ export default function KioskPage() {
                 type="button"
                 onClick={() => {
                   setStudioLayout('grid_4');
-                  setCropShape('free');
+                  handleChangeCropShape('free');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'grid_4'
@@ -1845,7 +1907,7 @@ export default function KioskPage() {
                 type="button"
                 onClick={() => {
                   setStudioLayout('actual_size');
-                  setCropShape('free');
+                  handleChangeCropShape('free');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition col-span-2 sm:col-span-1 ${
                   studioLayout === 'actual_size'
@@ -1897,22 +1959,23 @@ export default function KioskPage() {
                   )}
                 </div>
 
+                {/* Crop Shape Dropdown: Free (edge to edge) | Square 1:1 | ID card 1.586:1 */}
                 <div className="flex items-center gap-1.5 text-xs">
                   <Crop className="w-3.5 h-3.5 text-emerald-400" />
                   <select
                     value={cropShape}
-                    onChange={(e) => setCropShape(e.target.value as CropShapeType)}
+                    onChange={(e) => handleChangeCropShape(e.target.value as CropShapeType)}
                     className="bg-slate-800 border border-slate-700 text-white font-bold text-[11px] px-2.5 py-1.5 rounded-xl outline-none"
                   >
-                    <option value="id_card">ID Card (1.586 : 1)</option>
-                    <option value="free">Free Crop</option>
-                    <option value="square">Square (1 : 1)</option>
+                    <option value="free">Free (edge to edge)</option>
+                    <option value="id_card">ID card 1.586:1 (Aadhaar / PAN)</option>
+                    <option value="square">Square 1:1</option>
                   </select>
                 </div>
               </div>
 
               {cropperSourceUrl ? (
-                <div className="w-full h-56 sm:h-64 bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center">
+                <div className="w-full h-56 sm:h-64 max-h-[55vh] bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center">
                   <img
                     ref={cropperImageRef}
                     src={cropperSourceUrl}
@@ -1934,7 +1997,7 @@ export default function KioskPage() {
                         ? studioBackInputRef.current?.click()
                         : studioFrontInputRef.current?.click()
                     }
-                    className="min-h-[42px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs flex items-center gap-1.5"
+                    className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs flex items-center gap-1.5"
                   >
                     <Plus className="w-4 h-4" />
                     <span>
@@ -1950,25 +2013,25 @@ export default function KioskPage() {
                     <button
                       type="button"
                       onClick={() => handleRotateCropper(-90)}
-                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
-                      title="Rotate Left"
+                      className="min-h-[44px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
+                      title="Rotate Left (-90°)"
                     >
                       <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Left</span>
+                      <span>-90°</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleRotateCropper(90)}
-                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
-                      title="Rotate Right"
+                      className="min-h-[44px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
+                      title="Rotate Right (+90°)"
                     >
                       <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Right</span>
+                      <span>+90°</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleResetCropper}
-                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+                      className="min-h-[44px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
                     >
                       {t.resetCrop}
                     </button>
@@ -1977,16 +2040,16 @@ export default function KioskPage() {
                   <button
                     type="button"
                     onClick={handleUseThisCrop}
-                    className="min-h-[42px] px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow flex items-center gap-1.5"
+                    className="min-h-[44px] px-4 py-2 bg-[#003399] hover:bg-blue-800 text-white font-black rounded-xl text-xs shadow flex items-center gap-1.5"
                   >
-                    <Check className="w-4 h-4" />
+                    <Check className="w-4 h-4 text-[#78C900]" />
                     <span>{t.useThisCrop}</span>
                   </button>
                 </div>
               )}
 
               {cropAppliedToast && (
-                <p className="text-center text-xs font-extrabold text-emerald-400 animate-pulse">
+                <p className="text-center text-xs font-extrabold text-[#78C900] animate-pulse">
                   {cropAppliedToast}
                 </p>
               )}
@@ -1995,7 +2058,7 @@ export default function KioskPage() {
             {/* Live A4 Sheet Preview Box */}
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                Live A4 Paper Sheet Preview (1 A4 Sheet Output)
+                Live A4 Paper Sheet Preview (Proportional Fit • 1 A4 Sheet Output)
               </span>
               <canvas
                 ref={previewCanvasRef}
@@ -2013,6 +2076,8 @@ export default function KioskPage() {
                   const f = await compressLargeImageInBrowser(e.target.files[0]);
                   setFrontFile(f);
                   setCroppedFrontBlob(null);
+                  setFrontRotation(0);
+                  setFrontCropPct(0);
                   setActiveCropSide('front');
                 }
                 e.target.value = '';
@@ -2028,6 +2093,8 @@ export default function KioskPage() {
                   const f = await compressLargeImageInBrowser(e.target.files[0]);
                   setBackFile(f);
                   setCroppedBackBlob(null);
+                  setBackRotation(0);
+                  setBackCropPct(0);
                   setActiveCropSide('back');
                 }
                 e.target.value = '';
@@ -2047,7 +2114,7 @@ export default function KioskPage() {
                     <button
                       type="button"
                       onClick={() => studioFrontInputRef.current?.click()}
-                      className="min-h-[36px] px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
+                      className="min-h-[38px] px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3 h-3" />
                       <span>{frontFile ? 'Change' : 'Add Image'}</span>
@@ -2058,7 +2125,7 @@ export default function KioskPage() {
                         <button
                           type="button"
                           onClick={() => setActiveCropSide('front')}
-                          className="min-h-[36px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
+                          className="min-h-[38px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
                         >
                           <Scissors className="w-3 h-3 text-indigo-600" />
                           <span>Crop</span>
@@ -2066,7 +2133,7 @@ export default function KioskPage() {
                         <button
                           type="button"
                           onClick={handleRemoveFrontInStudio}
-                          className="min-h-[36px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
+                          className="min-h-[38px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
                           title="Remove Front Image"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -2089,7 +2156,7 @@ export default function KioskPage() {
                       <button
                         type="button"
                         onClick={() => studioBackInputRef.current?.click()}
-                        className="min-h-[36px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
+                        className="min-h-[38px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
                       >
                         <Plus className="w-3 h-3" />
                         <span>{backFile ? 'Change' : 'Add Back Image'}</span>
@@ -2100,7 +2167,7 @@ export default function KioskPage() {
                           <button
                             type="button"
                             onClick={() => setActiveCropSide('back')}
-                            className="min-h-[36px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
+                            className="min-h-[38px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
                           >
                             <Scissors className="w-3 h-3 text-indigo-600" />
                             <span>Crop</span>
@@ -2114,7 +2181,7 @@ export default function KioskPage() {
                               setBackCropPct(0);
                               setActiveCropSide('front');
                             }}
-                            className="min-h-[36px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
+                            className="min-h-[38px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
                           >
                             <Trash2 className="w-3 h-3" />
                             <span>Remove</span>
@@ -2153,12 +2220,19 @@ export default function KioskPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setEditingItem(null)}
+                className="min-h-[44px] px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-xs text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
                 disabled={applyingStudio || !frontFile}
                 onClick={handleApplyImageStudio}
-                className="flex-1 min-h-[44px] py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-black rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5"
+                className="flex-1 min-h-[44px] py-2.5 bg-[#003399] hover:bg-blue-800 disabled:bg-slate-300 text-white font-black rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5"
               >
-                <Check className="w-4 h-4" />
-                <span>{applyingStudio ? 'Creating A4 Sheet...' : 'Apply to 1 A4 Sheet'}</span>
+                <Check className="w-4 h-4 text-[#78C900]" />
+                <span>{applyingStudio ? 'Applying crop...' : 'Apply to 1 A4 Sheet'}</span>
               </button>
             </div>
           </div>

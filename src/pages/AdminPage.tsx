@@ -2184,7 +2184,8 @@ export default function AdminPage() {
                             ) : null}
                           </td>
                         </tr>
-                      ))}
+                      ))
+                    ) : null}
                   </tbody>
                 </table>
               </div>

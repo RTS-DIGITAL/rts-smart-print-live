@@ -2167,30 +2167,21 @@ export default function AdminPage() {
                               </div>
                             ) : o.status === 'completed' ? (
                               <span className="text-[10px] font-bold text-emerald-600">Printed</span>
-                            ) : (
+                            ) : o.status === 'paid' || o.status === 'printing' ? (
                               <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleApproveOrder(o)}
-                                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold text-[10px] transition"
-                                  title="Re-trigger PC Agent Print for This File"
-                                >
-                                  🖨️ Print
-                                </button>
+                                <span className="text-[10px] font-mono font-bold text-blue-600 animate-pulse">
+                                  ⏳ Spooling...
+                                </span>
                                 <button
                                   type="button"
                                   onClick={() => handleRejectOrder(o)}
                                   className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition"
-                                  title="Delete This File"
+                                  title="Cancel / Delete This File"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                 </button>
                               </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            ) : null}
                   </tbody>
                 </table>
               </div>

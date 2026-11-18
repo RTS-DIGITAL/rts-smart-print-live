@@ -216,7 +216,6 @@ function loadCropperAssets(): Promise<boolean> {
 }
 
 // Verify real file signature bytes (%PDF = 25 50 44 46, JPEG = FF D8 FF, PNG = 89 50 4E 47)
-// Strictly rejects renamed or fake extensions
 async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invalid'> {
   try {
     const buffer = await file.slice(0, 8).arrayBuffer();
@@ -314,7 +313,6 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
 // Calculate physical A4 paper sheets needed for an item based on pages, layout (1, 2, 4, id_card) & duplex
 function calculateSheetsForItem(item: UploadedItem): number {
   if (item.fileKind === 'image') {
-    // Composed A4 image sheet is always 1 sheet per copy
     return Math.max(1, item.copies);
   }
   const perSide =
@@ -668,7 +666,6 @@ export default function KioskPage() {
           setCropAppliedToast(
             lang === 'en' ? '✅ Front crop applied to A4 preview!' : '✅ മുൻവശം ക്രോപ്പ് ചെയ്തു!'
           );
-          // If in ID card mode and back image exists, automatically switch to back tab for convenience
           if ((studioLayout === 'id_card' || studioLayout === 'half_a4') && backFile && !croppedBackBlob) {
             setTimeout(() => setActiveCropSide('back'), 500);
           }
@@ -824,11 +821,9 @@ export default function KioskPage() {
             const backSource: File | Blob = croppedBackBlob || backFile;
             const backImg = await loadImageElement(backSource);
             if (!active) return;
-            // Place Front (Left) and Back (Right) side-by-side at top of 1 A4 sheet
             drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 26, topMargin, cardW, cardH, true);
             drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 223, topMargin, cardW, cardH, true);
           } else {
-            // Single ID card centered at top of A4 sheet
             drawProcessedImage(
               ctx,
               frontImg,
@@ -842,7 +837,6 @@ export default function KioskPage() {
             );
           }
         } else if (studioLayout === 'half_a4') {
-          // 2 Photos on 1 A4 Sheet (Top half & Bottom half)
           const boxW = 360;
           const boxH = 250;
           drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
@@ -853,7 +847,6 @@ export default function KioskPage() {
             drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 30, 305, boxW, boxH, false);
           }
         } else if (studioLayout === 'grid_4') {
-          // 4 Per Page (2x2 Grid on 1 A4 Sheet)
           const cellW = 175;
           const cellH = 240;
           drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 30, cellW, cellH, true);
@@ -883,7 +876,6 @@ export default function KioskPage() {
             false
           );
         } else {
-          // Fit to Full A4 Page with clean margin
           drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 20, 20, 380, 554, false);
         }
       } catch (err) {
@@ -920,7 +912,6 @@ export default function KioskPage() {
     setApplyingStudio(true);
 
     try {
-      // Auto-grab current active crop from Cropper.js if user hasn't clicked "Use this crop" yet
       let finalFrontBlob = croppedFrontBlob;
       let finalBackBlob = croppedBackBlob;
 
@@ -1037,7 +1028,6 @@ export default function KioskPage() {
 
       setLastEditedItemId(editingItem.id);
       setEditingItem(null);
-      // Show Confirmation Popup ("Are you sure all edits are done? Continue / Next")
       setShowEditConfirmPopup(true);
     } catch (err: any) {
       alert('Failed to apply layout: ' + err.message);
@@ -1127,8 +1117,9 @@ export default function KioskPage() {
     }
   };
 
-  // Master Order Creation: Assigns unique sub-order number per file when multiple files are uploaded
-  // so Shop Admin can approve/print 1 file individually without triggering all files!
+  // FIXED: Uses ONE unified Order Number (`orderNumber`) for all files in the batch
+  // so the customer's final Order Status page shows ALL uploaded files (e.g. 1 ID Card + 1 PDF = 2 files),
+  // while Shop Admin approves each row individually using `orderRow.id`!
   const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
@@ -1146,23 +1137,17 @@ export default function KioskPage() {
 
       const targetStatus = isAutoPilot ? 'paid' : 'pending';
 
-      const baseOrderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
+      const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
       const finalPaymentRef = isGatewayVerified
         ? `${activeGatewayProvider.toUpperCase()}_${verifiedGatewayPaymentId}`
         : isCashMode
         ? 'CASH_AT_COUNTER'
         : utrNumber || 'UPI_SUBMITTED';
 
-      let primaryOrderNumber = baseOrderNumber;
-
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
-        // Give each file a distinct order_number when multiple files exist so "Print Now" approves only the clicked row
-        const rowOrderNumber = items.length > 1 ? `${baseOrderNumber}-${idx + 1}` : baseOrderNumber;
-        if (idx === 0) primaryOrderNumber = rowOrderNumber;
-
         const fileExt = item.file.name.split('.').pop() || 'pdf';
-        const storagePath = `${shop.id}/${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${fileExt}`;
+        const storagePath = `${shop.id}/${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
           .from('print-files')
@@ -1186,7 +1171,7 @@ export default function KioskPage() {
         const { error: orderError } = await supabase.from('print_orders').insert([
           {
             shop_id: shop.id,
-            order_number: rowOrderNumber,
+            order_number: orderNumber,
             file_name: displayDocName,
             file_url: storagePath,
             page_count: calculateSheetsForItem(item),
@@ -1207,7 +1192,7 @@ export default function KioskPage() {
         await supabase.from('shop_transactions').insert([
           {
             shop_id: shop.id,
-            order_number: baseOrderNumber,
+            order_number: orderNumber,
             amount: Number(formattedAmount),
             payment_mode: isGatewayVerified
               ? activeGatewayProvider.toUpperCase()
@@ -1223,7 +1208,7 @@ export default function KioskPage() {
         // Ignore if table not created
       }
 
-      navigate(`/shop/${shop.slug}/order/${primaryOrderNumber}`);
+      navigate(`/shop/${shop.slug}/order/${orderNumber}`);
     } catch (err: any) {
       alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
     } finally {
@@ -1561,7 +1546,7 @@ export default function KioskPage() {
                             </div>
                           )}
 
-                          {/* Copies, B&W / Color, Single / Double-Sided Controls (Touch-friendly >= 40px) */}
+                          {/* Copies, B&W / Color, Single / Double-Sided Controls */}
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] text-slate-500">{t.copies}</span>
@@ -1873,16 +1858,12 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* ===================================================================== */}
-            {/* INTERACTIVE CROPPER.JS BOX (DRAG, PINCH-ZOOM, ROTATE, SHAPE DROPDOWN) */}
-            {/* ===================================================================== */}
+            {/* INTERACTIVE CROPPER.JS BOX */}
             <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-2.5">
-              {/* Guidance Banner */}
               <div className="bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl text-[11px] text-amber-300 font-semibold">
                 {t.cropGuidance}
               </div>
 
-              {/* Front / Back Switch Tabs + Crop Shape Dropdown */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
                   <button
@@ -1916,7 +1897,6 @@ export default function KioskPage() {
                   )}
                 </div>
 
-                {/* Crop Shape Dropdown: Free | ID Card (1.586:1) | Square */}
                 <div className="flex items-center gap-1.5 text-xs">
                   <Crop className="w-3.5 h-3.5 text-emerald-400" />
                   <select
@@ -1931,7 +1911,6 @@ export default function KioskPage() {
                 </div>
               </div>
 
-              {/* Interactive Touch Cropper Box */}
               {cropperSourceUrl ? (
                 <div className="w-full h-56 sm:h-64 bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center">
                   <img
@@ -1965,7 +1944,6 @@ export default function KioskPage() {
                 </div>
               )}
 
-              {/* Cropper Action Bar: Rotate Left, Rotate Right, Reset, Use This Crop */}
               {cropperSourceUrl && (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <div className="flex items-center gap-1.5">
@@ -2059,7 +2037,6 @@ export default function KioskPage() {
 
             {/* Front & Back Image Add / Remove / Clarity Controls */}
             <div className="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
-              {/* 1. FRONT IMAGE SECTION */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-1">
                   <span className="font-extrabold text-slate-800 truncate max-w-[150px]">
@@ -2101,7 +2078,6 @@ export default function KioskPage() {
                 </div>
               </div>
 
-              {/* 2. BACK IMAGE SECTION (For ID Card 2-in-1 or Half-Page 2-per-sheet) */}
               {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
                 <div className="pt-2.5 border-t border-slate-200 space-y-2">
                   <div className="flex items-center justify-between gap-1">
@@ -2189,9 +2165,7 @@ export default function KioskPage() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* CONFIRMATION POPUP AFTER APPLYING EDITS ("Are you sure all edits done?")  */}
-      {/* ========================================================================= */}
+      {/* CONFIRMATION POPUP AFTER APPLYING EDITS */}
       {showEditConfirmPopup && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl border border-emerald-100">
@@ -2232,9 +2206,7 @@ export default function KioskPage() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* ONLINE PAYMENT MODAL (Shows ONLY Gateway if ON, OR ONLY QR Scanner if OFF) */}
-      {/* ========================================================================= */}
+      {/* ONLINE PAYMENT MODAL */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">
@@ -2287,13 +2259,12 @@ export default function KioskPage() {
                       className="w-40 h-40 mx-auto rounded-xl border border-slate-200 bg-white p-1.5"
                     />
 
-                    {/* Primary Mobile UPI Deep-Link Button */}
                     <a
                       href={upiDeepLink}
                       className="w-full min-h-[44px] py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
                     >
                       <Smartphone className="w-4 h-4" />
-                      <span>Pay ₹{formattedAmount} via UPI App</span>
+                      <span>Pay ₹${formattedAmount} via UPI App</span>
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
 

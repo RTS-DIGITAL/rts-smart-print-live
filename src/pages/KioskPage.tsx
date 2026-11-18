@@ -26,15 +26,24 @@ import {
   Zap,
   Scissors,
   RotateCw,
+  RotateCcw,
   Sun,
   Layers,
   X,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  Languages,
+  Crop
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Pinned cdnjs worker for PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+// Pinned cdnjs URLs for Cropper.js v1.6.2 (Open Source Mobile-Friendly Cropper)
+const CROPPER_CSS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css';
+const CROPPER_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js';
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB limit
 
 interface ShopConfig {
   id: string;
@@ -55,19 +64,25 @@ interface ShopConfig {
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
   split_payment_enabled?: boolean;
-  // New Duplex & ID Card 2-in-1 Pricing Fields
+  // Duplex, Expiry & ID Card 2-in-1 Pricing Fields
   duplex_supported?: boolean;
   id_card_bw_price?: number | null;
   id_card_color_price?: number | null;
+  created_at?: string;
+  approved_at?: string | null;
+  subscription_days?: number | null;
 }
 
-type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'actual_size';
+type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size';
+type CropShapeType = 'id_card' | 'free' | 'square';
 
 interface UploadedItem {
   id: string;
   file: File;
   originalFile: File;
   backOriginalFile?: File | null;
+  croppedFrontBlob?: Blob | null;
+  croppedBackBlob?: Blob | null;
   fileKind: 'pdf' | 'image';
   name: string;
   size: number;
@@ -90,6 +105,71 @@ interface PricingRule {
   price_per_page: number;
 }
 
+const KIOSK_TEXTS = {
+  en: {
+    subtitle: 'Self-Service Document Print Kiosk',
+    paymentMode: 'Payment Mode',
+    onlineUpi: 'Online UPI',
+    cashAtCounter: 'Cash at Counter',
+    pinRequiredTitle: 'Counter PIN Required',
+    pinRequiredDesc: 'Please enter the 4-digit PIN displayed on the counter standee to unlock printing.',
+    unlockBtn: 'Unlock Print Station',
+    incorrectPin: 'Incorrect PIN. Please check the counter standee.',
+    uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
+    uploadReading: 'Reading & Verifying Files...',
+    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Images open directly in Cropper Studio',
+    aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your Aadhaar number before uploading. Files are auto-deleted on schedule.',
+    uploadedFiles: 'Uploaded Files',
+    addMoreBtn: 'Add More PDF / Image',
+    copies: 'Copies:',
+    singleSided: '1-Sided',
+    doubleSided: '2-Sided',
+    totalDocPages: 'Total Document Pages:',
+    actualSheetsNeeded: 'Actual A4 Paper Sheets Needed:',
+    totalBill: 'Total Bill:',
+    proceedPayBtn: 'Proceed to Pay & Print',
+    sendCashBtn: 'Send to Print (Pay Cash at Counter)',
+    submitStaffBtn: 'Submit to Counter (Staff Will Release)',
+    cropGuidance: '📌 Tip: Place the card flat, in good light, with all four corners visible.',
+    useThisCrop: 'Use this crop',
+    resetCrop: 'Reset',
+    manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
+    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
+    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
+  },
+  ml: {
+    subtitle: 'സെൽഫ് സർവീസ് പ്രിന്റ് കിയോസ്ക്',
+    paymentMode: 'പേയ്‌മെന്റ് രീതി',
+    onlineUpi: 'ഓൺലൈൻ UPI',
+    cashAtCounter: 'കൗണ്ടറിൽ ക്യാഷ്',
+    pinRequiredTitle: 'കൗണ്ടർ PIN ആവശ്യമാണ്',
+    pinRequiredDesc: 'പ്രിന്റിംഗ് തുടങ്ങാൻ കൗണ്ടറിലെ സ്റ്റാൻഡിയിൽ കാണുന്ന 4-അക്ക PIN നൽകുക.',
+    unlockBtn: 'പ്രിന്റ് സ്റ്റേഷൻ തുറക്കുക',
+    incorrectPin: 'തെറ്റായ PIN. ദയവായി കൗണ്ടറിൽ പരിശോധിക്കുക.',
+    uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
+    uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
+    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ നേരിട്ട് ക്രോപ്പ് സ്റ്റുഡിയോയിൽ തുറക്കുന്നു',
+    aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. ആധാർ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
+    uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
+    addMoreBtn: 'കൂടുതൽ ഫയലുകൾ ചേർക്കുക',
+    copies: 'കോപ്പികൾ:',
+    singleSided: 'ഒരു വശം (1-Sided)',
+    doubleSided: 'രണ്ട് വശം (2-Sided)',
+    totalDocPages: 'മൊത്തം പേജുകൾ:',
+    actualSheetsNeeded: 'ആവശ്യമായ A4 പേപ്പർ ഷീറ്റുകൾ:',
+    totalBill: 'മൊത്തം തുക:',
+    proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
+    sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
+    submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക (സ്റ്റാഫ് പ്രിന്റ് നൽകും)',
+    cropGuidance: '📌 കാർഡ് നല്ല വെളിച്ചത്തിൽ നാല് മൂലകളും കാണുന്ന രീതിയിൽ പരത്തി വെച്ച് ക്രോപ്പ് ചെയ്യുക.',
+    useThisCrop: 'ഈ ക്രോപ്പ് ഉപയോഗിക്കുക (Use Crop)',
+    resetCrop: 'റീസെറ്റ് (Reset)',
+    manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
+    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, and PNG files are accepted.',
+    fileTooLargeMsg: 'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
+  }
+};
+
 function cleanVpa(input: string | null | undefined): string {
   return (input || '').trim().replace(/\s+/g, '').toLowerCase();
 }
@@ -108,31 +188,97 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-// Verify real file signature bytes (%PDF, JPEG FF D8 FF, PNG 89 50 4E 47)
+// Load Cropper.js v1.6.2 CSS & JS from cdnjs.cloudflare.com with pinned version
+function loadCropperAssets(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!document.querySelector(`link[href="${CROPPER_CSS_URL}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = CROPPER_CSS_URL;
+      document.head.appendChild(link);
+    }
+    if ((window as any).Cropper) {
+      resolve(true);
+      return;
+    }
+    const existingScript = document.querySelector(`script[src="${CROPPER_JS_URL}"]`) as HTMLScriptElement | null;
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(true));
+      existingScript.addEventListener('error', () => resolve(false));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = CROPPER_JS_URL;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
+// Verify real file signature bytes (%PDF = 25 50 44 46, JPEG = FF D8 FF, PNG = 89 50 4E 47)
+// Strictly rejects renamed or fake extensions
 async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invalid'> {
   try {
     const buffer = await file.slice(0, 8).arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    if (
+      bytes.length >= 4 &&
+      bytes[0] === 0x25 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x44 &&
+      bytes[3] === 0x46
+    ) {
       return 'pdf';
     }
     if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
       return 'image';
     }
     if (
-      bytes.length >= 4 &&
+      bytes.length >= 8 &&
       bytes[0] === 0x89 &&
       bytes[1] === 0x50 &&
       bytes[2] === 0x4e &&
-      bytes[3] === 0x47
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
     ) {
       return 'image';
     }
-    if (file.type === 'application/pdf') return 'pdf';
-    if (file.type.startsWith('image/')) return 'image';
     return 'invalid';
   } catch {
-    return file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image';
+    return 'invalid';
+  }
+}
+
+// Compress large mobile camera images in the browser before upload to save mobile data
+async function compressLargeImageInBrowser(file: File): Promise<File> {
+  if (file.size <= 1.5 * 1024 * 1024) return file;
+  try {
+    const img = await loadImageElement(file);
+    const maxDim = 2200;
+    let targetW = img.width;
+    let targetH = img.height;
+    if (targetW > maxDim || targetH > maxDim) {
+      const ratio = Math.min(maxDim / targetW, maxDim / targetH);
+      targetW = Math.round(targetW * ratio);
+      targetH = Math.round(targetH * ratio);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.88));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch {
+    return file;
   }
 }
 
@@ -165,15 +311,24 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
   return pagesSet.size > 0 ? pagesSet.size : maxPages;
 }
 
-// Calculate physical A4 paper sheets needed for an item
+// Calculate physical A4 paper sheets needed for an item based on pages, layout (1, 2, 4, id_card) & duplex
 function calculateSheetsForItem(item: UploadedItem): number {
-  const perSide = item.layoutMode === 'id_card' ? 2 : 1;
+  if (item.fileKind === 'image') {
+    // Composed A4 image sheet is always 1 sheet per copy
+    return Math.max(1, item.copies);
+  }
+  const perSide =
+    item.layoutMode === 'grid_4'
+      ? 4
+      : item.layoutMode === 'id_card' || item.layoutMode === 'half_a4'
+      ? 2
+      : 1;
   const sidesNeeded = Math.ceil(item.pages / perSide);
   const sheetsPerCopy = item.isDoubleSided ? Math.ceil(sidesNeeded / 2) : sidesNeeded;
   return Math.max(1, sheetsPerCopy) * item.copies;
 }
 
-function loadImageElement(file: File): Promise<HTMLImageElement> {
+function loadImageElement(file: File | Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -194,6 +349,9 @@ export default function KioskPage() {
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
   const navigate = useNavigate();
 
+  const [lang, setLang] = useState<'en' | 'ml'>('en');
+  const t = KIOSK_TEXTS[lang];
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const studioFrontInputRef = useRef<HTMLInputElement>(null);
   const studioBackInputRef = useRef<HTMLInputElement>(null);
@@ -208,6 +366,7 @@ export default function KioskPage() {
 
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [uploadErrorBanner, setUploadErrorBanner] = useState<string | null>(null);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [launchingGateway, setLaunchingGateway] = useState(false);
 
@@ -216,7 +375,7 @@ export default function KioskPage() {
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [savingQr, setSavingQr] = useState(false);
 
-  // Image Crop, Rotate & ID Card 2-in-1 A4 Layout Studio Modal States
+  // Image Crop (Cropper.js), Rotate & ID Card 2-in-1 A4 Layout Studio Modal States
   const [editingItem, setEditingItem] = useState<UploadedItem | null>(null);
   const [studioLayout, setStudioLayout] = useState<ImageLayoutType>('id_card');
   const [frontFile, setFrontFile] = useState<File | null>(null);
@@ -229,11 +388,25 @@ export default function KioskPage() {
   const [contrast, setContrast] = useState<number>(110);
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
 
+  // Interactive Cropper.js State for Front & Back Images
+  const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
+  const [cropShape, setCropShape] = useState<CropShapeType>('id_card');
+  const [cropperSourceUrl, setCropperSourceUrl] = useState<string | null>(null);
+  const [croppedFrontBlob, setCroppedFrontBlob] = useState<Blob | null>(null);
+  const [croppedBackBlob, setCroppedBackBlob] = useState<Blob | null>(null);
+  const [cropAppliedToast, setCropAppliedToast] = useState<string | null>(null);
+  const cropperImageRef = useRef<HTMLImageElement>(null);
+  const cropperInstanceRef = useRef<any>(null);
+
   // Confirmation Popup State after "Apply to 1 A4 Sheet"
   const [showEditConfirmPopup, setShowEditConfirmPopup] = useState<boolean>(false);
   const [lastEditedItemId, setLastEditedItemId] = useState<string | null>(null);
 
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    loadCropperAssets();
+  }, []);
 
   useEffect(() => {
     async function init() {
@@ -246,6 +419,21 @@ export default function KioskPage() {
           .single();
 
         if (shopData) {
+          // Check if Shop Subscription / Free Trial has expired (0 Days Left)
+          const approvalDate = shopData.approved_at
+            ? new Date(shopData.approved_at).getTime()
+            : new Date(shopData.created_at || Date.now()).getTime();
+          const elapsedDays = Math.floor((Date.now() - approvalDate) / (1000 * 60 * 60 * 24));
+          const remainingDays = Math.max(0, (shopData.subscription_days || 7) - elapsedDays);
+
+          if (remainingDays <= 0 && shopData.subscription_status !== 'suspended') {
+            await supabase
+              .from('shops')
+              .update({ is_accepting_orders: false })
+              .eq('id', shopData.id);
+            shopData.is_accepting_orders = false;
+          }
+
           setShop(shopData);
           if (!shopData.is_pin_protected) {
             setIsUnlocked(true);
@@ -296,26 +484,41 @@ export default function KioskPage() {
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     setIsProcessingFiles(true);
+    setUploadErrorBanner(null);
     const newPdfItems: UploadedItem[] = [];
     const newImageItems: UploadedItem[] = [];
 
     for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      const fileKind = await detectTrueFileKind(file);
+      const rawFile = selectedFiles[i];
 
-      if (fileKind === 'invalid') {
-        alert(`"${file.name}" is not a valid PDF, JPG, or PNG file.`);
+      // 1. Check 10 MB file size limit
+      if (rawFile.size > MAX_FILE_SIZE_BYTES) {
+        setUploadErrorBanner(`"${rawFile.name}": ${t.fileTooLargeMsg}`);
+        alert(`"${rawFile.name}"\n\n${t.fileTooLargeMsg}`);
         continue;
       }
 
+      // 2. Verify actual file byte signature (PDF, JPEG, PNG)
+      const fileKind = await detectTrueFileKind(rawFile);
+      if (fileKind === 'invalid') {
+        setUploadErrorBanner(`"${rawFile.name}": ${t.invalidFileMsg}`);
+        alert(`"${rawFile.name}"\n\n${t.invalidFileMsg}`);
+        continue;
+      }
+
+      // 3. Compress large mobile photos in browser before upload
+      const file = fileKind === 'image' ? await compressLargeImageInBrowser(rawFile) : rawFile;
       const pages = fileKind === 'pdf' ? await getPageCount(file) : 1;
+
       const newItem: UploadedItem = {
         id: `${Date.now()}-${i}-${Math.random().toString(36).substr(2, 5)}`,
         file,
         originalFile: file,
         backOriginalFile: null,
+        croppedFrontBlob: null,
+        croppedBackBlob: null,
         fileKind,
-        name: file.name,
+        name: rawFile.name,
         size: file.size,
         totalPdfPages: pages,
         pages,
@@ -363,27 +566,169 @@ export default function KioskPage() {
   const openImageStudio = (item: UploadedItem, preloadedBackFile?: File | null) => {
     setEditingItem(item);
     setFrontFile(item.originalFile);
-    setStudioLayout(item.layoutMode === 'fit_a4' ? 'id_card' : item.layoutMode);
+    const initialLayout = item.layoutMode === 'fit_a4' ? 'id_card' : item.layoutMode;
+    setStudioLayout(initialLayout);
+    setCropShape(initialLayout === 'id_card' ? 'id_card' : 'free');
+    setActiveCropSide('front');
     setFrontRotation(0);
     setFrontCropPct(0);
     setBackFile(preloadedBackFile !== undefined ? preloadedBackFile : item.backOriginalFile || null);
     setBackRotation(0);
     setBackCropPct(0);
+    setCroppedFrontBlob(item.croppedFrontBlob || null);
+    setCroppedBackBlob(item.croppedBackBlob || null);
     setBrightness(105);
     setContrast(110);
+  };
+
+  // Manage Cropper.js active image URL for Front or Back side
+  useEffect(() => {
+    if (!editingItem) {
+      if (cropperInstanceRef.current) {
+        cropperInstanceRef.current.destroy();
+        cropperInstanceRef.current = null;
+      }
+      setCropperSourceUrl(null);
+      return;
+    }
+    const targetFile = activeCropSide === 'front' ? frontFile : backFile;
+    if (!targetFile) {
+      setCropperSourceUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(targetFile);
+    setCropperSourceUrl(objectUrl);
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [editingItem, activeCropSide, frontFile, backFile]);
+
+  // Initialize Cropper.js instance whenever cropperSourceUrl or cropShape changes
+  useEffect(() => {
+    let mounted = true;
+    async function initCropper() {
+      if (!cropperSourceUrl || !cropperImageRef.current) return;
+      const loaded = await loadCropperAssets();
+      if (!loaded || !mounted || !cropperImageRef.current) return;
+
+      if (cropperInstanceRef.current) {
+        cropperInstanceRef.current.destroy();
+        cropperInstanceRef.current = null;
+      }
+
+      const CropperClass = (window as any).Cropper;
+      if (!CropperClass) return;
+
+      const aspectRatio =
+        cropShape === 'id_card' ? 1.586 : cropShape === 'square' ? 1 : NaN;
+
+      cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
+        aspectRatio,
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 0.92,
+        responsive: true,
+        restore: false,
+        guides: true,
+        center: true,
+        highlight: false,
+        cropBoxMovable: true,
+        cropBoxResizable: true,
+        toggleDragModeOnDblclick: false
+      });
+    }
+    initCropper();
+
+    return () => {
+      mounted = false;
+      if (cropperInstanceRef.current) {
+        cropperInstanceRef.current.destroy();
+        cropperInstanceRef.current = null;
+      }
+    };
+  }, [cropperSourceUrl, cropShape]);
+
+  // "Use this crop" button handler — extracts cropped region from Cropper.js and updates Live A4 Preview
+  const handleUseThisCrop = () => {
+    if (!cropperInstanceRef.current) return;
+    const croppedCanvas = cropperInstanceRef.current.getCroppedCanvas({
+      maxWidth: 1600,
+      maxHeight: 1600,
+      fillColor: '#ffffff',
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high'
+    });
+    if (!croppedCanvas) return;
+
+    croppedCanvas.toBlob(
+      (blob: Blob | null) => {
+        if (!blob) return;
+        if (activeCropSide === 'front') {
+          setCroppedFrontBlob(blob);
+          setCropAppliedToast(
+            lang === 'en' ? '✅ Front crop applied to A4 preview!' : '✅ മുൻവശം ക്രോപ്പ് ചെയ്തു!'
+          );
+          // If in ID card mode and back image exists, automatically switch to back tab for convenience
+          if ((studioLayout === 'id_card' || studioLayout === 'half_a4') && backFile && !croppedBackBlob) {
+            setTimeout(() => setActiveCropSide('back'), 500);
+          }
+        } else {
+          setCroppedBackBlob(blob);
+          setCropAppliedToast(
+            lang === 'en' ? '✅ Back crop applied to A4 preview!' : '✅ പിൻവശം ക്രോപ്പ് ചെയ്തു!'
+          );
+        }
+        setTimeout(() => setCropAppliedToast(null), 2500);
+      },
+      'image/jpeg',
+      0.92
+    );
+  };
+
+  // "Reset" button handler in Cropper.js
+  const handleResetCropper = () => {
+    if (cropperInstanceRef.current) {
+      cropperInstanceRef.current.reset();
+    }
+    if (activeCropSide === 'front') {
+      setCroppedFrontBlob(null);
+      setFrontRotation(0);
+      setFrontCropPct(0);
+    } else {
+      setCroppedBackBlob(null);
+      setBackRotation(0);
+      setBackCropPct(0);
+    }
+  };
+
+  // Rotate Left / Right in Cropper.js
+  const handleRotateCropper = (deg: number) => {
+    if (cropperInstanceRef.current) {
+      cropperInstanceRef.current.rotate(deg);
+    } else {
+      if (activeCropSide === 'front') {
+        setFrontRotation((r) => (r + deg + 360) % 360);
+      } else {
+        setBackRotation((r) => (r + deg + 360) % 360);
+      }
+    }
   };
 
   // Remove Front Image inside Studio (Promotes Back Image if available, or prompts to upload new)
   const handleRemoveFrontInStudio = () => {
     if (backFile) {
       setFrontFile(backFile);
+      setCroppedFrontBlob(croppedBackBlob);
       setFrontRotation(backRotation);
       setFrontCropPct(backCropPct);
       setBackFile(null);
+      setCroppedBackBlob(null);
       setBackRotation(0);
       setBackCropPct(0);
+      setActiveCropSide('front');
     } else {
       setFrontFile(null);
+      setCroppedFrontBlob(null);
       setFrontRotation(0);
       setFrontCropPct(0);
     }
@@ -465,7 +810,8 @@ export default function KioskPage() {
       }
 
       try {
-        const frontImg = await loadImageElement(frontFile);
+        const frontSource: File | Blob = croppedFrontBlob || frontFile;
+        const frontImg = await loadImageElement(frontSource);
         if (!active) return;
 
         if (studioLayout === 'id_card') {
@@ -475,17 +821,18 @@ export default function KioskPage() {
           const topMargin = 36;
 
           if (backFile) {
-            const backImg = await loadImageElement(backFile);
+            const backSource: File | Blob = croppedBackBlob || backFile;
+            const backImg = await loadImageElement(backSource);
             if (!active) return;
             // Place Front (Left) and Back (Right) side-by-side at top of 1 A4 sheet
-            drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 26, topMargin, cardW, cardH, true);
-            drawProcessedImage(ctx, backImg, backRotation, backCropPct, 223, topMargin, cardW, cardH, true);
+            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 26, topMargin, cardW, cardH, true);
+            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 223, topMargin, cardW, cardH, true);
           } else {
             // Single ID card centered at top of A4 sheet
             drawProcessedImage(
               ctx,
               frontImg,
-              frontRotation,
+              croppedFrontBlob ? 0 : frontRotation,
               frontCropPct,
               (canvas.width - cardW) / 2,
               topMargin,
@@ -498,11 +845,28 @@ export default function KioskPage() {
           // 2 Photos on 1 A4 Sheet (Top half & Bottom half)
           const boxW = 360;
           const boxH = 250;
-          drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
+          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
           if (backFile) {
-            const backImg = await loadImageElement(backFile);
+            const backSource: File | Blob = croppedBackBlob || backFile;
+            const backImg = await loadImageElement(backSource);
             if (!active) return;
-            drawProcessedImage(ctx, backImg, backRotation, backCropPct, 30, 305, boxW, boxH, false);
+            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 30, 305, boxW, boxH, false);
+          }
+        } else if (studioLayout === 'grid_4') {
+          // 4 Per Page (2x2 Grid on 1 A4 Sheet)
+          const cellW = 175;
+          const cellH = 240;
+          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 30, cellW, cellH, true);
+          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 220, 30, cellW, cellH, true);
+          if (backFile) {
+            const backSource: File | Blob = croppedBackBlob || backFile;
+            const backImg = await loadImageElement(backSource);
+            if (!active) return;
+            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 25, 300, cellW, cellH, true);
+            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 220, 300, cellW, cellH, true);
+          } else {
+            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 300, cellW, cellH, true);
+            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 220, 300, cellW, cellH, true);
           }
         } else if (studioLayout === 'actual_size') {
           const w = Math.min(360, frontImg.width * 0.35);
@@ -510,7 +874,7 @@ export default function KioskPage() {
           drawProcessedImage(
             ctx,
             frontImg,
-            frontRotation,
+            croppedFrontBlob ? 0 : frontRotation,
             frontCropPct,
             (canvas.width - w) / 2,
             40,
@@ -520,7 +884,7 @@ export default function KioskPage() {
           );
         } else {
           // Fit to Full A4 Page with clean margin
-          drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 20, 20, 380, 554, false);
+          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 20, 20, 380, 554, false);
         }
       } catch (err) {
         console.error('Preview render error:', err);
@@ -530,9 +894,22 @@ export default function KioskPage() {
     return () => {
       active = false;
     };
-  }, [editingItem, frontFile, studioLayout, frontRotation, frontCropPct, backFile, backRotation, backCropPct, brightness, contrast]);
+  }, [
+    editingItem,
+    frontFile,
+    croppedFrontBlob,
+    studioLayout,
+    frontRotation,
+    frontCropPct,
+    backFile,
+    croppedBackBlob,
+    backRotation,
+    backCropPct,
+    brightness,
+    contrast
+  ]);
 
-  // Generate High-Resolution 300-DPI A4 Sheet (1240 x 1754 px) & Show Confirmation Popup!
+  // Generate High-Resolution A4 Sheet (1240 x 1754 px) & Show Confirmation Popup!
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     if (!frontFile) {
@@ -543,6 +920,27 @@ export default function KioskPage() {
     setApplyingStudio(true);
 
     try {
+      // Auto-grab current active crop from Cropper.js if user hasn't clicked "Use this crop" yet
+      let finalFrontBlob = croppedFrontBlob;
+      let finalBackBlob = croppedBackBlob;
+
+      if (cropperInstanceRef.current) {
+        const autoCanvas = cropperInstanceRef.current.getCroppedCanvas({
+          maxWidth: 1600,
+          maxHeight: 1600,
+          fillColor: '#ffffff'
+        });
+        if (autoCanvas) {
+          const autoBlob: Blob | null = await new Promise((res) =>
+            autoCanvas.toBlob((b: Blob | null) => res(b), 'image/jpeg', 0.92)
+          );
+          if (autoBlob) {
+            if (activeCropSide === 'front' && !finalFrontBlob) finalFrontBlob = autoBlob;
+            if (activeCropSide === 'back' && !finalBackBlob) finalBackBlob = autoBlob;
+          }
+        }
+      }
+
       const hiCanvas = document.createElement('canvas');
       hiCanvas.width = 1240;
       hiCanvas.height = 1754;
@@ -552,22 +950,23 @@ export default function KioskPage() {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, hiCanvas.width, hiCanvas.height);
 
-      const frontImg = await loadImageElement(frontFile);
+      const frontImg = await loadImageElement(finalFrontBlob || frontFile);
 
       if (studioLayout === 'id_card') {
+        // Exact ID-1 Standard Size: 85.6 mm × 54 mm on 210 mm × 297 mm A4 (505 px × 319 px)
         const cardW = 505;
         const cardH = 319;
         const topY = 110;
 
         if (backFile) {
-          const backImg = await loadImageElement(backFile);
-          drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 80, topY, cardW, cardH, true);
-          drawProcessedImage(ctx, backImg, backRotation, backCropPct, 655, topY, cardW, cardH, true);
+          const backImg = await loadImageElement(finalBackBlob || backFile);
+          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 80, topY, cardW, cardH, true);
+          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 655, topY, cardW, cardH, true);
         } else {
           drawProcessedImage(
             ctx,
             frontImg,
-            frontRotation,
+            finalFrontBlob ? 0 : frontRotation,
             frontCropPct,
             (hiCanvas.width - cardW) / 2,
             topY,
@@ -579,10 +978,23 @@ export default function KioskPage() {
       } else if (studioLayout === 'half_a4') {
         const boxW = 1080;
         const boxH = 760;
-        drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 80, 70, boxW, boxH, false);
+        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 80, 70, boxW, boxH, false);
         if (backFile) {
-          const backImg = await loadImageElement(backFile);
-          drawProcessedImage(ctx, backImg, backRotation, backCropPct, 80, 910, boxW, boxH, false);
+          const backImg = await loadImageElement(finalBackBlob || backFile);
+          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 80, 910, boxW, boxH, false);
+        }
+      } else if (studioLayout === 'grid_4') {
+        const cellW = 520;
+        const cellH = 740;
+        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 75, 90, cellW, cellH, true);
+        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 645, 90, cellW, cellH, true);
+        if (backFile) {
+          const backImg = await loadImageElement(finalBackBlob || backFile);
+          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 75, 900, cellW, cellH, true);
+          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 645, 900, cellW, cellH, true);
+        } else {
+          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 75, 900, cellW, cellH, true);
+          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 645, 900, cellW, cellH, true);
         }
       } else if (studioLayout === 'actual_size') {
         const w = Math.min(1080, frontImg.width);
@@ -590,7 +1002,7 @@ export default function KioskPage() {
         drawProcessedImage(
           ctx,
           frontImg,
-          frontRotation,
+          finalFrontBlob ? 0 : frontRotation,
           frontCropPct,
           (hiCanvas.width - w) / 2,
           100,
@@ -599,7 +1011,7 @@ export default function KioskPage() {
           false
         );
       } else {
-        drawProcessedImage(ctx, frontImg, frontRotation, frontCropPct, 60, 60, 1120, 1634, false);
+        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 60, 60, 1120, 1634, false);
       }
 
       const blob: Blob = await new Promise((resolve, reject) => {
@@ -614,6 +1026,8 @@ export default function KioskPage() {
         file: composedFile,
         originalFile: frontFile,
         backOriginalFile: backFile,
+        croppedFrontBlob: finalFrontBlob,
+        croppedBackBlob: finalBackBlob,
         name: frontFile.name,
         size: composedFile.size,
         layoutMode: studioLayout,
@@ -642,7 +1056,7 @@ export default function KioskPage() {
     );
   };
 
-  // Price Calculation: Supports Shopkeeper's Custom "ID Card 2-in-1 / Cropping" Rate + Single/Double-Sided Rules
+  // Price Calculation: Priced by actual sheets + Shopkeeper's Custom "ID Card 2-in-1 / Cropping" Rate
   const calculateItemPrice = (item: UploadedItem): number => {
     const rule = pricingRules.find(
       (r) =>
@@ -652,14 +1066,20 @@ export default function KioskPage() {
     );
     const standardPerPageRate = rule ? Number(rule.price_per_page) : item.isColor ? 10.0 : 2.0;
 
-    if (item.fileKind === 'image' && (item.layoutMode === 'id_card' || (item.layoutMode === 'half_a4' && item.hasBackImage))) {
+    if (
+      item.fileKind === 'image' &&
+      (item.layoutMode === 'id_card' ||
+        (item.layoutMode === 'half_a4' && item.hasBackImage) ||
+        item.layoutMode === 'grid_4')
+    ) {
       const customIdRate = item.isColor
         ? Number(shop?.id_card_color_price || standardPerPageRate * 2)
         : Number(shop?.id_card_bw_price || standardPerPageRate * 2);
       return customIdRate * item.copies;
     }
 
-    return item.pages * item.copies * standardPerPageRate;
+    const sheetsUsed = calculateSheetsForItem(item);
+    return item.isDoubleSided ? sheetsUsed * standardPerPageRate * 2 : sheetsUsed * standardPerPageRate;
   };
 
   const totalAmount = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
@@ -707,7 +1127,8 @@ export default function KioskPage() {
     }
   };
 
-  // RESTORED ORIGINAL WORKING ORDER STATUS LOGIC FOR PC AGENT & MANUAL APPROVAL
+  // Master Order Creation: Assigns unique sub-order number per file when multiple files are uploaded
+  // so Shop Admin can approve/print 1 file individually without triggering all files!
   const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
@@ -725,14 +1146,21 @@ export default function KioskPage() {
 
       const targetStatus = isAutoPilot ? 'paid' : 'pending';
 
-      const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
+      const baseOrderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
       const finalPaymentRef = isGatewayVerified
         ? `${activeGatewayProvider.toUpperCase()}_${verifiedGatewayPaymentId}`
         : isCashMode
         ? 'CASH_AT_COUNTER'
         : utrNumber || 'UPI_SUBMITTED';
 
-      for (const item of items) {
+      let primaryOrderNumber = baseOrderNumber;
+
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        // Give each file a distinct order_number when multiple files exist so "Print Now" approves only the clicked row
+        const rowOrderNumber = items.length > 1 ? `${baseOrderNumber}-${idx + 1}` : baseOrderNumber;
+        if (idx === 0) primaryOrderNumber = rowOrderNumber;
+
         const fileExt = item.file.name.split('.').pop() || 'pdf';
         const storagePath = `${shop.id}/${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${fileExt}`;
 
@@ -749,6 +1177,8 @@ export default function KioskPage() {
         const displayDocName =
           item.fileKind === 'image' && item.layoutMode === 'id_card'
             ? `[ID-2in1] ${item.name}`
+            : item.fileKind === 'image' && item.layoutMode === 'grid_4'
+            ? `[4-Per-Page] ${item.name}`
             : item.pageRangeText
             ? `[Pages ${item.pageRangeText}] ${item.name}`
             : item.name;
@@ -756,10 +1186,10 @@ export default function KioskPage() {
         const { error: orderError } = await supabase.from('print_orders').insert([
           {
             shop_id: shop.id,
-            order_number: orderNumber,
+            order_number: rowOrderNumber,
             file_name: displayDocName,
             file_url: storagePath,
-            page_count: item.pages,
+            page_count: calculateSheetsForItem(item),
             copies: item.copies,
             is_color: item.isColor,
             is_double_sided: item.isDoubleSided,
@@ -777,7 +1207,7 @@ export default function KioskPage() {
         await supabase.from('shop_transactions').insert([
           {
             shop_id: shop.id,
-            order_number: orderNumber,
+            order_number: baseOrderNumber,
             amount: Number(formattedAmount),
             payment_mode: isGatewayVerified
               ? activeGatewayProvider.toUpperCase()
@@ -793,7 +1223,7 @@ export default function KioskPage() {
         // Ignore if table not created
       }
 
-      navigate(`/shop/${shop.slug}/order/${orderNumber}`);
+      navigate(`/shop/${shop.slug}/order/${primaryOrderNumber}`);
     } catch (err: any) {
       alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
     } finally {
@@ -853,14 +1283,28 @@ export default function KioskPage() {
     );
   }
 
-  if (!shop || !shop.is_accepting_orders) {
+  // Real-Time Shop Subscription Expiry Calculation (Blocks Kiosk when 0 Days Left)
+  const shopApprovalTimestamp = shop?.approved_at
+    ? new Date(shop.approved_at).getTime()
+    : new Date(shop?.created_at || Date.now()).getTime();
+  const shopElapsedDays = Math.floor((Date.now() - shopApprovalTimestamp) / (1000 * 60 * 60 * 24));
+  const shopRemainingDays = Math.max(0, (shop?.subscription_days || 7) - shopElapsedDays);
+  const isShopExpired =
+    !shop ||
+    !shop.is_accepting_orders ||
+    shop.subscription_status === 'suspended' ||
+    shopRemainingDays <= 0;
+
+  if (isShopExpired) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center max-w-sm space-y-3 shadow-sm">
           <AlertCircle className="w-12 h-12 text-amber-500 mx-auto" />
           <h2 className="text-lg font-black text-slate-900">{shop?.name || 'Counter Offline'}</h2>
-          <p className="text-xs text-slate-500">
-            This print counter is currently paused or offline. Please contact the shop operator.
+          <p className="text-xs text-slate-500 leading-relaxed">
+            {shopRemainingDays <= 0
+              ? 'This print counter subscription has expired. Please ask the shop operator to renew their RTS Smart Print plan.'
+              : 'This print counter is currently paused or offline. Please contact the shop operator.'}
           </p>
         </div>
       </div>
@@ -870,27 +1314,43 @@ export default function KioskPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between relative overflow-x-hidden">
       <div>
-        <header className="bg-white border-b border-slate-200 py-4 px-6 sticky top-0 z-40 shadow-sm flex justify-between items-center">
+        <header className="bg-white border-b border-slate-200 py-3.5 px-4 sm:px-6 sticky top-0 z-40 shadow-sm flex justify-between items-center gap-2">
           <div>
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <h1 className="font-black text-slate-900 text-base">{shop.name}</h1>
+              <h1 className="font-black text-slate-900 text-sm sm:text-base">{shop.name}</h1>
             </div>
-            <p className="text-[11px] text-slate-400">Self-Service Document Print Kiosk</p>
+            <p className="text-[11px] text-slate-400">{t.subtitle}</p>
           </div>
 
-          <div className="text-right">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Payment Mode</span>
-            <span className={`text-xs font-black px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
-              shop.require_payment ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {shop.require_payment ? <Smartphone className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
-              {shop.require_payment
-                ? hasActiveShopGateway
-                  ? `${activeGatewayProvider.toUpperCase()}`
-                  : 'Online UPI'
-                : 'Cash at Counter'}
-            </span>
+          <div className="flex items-center gap-2">
+            {/* English / Malayalam Language Switcher */}
+            <button
+              type="button"
+              onClick={() => setLang(lang === 'en' ? 'ml' : 'en')}
+              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-extrabold text-slate-700 flex items-center gap-1.5 transition"
+            >
+              <Languages className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{lang === 'en' ? 'മലയാളം' : 'English'}</span>
+            </button>
+
+            <div className="text-right hidden sm:block">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                {t.paymentMode}
+              </span>
+              <span
+                className={`text-xs font-black px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
+                  shop.require_payment ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {shop.require_payment ? <Smartphone className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
+                {shop.require_payment
+                  ? hasActiveShopGateway
+                    ? `${activeGatewayProvider.toUpperCase()}`
+                    : t.onlineUpi
+                  : t.cashAtCounter}
+              </span>
+            </div>
           </div>
         </header>
 
@@ -902,6 +1362,22 @@ export default function KioskPage() {
             </div>
           )}
 
+          {uploadErrorBanner && (
+            <div className="bg-rose-50 border-2 border-rose-200 text-rose-900 px-4 py-3 rounded-2xl text-xs flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <p className="whitespace-pre-line font-semibold leading-relaxed">{uploadErrorBanner}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUploadErrorBanner(null)}
+                className="p-1 text-rose-500 hover:text-rose-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {!isUnlocked && shop.is_pin_protected ? (
             <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-sm text-center space-y-4">
               <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
@@ -909,10 +1385,8 @@ export default function KioskPage() {
               </div>
 
               <div>
-                <h2 className="text-base font-black text-slate-900">Counter PIN Required</h2>
-                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                  Please enter the 4-digit PIN displayed on the counter standee to unlock printing.
-                </p>
+                <h2 className="text-base font-black text-slate-900">{t.pinRequiredTitle}</h2>
+                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{t.pinRequiredDesc}</p>
               </div>
 
               <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3">
@@ -923,21 +1397,19 @@ export default function KioskPage() {
                     placeholder="Enter PIN"
                     value={enteredPin}
                     onChange={(e) => setEnteredPin(e.target.value)}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-2xl text-center font-mono font-black text-lg tracking-widest text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full min-h-[46px] py-3 px-4 border border-slate-200 rounded-2xl text-center font-mono font-black text-lg tracking-widest text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
                   />
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
                 </div>
 
-                {pinError && (
-                  <p className="text-xs font-bold text-rose-600">Incorrect PIN. Please check the counter standee.</p>
-                )}
+                {pinError && <p className="text-xs font-bold text-rose-600">{t.incorrectPin}</p>}
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs shadow transition flex items-center justify-center gap-1.5"
+                  className="w-full min-h-[46px] py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs shadow transition flex items-center justify-center gap-1.5"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  Unlock Print Station
+                  {t.unlockBtn}
                 </button>
               </form>
             </div>
@@ -945,7 +1417,7 @@ export default function KioskPage() {
             <>
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-8 rounded-3xl text-center cursor-pointer transition space-y-2"
+                className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-7 sm:p-8 rounded-3xl text-center cursor-pointer transition space-y-2.5"
               >
                 <input
                   type="file"
@@ -959,29 +1431,27 @@ export default function KioskPage() {
                   <UploadCloud className="w-6 h-6" />
                 </div>
                 <h3 className="font-extrabold text-slate-900 text-sm">
-                  {isProcessingFiles ? 'Reading Documents...' : 'Tap to Select Files (PDF or ID/Document Photos)'}
+                  {isProcessingFiles ? t.uploadReading : t.uploadTitle}
                 </h3>
-                <p className="text-[11px] text-slate-500">
-                  Supports PDF, JPG, PNG • Upload PDFs & Images together • Images open directly in <strong>ID Card 2-in-1 / Crop Studio</strong>
-                </p>
-                <p className="text-[10px] text-slate-400 pt-1">
-                  🔒 Privacy Tip: Upload only required pages. Files are auto-deleted after printing.
-                </p>
+                <p className="text-[11px] text-slate-600">{t.uploadSub}</p>
+                <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed max-w-md mx-auto">
+                  {t.aadhaarSafetyNote}
+                </div>
               </div>
 
               {items.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center px-1">
                     <span className="text-xs font-bold text-slate-700">
-                      Uploaded Files ({items.length})
+                      {t.uploadedFiles} ({items.length})
                     </span>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[11px] font-extrabold transition flex items-center gap-1 shadow-sm"
+                      className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Add More PDF / Image
+                      {t.addMoreBtn}
                     </button>
                   </div>
 
@@ -998,44 +1468,53 @@ export default function KioskPage() {
                         >
                           <div className="flex justify-between items-start gap-2">
                             <div className="flex items-center gap-2.5 overflow-hidden">
-                              <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
-                                {isPdf ? <FileText className="w-4 h-4 text-rose-500" /> : <ImageIcon className="w-4 h-4 text-blue-500" />}
+                              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
+                                {isPdf ? (
+                                  <FileText className="w-4 h-4 text-rose-500" />
+                                ) : (
+                                  <ImageIcon className="w-4 h-4 text-blue-500" />
+                                )}
                               </div>
                               <div className="truncate">
                                 <div className="flex items-center gap-1.5">
-                                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                                    isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
-                                  }`}>
+                                  <span
+                                    className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                      isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
+                                    }`}
+                                  >
                                     {isPdf ? 'PDF' : 'IMAGE'}
                                   </span>
                                   <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
                                 </div>
-                                <p className="text-[10px] text-slate-500 mt-0.5">
-                                  {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} • Uses <strong>{sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}</strong>
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} • Uses{' '}
+                                  <strong className="text-emerald-700">
+                                    {sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}
+                                  </strong>
                                   {item.layoutMode === 'id_card' && (
                                     <span className="ml-1.5 text-indigo-600 font-bold">
-                                      • 🪪 ID Card 2-in-1 {item.hasBackImage ? '(Front+Back)' : ''}
+                                      • 🪪 ID Card (85.6×54mm) {item.hasBackImage ? 'Front+Back' : ''}
                                     </span>
                                   )}
                                 </p>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex items-center gap-1.5 shrink-0">
                               {!isPdf && (
                                 <button
                                   type="button"
                                   onClick={() => openImageStudio(item)}
-                                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[10px] transition flex items-center gap-1"
+                                  className="min-h-[38px] px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] transition flex items-center gap-1"
                                 >
-                                  <Scissors className="w-3 h-3" />
-                                  <span>{item.layoutMode === 'id_card' ? 'Edit ID 2-in-1' : 'Crop / ID 2-in-1'}</span>
+                                  <Scissors className="w-3.5 h-3.5" />
+                                  <span>{item.layoutMode === 'id_card' ? 'Edit ID 2-in-1' : 'Crop / Layout'}</span>
                                 </button>
                               )}
                               <button
                                 type="button"
                                 onClick={() => removeItem(item.id)}
-                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[10px] font-bold transition flex items-center gap-1"
+                                className="min-h-[38px] px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1"
                                 title="Remove File"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1044,45 +1523,63 @@ export default function KioskPage() {
                             </div>
                           </div>
 
-                          {/* PDF Page Selection Row (Only if PDF has > 1 page) */}
-                          {isPdf && item.totalPdfPages > 1 && (
-                            <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                              <span className="font-semibold text-slate-600">
-                                PDF Pages (Total {item.totalPdfPages}):
-                              </span>
-                              <input
-                                type="text"
-                                placeholder={`All (1-${item.totalPdfPages}) or e.g. 1-2`}
-                                value={item.pageRangeText}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const newCount = countSelectedPages(val, item.totalPdfPages);
-                                  updateItem(item.id, { pageRangeText: val, pages: newCount });
-                                }}
-                                className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-mono w-44 outline-none focus:border-emerald-500"
-                              />
+                          {/* PDF Page Selection & Layout Selector Row */}
+                          {isPdf && (
+                            <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                              {item.totalPdfPages > 1 && (
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-semibold text-slate-600">
+                                    Pages (1-{item.totalPdfPages}):
+                                  </span>
+                                  <input
+                                    type="text"
+                                    placeholder={`All or e.g. 1-2`}
+                                    value={item.pageRangeText}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const newCount = countSelectedPages(val, item.totalPdfPages);
+                                      updateItem(item.id, { pageRangeText: val, pages: newCount });
+                                    }}
+                                    className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono w-32 outline-none focus:border-emerald-500"
+                                  />
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-slate-600">Layout:</span>
+                                <select
+                                  value={item.layoutMode}
+                                  onChange={(e) =>
+                                    updateItem(item.id, { layoutMode: e.target.value as ImageLayoutType })
+                                  }
+                                  className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                                >
+                                  <option value="fit_a4">1 Per Page (Fit A4)</option>
+                                  <option value="half_a4">2 Per Page (2-Up)</option>
+                                  <option value="grid_4">4 Per Page (4-Up)</option>
+                                </select>
+                              </div>
                             </div>
                           )}
 
-                          {/* Copies, B&W / Color, Single / Double-Sided Controls */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+                          {/* Copies, B&W / Color, Single / Double-Sided Controls (Touch-friendly >= 40px) */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-slate-500">Copies:</span>
-                              <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
+                              <span className="text-[11px] text-slate-500">{t.copies}</span>
+                              <div className="flex items-center bg-slate-100 rounded-xl p-1">
                                 <button
                                   type="button"
                                   onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })}
-                                  className="p-1 hover:bg-white rounded-lg transition"
+                                  className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
                                 >
-                                  <Minus className="w-3 h-3 text-slate-600" />
+                                  <Minus className="w-3.5 h-3.5 text-slate-700" />
                                 </button>
-                                <span className="px-2 font-black text-xs text-slate-800">{item.copies}</span>
+                                <span className="px-2.5 font-black text-xs text-slate-900">{item.copies}</span>
                                 <button
                                   type="button"
                                   onClick={() => updateItem(item.id, { copies: item.copies + 1 })}
-                                  className="p-1 hover:bg-white rounded-lg transition"
+                                  className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
                                 >
-                                  <Plus className="w-3 h-3 text-slate-600" />
+                                  <Plus className="w-3.5 h-3.5 text-slate-700" />
                                 </button>
                               </div>
                             </div>
@@ -1091,7 +1588,7 @@ export default function KioskPage() {
                               <button
                                 type="button"
                                 onClick={() => updateItem(item.id, { isColor: false })}
-                                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${
+                                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
                                   !item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
                                 }`}
                               >
@@ -1100,7 +1597,7 @@ export default function KioskPage() {
                               <button
                                 type="button"
                                 onClick={() => updateItem(item.id, { isColor: true })}
-                                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${
+                                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
                                   item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
                                 }`}
                               >
@@ -1114,25 +1611,25 @@ export default function KioskPage() {
                                 <button
                                   type="button"
                                   onClick={() => updateItem(item.id, { isDoubleSided: false })}
-                                  className={`px-2 py-1 rounded-xl text-[10px] font-bold transition ${
+                                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
                                     !item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
                                   }`}
                                 >
-                                  1-Sided
+                                  {t.singleSided}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => updateItem(item.id, { isDoubleSided: true })}
-                                  className={`px-2 py-1 rounded-xl text-[10px] font-bold transition ${
+                                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
                                     item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
                                   }`}
                                 >
-                                  2-Sided
+                                  {t.doubleSided}
                                 </button>
                               </div>
                             )}
 
-                            <div className="font-extrabold text-slate-900 text-xs">
+                            <div className="font-extrabold text-slate-900 text-sm">
                               ₹{itemTotal.toFixed(2)}
                             </div>
                           </div>
@@ -1144,20 +1641,22 @@ export default function KioskPage() {
                   {/* Summary Bill & Real Paper Sheet Count Card */}
                   <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
                     <div className="flex justify-between items-center text-xs text-slate-400">
-                      <span>Total Document Pages:</span>
-                      <span className="font-bold text-white">{totalPages} {totalPages === 1 ? 'page' : 'pages'}</span>
+                      <span>{t.totalDocPages}</span>
+                      <span className="font-bold text-white">
+                        {totalPages} {totalPages === 1 ? 'page' : 'pages'}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center text-xs text-emerald-300">
                       <span className="flex items-center gap-1">
                         <Layers className="w-3.5 h-3.5" />
-                        <span>Actual A4 Paper Sheets Needed:</span>
+                        <span>{t.actualSheetsNeeded}</span>
                       </span>
                       <span className="font-black text-white font-mono">
                         {totalSheetsNeeded} A4 {totalSheetsNeeded === 1 ? 'Sheet' : 'Sheets'}
                       </span>
                     </div>
                     <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
-                      <span className="text-sm font-bold">Total Bill:</span>
+                      <span className="text-sm font-bold">{t.totalBill}</span>
                       <span className="text-2xl font-black text-emerald-400">₹{formattedAmount}</span>
                     </div>
 
@@ -1173,7 +1672,7 @@ export default function KioskPage() {
                         }
                       }}
                       disabled={submittingOrder || launchingGateway}
-                      className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs"
+                      className="w-full min-h-[48px] py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm"
                     >
                       <Printer className="w-4 h-4" />
                       {submittingOrder
@@ -1183,10 +1682,10 @@ export default function KioskPage() {
                         : shop.require_payment
                         ? hasActiveShopGateway
                           ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
-                          : 'Proceed to Pay & Print'
+                          : t.proceedPayBtn
                         : shop.auto_print_enabled
-                        ? 'Send to Print (Pay Cash at Counter)'
-                        : 'Submit to Counter (Staff Will Release)'}
+                        ? t.sendCashBtn
+                        : t.submitStaffBtn}
                     </button>
                   </div>
                 </div>
@@ -1267,35 +1766,38 @@ export default function KioskPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* IMAGE CROP, ROTATE & ID CARD 2-IN-1 (WITH ADD / REMOVE GALLERY BUTTONS)   */}
+      {/* PROFESSIONAL CROPPER.JS + A4 PAGE LAYOUT & ID CARD 2-IN-1 STUDIO MODAL    */}
       {/* ========================================================================= */}
       {editingItem && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 space-y-3.5 shadow-2xl my-auto max-h-[94vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div>
                 <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
                   <Scissors className="w-4 h-4 text-indigo-600" />
-                  <span>A4 Page Layout & ID Card 2-in-1 Studio</span>
+                  <span>A4 Page Layout & ID Card 2-in-1 Crop Studio</span>
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Add, remove, or crop images on 1 A4 sheet without wasting paper
+                  Drag, pinch-zoom, rotate & place Front + Back on 1 A4 sheet (85.6 × 54 mm)
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingItem(null)}
-                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* 4 Layout Mode Buttons */}
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            {/* 5 Layout Mode Buttons */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => setStudioLayout('id_card')}
+                onClick={() => {
+                  setStudioLayout('id_card');
+                  setCropShape('id_card');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'id_card'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -1303,53 +1805,219 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">🪪 ID Card (2-in-1)</span>
-                <span className="text-[10px] opacity-85 block">Front + Back on 1 A4 Sheet</span>
+                <span className="text-[10px] opacity-85 block">85.6×54mm on 1 Sheet</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('fit_a4')}
+                onClick={() => {
+                  setStudioLayout('fit_a4');
+                  setCropShape('free');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'fit_a4'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span className="font-extrabold block text-[11px]">📄 Full A4 Page</span>
-                <span className="text-[10px] opacity-85 block">Fit document to full sheet</span>
+                <span className="font-extrabold block text-[11px]">📄 Fit to A4</span>
+                <span className="text-[10px] opacity-85 block">Full A4 page</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('half_a4')}
+                onClick={() => {
+                  setStudioLayout('half_a4');
+                  setCropShape('free');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'half_a4'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span className="font-extrabold block text-[11px]">🖼️ 2 Per Page (Half A4)</span>
-                <span className="text-[10px] opacity-85 block">Top & bottom on 1 sheet</span>
+                <span className="font-extrabold block text-[11px]">🖼️ 2 Per Page</span>
+                <span className="text-[10px] opacity-85 block">Top & bottom on 1 A4</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('actual_size')}
+                onClick={() => {
+                  setStudioLayout('grid_4');
+                  setCropShape('free');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
+                  studioLayout === 'grid_4'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold block text-[11px]">田 4 Per Page</span>
+                <span className="text-[10px] opacity-85 block">4-up grid on 1 A4</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStudioLayout('actual_size');
+                  setCropShape('free');
+                }}
+                className={`p-2.5 rounded-2xl border text-left transition col-span-2 sm:col-span-1 ${
                   studioLayout === 'actual_size'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span className="font-extrabold block text-[11px]">📏 Original Size</span>
-                <span className="text-[10px] opacity-85 block">No stretching on A4</span>
+                <span className="font-extrabold block text-[11px]">📏 Actual Size</span>
+                <span className="text-[10px] opacity-85 block">Original size, no stretch</span>
               </button>
+            </div>
+
+            {/* ===================================================================== */}
+            {/* INTERACTIVE CROPPER.JS BOX (DRAG, PINCH-ZOOM, ROTATE, SHAPE DROPDOWN) */}
+            {/* ===================================================================== */}
+            <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-2.5">
+              {/* Guidance Banner */}
+              <div className="bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl text-[11px] text-amber-300 font-semibold">
+                {t.cropGuidance}
+              </div>
+
+              {/* Front / Back Switch Tabs + Crop Shape Dropdown */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setActiveCropSide('front')}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition ${
+                      activeCropSide === 'front'
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    1. Front Side {croppedFrontBlob ? '✓' : ''}
+                  </button>
+                  {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!backFile) {
+                          studioBackInputRef.current?.click();
+                        }
+                        setActiveCropSide('back');
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition ${
+                        activeCropSide === 'back'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add)'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Crop Shape Dropdown: Free | ID Card (1.586:1) | Square */}
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Crop className="w-3.5 h-3.5 text-emerald-400" />
+                  <select
+                    value={cropShape}
+                    onChange={(e) => setCropShape(e.target.value as CropShapeType)}
+                    className="bg-slate-800 border border-slate-700 text-white font-bold text-[11px] px-2.5 py-1.5 rounded-xl outline-none"
+                  >
+                    <option value="id_card">ID Card (1.586 : 1)</option>
+                    <option value="free">Free Crop</option>
+                    <option value="square">Square (1 : 1)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Interactive Touch Cropper Box */}
+              {cropperSourceUrl ? (
+                <div className="w-full h-56 sm:h-64 bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center">
+                  <img
+                    ref={cropperImageRef}
+                    src={cropperSourceUrl}
+                    alt="Crop Target"
+                    className="max-h-full max-w-full block"
+                  />
+                </div>
+              ) : (
+                <div className="w-full h-44 bg-slate-950 rounded-xl border border-dashed border-slate-700 flex flex-col items-center justify-center gap-2 p-4 text-center">
+                  <p className="text-xs text-slate-400">
+                    {activeCropSide === 'back'
+                      ? 'No Back Side image selected yet.'
+                      : 'No Front Side image selected.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      activeCropSide === 'back'
+                        ? studioBackInputRef.current?.click()
+                        : studioFrontInputRef.current?.click()
+                    }
+                    className="min-h-[42px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>
+                      {activeCropSide === 'back' ? 'Upload Back Side Image' : 'Upload Front Side Image'}
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {/* Cropper Action Bar: Rotate Left, Rotate Right, Reset, Use This Crop */}
+              {cropperSourceUrl && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleRotateCropper(-90)}
+                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
+                      title="Rotate Left"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Left</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRotateCropper(90)}
+                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
+                      title="Rotate Right"
+                    >
+                      <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Right</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetCropper}
+                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
+                    >
+                      {t.resetCrop}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleUseThisCrop}
+                    className="min-h-[42px] px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{t.useThisCrop}</span>
+                  </button>
+                </div>
+              )}
+
+              {cropAppliedToast && (
+                <p className="text-center text-xs font-extrabold text-emerald-400 animate-pulse">
+                  {cropAppliedToast}
+                </p>
+              )}
             </div>
 
             {/* Live A4 Sheet Preview Box */}
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                Live A4 Paper Sheet Preview (1 Sheet Only)
+                Live A4 Paper Sheet Preview (1 A4 Sheet Output)
               </span>
               <canvas
                 ref={previewCanvasRef}
@@ -1362,9 +2030,12 @@ export default function KioskPage() {
               type="file"
               ref={studioFrontInputRef}
               accept=".png,.jpg,.jpeg"
-              onChange={(e) => {
+              onChange={async (e) => {
                 if (e.target.files && e.target.files[0]) {
-                  setFrontFile(e.target.files[0]);
+                  const f = await compressLargeImageInBrowser(e.target.files[0]);
+                  setFrontFile(f);
+                  setCroppedFrontBlob(null);
+                  setActiveCropSide('front');
                 }
                 e.target.value = '';
               }}
@@ -1374,21 +2045,24 @@ export default function KioskPage() {
               type="file"
               ref={studioBackInputRef}
               accept=".png,.jpg,.jpeg"
-              onChange={(e) => {
+              onChange={async (e) => {
                 if (e.target.files && e.target.files[0]) {
-                  setBackFile(e.target.files[0]);
+                  const f = await compressLargeImageInBrowser(e.target.files[0]);
+                  setBackFile(f);
+                  setCroppedBackBlob(null);
+                  setActiveCropSide('back');
                 }
                 e.target.value = '';
               }}
               className="hidden"
             />
 
-            {/* Front & Back Image Add / Remove / Rotate / Crop Controls */}
+            {/* Front & Back Image Add / Remove / Clarity Controls */}
             <div className="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
               {/* 1. FRONT IMAGE SECTION */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="font-extrabold text-slate-800 truncate max-w-[140px]">
+                  <span className="font-extrabold text-slate-800 truncate max-w-[150px]">
                     1. Front Image {frontFile ? `(${frontFile.name})` : '(Removed)'}
                   </span>
 
@@ -1396,7 +2070,7 @@ export default function KioskPage() {
                     <button
                       type="button"
                       onClick={() => studioFrontInputRef.current?.click()}
-                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
+                      className="min-h-[36px] px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3 h-3" />
                       <span>{frontFile ? 'Change' : 'Add Image'}</span>
@@ -1406,17 +2080,16 @@ export default function KioskPage() {
                       <>
                         <button
                           type="button"
-                          onClick={() => setFrontRotation((r) => (r + 90) % 360)}
-                          className="px-2 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
-                          title="Rotate 90°"
+                          onClick={() => setActiveCropSide('front')}
+                          className="min-h-[36px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
                         >
-                          <RotateCw className="w-3 h-3 text-indigo-600" />
-                          <span>Rotate</span>
+                          <Scissors className="w-3 h-3 text-indigo-600" />
+                          <span>Crop</span>
                         </button>
                         <button
                           type="button"
                           onClick={handleRemoveFrontInStudio}
-                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
+                          className="min-h-[36px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
                           title="Remove Front Image"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -1426,28 +2099,13 @@ export default function KioskPage() {
                     )}
                   </div>
                 </div>
-
-                {frontFile && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-slate-500 w-24 shrink-0">Trim Edges:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={35}
-                      value={frontCropPct}
-                      onChange={(e) => setFrontCropPct(Number(e.target.value))}
-                      className="flex-1 accent-indigo-600"
-                    />
-                    <span className="text-[10px] font-mono font-bold text-slate-700 w-8">{frontCropPct}%</span>
-                  </div>
-                )}
               </div>
 
               {/* 2. BACK IMAGE SECTION (For ID Card 2-in-1 or Half-Page 2-per-sheet) */}
-              {(studioLayout === 'id_card' || studioLayout === 'half_a4') && (
+              {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
                 <div className="pt-2.5 border-t border-slate-200 space-y-2">
                   <div className="flex items-center justify-between gap-1">
-                    <span className="font-extrabold text-indigo-950 truncate max-w-[140px]">
+                    <span className="font-extrabold text-indigo-950 truncate max-w-[150px]">
                       2. Back Image {backFile ? `(${backFile.name})` : '(Optional)'}
                     </span>
 
@@ -1455,7 +2113,7 @@ export default function KioskPage() {
                       <button
                         type="button"
                         onClick={() => studioBackInputRef.current?.click()}
-                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
+                        className="min-h-[36px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
                       >
                         <Plus className="w-3 h-3" />
                         <span>{backFile ? 'Change' : 'Add Back Image'}</span>
@@ -1465,20 +2123,22 @@ export default function KioskPage() {
                         <>
                           <button
                             type="button"
-                            onClick={() => setBackRotation((r) => (r + 90) % 360)}
-                            className="px-2 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
+                            onClick={() => setActiveCropSide('back')}
+                            className="min-h-[36px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
                           >
-                            <RotateCw className="w-3 h-3 text-indigo-600" />
-                            <span>Rotate</span>
+                            <Scissors className="w-3 h-3 text-indigo-600" />
+                            <span>Crop</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => {
                               setBackFile(null);
+                              setCroppedBackBlob(null);
                               setBackRotation(0);
                               setBackCropPct(0);
+                              setActiveCropSide('front');
                             }}
-                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
+                            className="min-h-[36px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
                           >
                             <Trash2 className="w-3 h-3" />
                             <span>Remove</span>
@@ -1487,21 +2147,6 @@ export default function KioskPage() {
                       )}
                     </div>
                   </div>
-
-                  {backFile && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-500 w-24 shrink-0">Trim Back:</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={35}
-                        value={backCropPct}
-                        onChange={(e) => setBackCropPct(Number(e.target.value))}
-                        className="flex-1 accent-indigo-600"
-                      />
-                      <span className="text-[10px] font-mono font-bold text-slate-700 w-8">{backCropPct}%</span>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1525,7 +2170,7 @@ export default function KioskPage() {
               <button
                 type="button"
                 onClick={handleDeleteItemFromStudio}
-                className="px-3 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 font-bold rounded-xl text-xs text-rose-700 flex items-center justify-center gap-1"
+                className="min-h-[44px] px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 font-bold rounded-xl text-xs text-rose-700 flex items-center justify-center gap-1"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Delete</span>
@@ -1534,7 +2179,7 @@ export default function KioskPage() {
                 type="button"
                 disabled={applyingStudio || !frontFile}
                 onClick={handleApplyImageStudio}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-black rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5"
+                className="flex-1 min-h-[44px] py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-black rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5"
               >
                 <Check className="w-4 h-4" />
                 <span>{applyingStudio ? 'Creating A4 Sheet...' : 'Apply to 1 A4 Sheet'}</span>
@@ -1565,7 +2210,7 @@ export default function KioskPage() {
               <button
                 type="button"
                 onClick={() => setShowEditConfirmPopup(false)}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-1.5"
+                className="w-full min-h-[44px] py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-1.5"
               >
                 <Check className="w-4 h-4" />
                 <span>Yes, Continue to Final Submit →</span>
@@ -1578,7 +2223,7 @@ export default function KioskPage() {
                   const target = items.find((i) => i.id === lastEditedItemId);
                   if (target) openImageStudio(target);
                 }}
-                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition"
+                className="w-full min-h-[44px] py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition"
               >
                 ← Go Back & Edit More
               </button>
@@ -1610,7 +2255,7 @@ export default function KioskPage() {
                     type="button"
                     disabled={launchingGateway || submittingOrder}
                     onClick={handlePayWithShopGateway}
-                    className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+                    className="w-full min-h-[46px] py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
                   >
                     <Zap className="w-4 h-4" />
                     <span>
@@ -1627,7 +2272,7 @@ export default function KioskPage() {
                 <button
                   type="button"
                   onClick={() => setShowCheckout(false)}
-                  className="w-full py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
+                  className="w-full min-h-[44px] py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
                 >
                   Cancel & Go Back
                 </button>
@@ -1642,11 +2287,21 @@ export default function KioskPage() {
                       className="w-40 h-40 mx-auto rounded-xl border border-slate-200 bg-white p-1.5"
                     />
 
+                    {/* Primary Mobile UPI Deep-Link Button */}
+                    <a
+                      href={upiDeepLink}
+                      className="w-full min-h-[44px] py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Smartphone className="w-4 h-4" />
+                      <span>Pay ₹{formattedAmount} via UPI App</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+
                     <button
                       type="button"
                       onClick={handleDownloadQrForGallery}
                       disabled={savingQr}
-                      className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
+                      className="w-full min-h-[42px] py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>{savingQr ? 'Saving QR...' : 'Save QR & Pay via GPay/PhonePe Gallery'}</span>
@@ -1698,11 +2353,17 @@ export default function KioskPage() {
                   />
                 </div>
 
+                {!shop.auto_print_enabled && (
+                  <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2 leading-tight">
+                    {t.manualVerifyNote}
+                  </p>
+                )}
+
                 <div className="flex gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setShowCheckout(false)}
-                    className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
+                    className="w-1/2 min-h-[44px] py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
                   >
                     Back
                   </button>
@@ -1710,9 +2371,9 @@ export default function KioskPage() {
                     type="button"
                     onClick={() => handleProceedOrder()}
                     disabled={submittingOrder}
-                    className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition"
+                    className="w-1/2 min-h-[44px] py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition"
                   >
-                    {submittingOrder ? 'Verifying...' : 'I Have Paid'}
+                    {submittingOrder ? 'Submitting...' : 'I Have Paid'}
                   </button>
                 </div>
               </div>

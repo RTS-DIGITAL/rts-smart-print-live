@@ -241,6 +241,7 @@ export default function AdminPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [approvingIds, setApprovingIds] = useState<string[]>([]);
   const [pricing, setPricing] = useState<PricingRule[]>([]);
+  const [savedRuleId, setSavedRuleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -469,7 +470,6 @@ export default function AdminPage() {
       if (txRes && txRes.length > 0) {
         setTransactions(txRes as TransactionLedgerRow[]);
       } else if (ordersRes) {
-        // Fallback to active orders if shop_transactions table is empty
         const fallbackTx: TransactionLedgerRow[] = ordersRes.map((o: any) => ({
           id: o.id,
           order_number: o.order_number,
@@ -483,12 +483,44 @@ export default function AdminPage() {
         setTransactions(fallbackTx);
       }
 
+      // Ensure all 6 standard pricing rules exist for every shop (A4 B&W/Color Single & Double, Letter, Legal)
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
         .select('*')
         .eq('shop_id', shopRes.id);
 
-      if (pricingRes) setPricing(pricingRes);
+      const standardRules = [
+        { paper_size: 'A4', is_color: false, is_double_sided: false, price_per_page: 2.0 },
+        { paper_size: 'A4', is_color: false, is_double_sided: true, price_per_page: 3.5 },
+        { paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 },
+        { paper_size: 'A4', is_color: true, is_double_sided: true, price_per_page: 18.0 },
+        { paper_size: 'Letter', is_color: false, is_double_sided: false, price_per_page: 2.0 },
+        { paper_size: 'Legal', is_color: false, is_double_sided: false, price_per_page: 3.0 }
+      ];
+
+      const existing = pricingRes || [];
+      const missingRules = standardRules.filter(
+        (std) =>
+          !existing.some(
+            (ex: any) =>
+              ex.paper_size === std.paper_size &&
+              ex.is_color === std.is_color &&
+              ex.is_double_sided === std.is_double_sided
+          )
+      );
+
+      if (missingRules.length > 0) {
+        await supabase.from('pricing_rules').insert(
+          missingRules.map((r) => ({ ...r, shop_id: shopRes.id }))
+        );
+        const { data: updatedPricing } = await supabase
+          .from('pricing_rules')
+          .select('*')
+          .eq('shop_id', shopRes.id);
+        if (updatedPricing) setPricing(updatedPricing);
+      } else {
+        setPricing(existing);
+      }
 
       const { data: announceData } = await supabase
         .from('site_announcements')
@@ -968,7 +1000,7 @@ export default function AdminPage() {
     }
   };
 
-  // FIXED: Approves ONLY the specific clicked file row by unique `orderRow.id` and locks button immediately
+  // Approves ONLY the specific clicked file row by unique `orderRow.id` and locks button immediately
   const handleApproveOrder = async (orderRow: OrderRow) => {
     if (approvingIds.includes(orderRow.id)) return;
     setApprovingIds((prev) => [...prev, orderRow.id]);
@@ -1022,7 +1054,7 @@ export default function AdminPage() {
     }
   };
 
-  // FIXED: Rejects/Deletes ONLY the specific clicked file row by unique `orderRow.id`
+  // Rejects/Deletes ONLY the specific clicked file row by unique `orderRow.id`
   const handleRejectOrder = async (orderRow: OrderRow) => {
     if (!window.confirm(`Discard file "${orderRow.file_name}" (${orderRow.order_number})?`)) return;
     try {
@@ -1048,8 +1080,17 @@ export default function AdminPage() {
   };
 
   const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
-    await supabase.from('pricing_rules').update({ price_per_page: newPrice }).eq('id', ruleId);
-    loadShopData();
+    if (isNaN(newPrice) || newPrice < 0) return;
+    const { error } = await supabase
+      .from('pricing_rules')
+      .update({ price_per_page: newPrice })
+      .eq('id', ruleId);
+
+    if (!error) {
+      setSavedRuleId(ruleId);
+      setTimeout(() => setSavedRuleId(null), 2000);
+      loadShopData();
+    }
   };
 
   // Instant onBlur save for ID Card 2-in-1 / Cropping Service Rates
@@ -1410,9 +1451,6 @@ export default function AdminPage() {
   const remainingSubscriptionDays = Math.max(0, (shop.subscription_days || 7) - elapsedSubscriptionDays);
   const isSubscriptionExpired = remainingSubscriptionDays <= 0 || shop.subscription_status === 'suspended';
 
-  // =========================================================================
-  // LOGGED-IN SHOP ADMIN DASHBOARD
-  // =========================================================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
@@ -2202,27 +2240,38 @@ export default function AdminPage() {
 
           {/* Pricing Rules + ID Card 2-in-1 Custom Cropping Rate Box */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-emerald-600" />
-              Dynamic Page Rate
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-emerald-600" />
+                Dynamic Page Rate
+              </h2>
+              <span className="text-[10px] text-slate-400">Auto-saves when you change a rate</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-1">
               {pricing.map((rule) => (
                 <div key={rule.id} className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
-                  <span className="text-[11px] font-bold text-slate-700 block">
-                    {rule.paper_size} {rule.is_color ? 'Color' : 'B&W'}
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-700 block">
+                      {rule.paper_size} {rule.is_color ? 'Color' : 'B&W'}
+                    </span>
+                    {savedRuleId === rule.id && (
+                      <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                        ✓ Saved
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[10px] text-slate-400 block">
                     {rule.is_double_sided ? 'Double-sided' : 'Single-sided'}
                   </span>
                   <div className="flex items-center gap-1 pt-1">
                     <span className="text-xs font-bold text-slate-600">₹</span>
                     <input
+                      key={`${rule.id}-${rule.price_per_page}`}
                       type="number"
                       step="0.5"
                       defaultValue={rule.price_per_page}
                       onBlur={(e) => handleUpdatePrice(rule.id, parseFloat(e.target.value))}
-                      className="w-16 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-emerald-500"
+                      className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-emerald-500"
                     />
                   </div>
                 </div>
@@ -2445,9 +2494,7 @@ export default function AdminPage() {
         </div>
       </main>
 
-      {/* ========================================================================= */}
-      {/* FLOATING SHOP ADMIN HELP & LIVE SUPPORT WIDGET (12 FAQs + Live Chat Tab)  */}
-      {/* ========================================================================= */}
+      {/* FLOATING SHOP ADMIN HELP & LIVE SUPPORT WIDGET */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
         {supportOpen && (
           <div className="w-[360px] sm:w-[400px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">

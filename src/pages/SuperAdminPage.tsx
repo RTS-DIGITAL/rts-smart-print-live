@@ -544,7 +544,11 @@ export const SuperAdminPage: React.FC = () => {
       await supabase.from('shop_connector_keys').insert([{ shop_id: newShop.id, pairing_code: uniquePairingCode, is_active: true }]);
       await supabase.from('pricing_rules').insert([
         { shop_id: newShop.id, paper_size: 'A4', is_color: false, is_double_sided: false, price_per_page: 2.0 },
-        { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 }
+        { shop_id: newShop.id, paper_size: 'A4', is_color: false, is_double_sided: true, price_per_page: 3.5 },
+        { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 },
+        { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: true, price_per_page: 18.0 },
+        { shop_id: newShop.id, paper_size: 'Letter', is_color: false, is_double_sided: false, price_per_page: 2.0 },
+        { shop_id: newShop.id, paper_size: 'Legal', is_color: false, is_double_sided: false, price_per_page: 3.0 }
       ]);
       await supabase.from('shop_inquiries').update({ status: 'approved' }).eq('id', inq.id);
       await sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode: uniquePairingCode });
@@ -681,6 +685,8 @@ export const SuperAdminPage: React.FC = () => {
     setModalSaving(true);
     try {
       const cleanPairingCode = (editingShop.pairing_code || '').trim();
+      const isNowActive = editingShop.subscription_status !== 'suspended';
+
       await supabase.from('shops').update({
         name: editingShop.name, phone: editingShop.phone, owner_email: editingShop.owner_email,
         admin_username: editingShop.admin_username, admin_pin: (editingShop.admin_pin || '123456').trim(),
@@ -688,7 +694,9 @@ export const SuperAdminPage: React.FC = () => {
         target_printer_name: (editingShop.target_printer_name || '').trim() || 'Microsoft Print to PDF',
         counter_notice: editingShop.counter_notice, subscription_status: editingShop.subscription_status,
         selected_plan: editingShop.selected_plan, subscription_days: Number(editingShop.subscription_days || 7),
-        auto_delete_hours: Number(editingShop.auto_delete_hours || 24), is_accepting_orders: editingShop.subscription_status !== 'suspended',
+        // Reset approved_at to today when reactivating or extending so countdown starts fresh!
+        approved_at: isNowActive ? new Date().toISOString() : editingShop.approved_at,
+        auto_delete_hours: Number(editingShop.auto_delete_hours || 24), is_accepting_orders: isNowActive,
         download_count: Number(editingShop.download_count ?? 0), max_downloads: Number(editingShop.max_downloads ?? 3),
         download_allowed: Boolean(editingShop.download_allowed ?? true), download_requested: Boolean(editingShop.download_requested ?? false),
         admin_message: editingShop.admin_message?.trim() || null, targeted_message: editingShop.targeted_message?.trim() || null,
@@ -731,7 +739,7 @@ export const SuperAdminPage: React.FC = () => {
   };
 
   // -------------------------------------------------------------------------
-  // NEW: CUSTOMER REVIEW & LIKES MODERATION HANDLERS
+  // CUSTOMER REVIEW & LIKES MODERATION HANDLERS
   // -------------------------------------------------------------------------
   const handleToggleReviewsVisibility = async () => {
     const newState = !showReviewsPublicly;
@@ -764,7 +772,6 @@ export const SuperAdminPage: React.FC = () => {
       fetchAllData();
     } catch (err) { console.error(err); }
   };
-
 
   if (!isAuthenticated) {
     return (
@@ -906,7 +913,7 @@ export const SuperAdminPage: React.FC = () => {
               <span>Statements & Split</span>
             </button>
             
-            {/* NEW: Reviews & Likes Moderation Tab */}
+            {/* Reviews & Likes Moderation Tab */}
             <button
               onClick={() => setActiveTab('reviews')}
               className={`px-4 py-1.5 rounded-xl font-bold transition flex items-center gap-1 ${
@@ -934,12 +941,9 @@ export const SuperAdminPage: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* ========================================================================= */}
-        {/* LIVE CUSTOMER SUPPORT CHAT INBOX (With Auto-Reset Timer & Sound Alert)    */}
-        {/* ========================================================================= */}
+        {/* LIVE CUSTOMER SUPPORT CHAT INBOX */}
         {showLiveChatInbox && (
           <div className="bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-            {/* Dark Teal Header Bar */}
             <div className="bg-gradient-to-r from-[#1a1c4b] via-[#0f3443] to-[#0b3b42] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex flex-wrap items-center gap-2.5">
@@ -955,7 +959,6 @@ export const SuperAdminPage: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {/* Alert Sound Toggle & Test Chime Button */}
                 <button
                   type="button"
                   onClick={() => {
@@ -975,7 +978,6 @@ export const SuperAdminPage: React.FC = () => {
                   <span>{soundEnabled ? 'Sound On' : 'Muted'}</span>
                 </button>
 
-                {/* Customizable Auto-Refresh Timer Selector (5, 10, 15, 20 Min) */}
                 <div className="flex items-center gap-1.5 bg-white/10 border border-white/15 rounded-xl px-2.5 py-1">
                   <Clock className="w-3.5 h-3.5 text-amber-300" />
                   <span className="text-[11px] font-bold text-slate-200">Auto-Reset:</span>
@@ -1011,9 +1013,7 @@ export const SuperAdminPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 2-Column Split Layout */}
             <div className="grid grid-cols-1 md:grid-cols-12 min-h-[380px]">
-              {/* Left Column: Customer List */}
               <div className="md:col-span-4 border-r border-slate-200 bg-slate-50/70 overflow-y-auto max-h-[420px] divide-y divide-slate-200">
                 {supportChats.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-400">
@@ -1077,9 +1077,7 @@ export const SuperAdminPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Right Column: Active Conversation & Reply Input */}
               <div className="md:col-span-8 flex flex-col justify-between bg-white">
-                {/* Top Customer Info Bar */}
                 <div className="px-6 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
                   {activeSupportChat ? (
                     <div>
@@ -1108,7 +1106,6 @@ export const SuperAdminPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Middle Chat History Area */}
                 <div className="p-6 flex-1 overflow-y-auto max-h-[280px] space-y-3 bg-slate-50/40 text-xs">
                   {!activeSupportChat ? (
                     <div className="h-44 flex items-center justify-center text-slate-400 text-xs">
@@ -1144,7 +1141,6 @@ export const SuperAdminPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Bottom Reply Input Bar */}
                 <form
                   onSubmit={handleSendAdminChatReply}
                   className="p-3.5 bg-white border-t border-slate-200 flex items-center gap-3"
@@ -1170,9 +1166,7 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* NEW: PUBLIC REVIEWS & LIKES MODERATION DASHBOARD                          */}
-        {/* ========================================================================= */}
+        {/* PUBLIC REVIEWS & LIKES MODERATION DASHBOARD */}
         {activeTab === 'reviews' && (
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-amber-950/70 via-slate-900 to-amber-950/70 border-2 border-amber-500/40 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
@@ -1201,7 +1195,6 @@ export const SuperAdminPage: React.FC = () => {
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Manual Like & Dislike Controller */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h3 className="text-sm font-black text-white flex items-center gap-2">
                   <ThumbsUp className="w-4 h-4 text-emerald-400" />
@@ -1236,7 +1229,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Pending Reviews Inbox */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h3 className="text-sm font-black text-white flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-amber-400" />
@@ -1276,7 +1268,6 @@ export const SuperAdminPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Published / Approved Reviews Audit */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
               <h3 className="text-sm font-black text-white flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -1312,7 +1303,6 @@ export const SuperAdminPage: React.FC = () => {
 
         {activeTab === 'shops' && (
           <div className="space-y-4">
-            {/* PUBLIC BUSINESS LANDING PAGE OFFER & UPDATE BANNER CONTROLLER */}
             <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-emerald-950/70 border-2 border-emerald-500/40 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
               <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-400 shrink-0">
                 <Sparkles className="w-4 h-4" />
@@ -1346,7 +1336,6 @@ export const SuperAdminPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Global Broadcast Bar (All Shops) */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-lg flex flex-col md:flex-row items-center gap-3">
               <div className="flex items-center gap-2.5 text-xs font-extrabold text-amber-400 shrink-0">
                 <Megaphone className="w-4 h-4" />
@@ -1380,7 +1369,6 @@ export const SuperAdminPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Targeted Individual Shop Notice Box */}
             <div className="bg-slate-900 border border-teal-500/30 rounded-3xl p-4 shadow-lg space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-extrabold text-teal-400">
@@ -1393,7 +1381,6 @@ export const SuperAdminPage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-                {/* Dropdown to auto-fill active shop code */}
                 <div className="md:col-span-3">
                   <select
                     value={targetShopCode}
@@ -1414,7 +1401,6 @@ export const SuperAdminPage: React.FC = () => {
                   </select>
                 </div>
 
-                {/* Manual Shop Code Typing Box */}
                 <div className="md:col-span-2">
                   <input
                     type="text"
@@ -1425,7 +1411,6 @@ export const SuperAdminPage: React.FC = () => {
                   />
                 </div>
 
-                {/* Message Input Box for Particular Shop */}
                 <div className="md:col-span-4">
                   <input
                     type="text"
@@ -1436,7 +1421,6 @@ export const SuperAdminPage: React.FC = () => {
                   />
                 </div>
 
-                {/* Action Buttons: Send, Clear, Delete, Refresh */}
                 <div className="md:col-span-3 flex items-center justify-end gap-1.5">
                   <button
                     type="button"
@@ -1766,7 +1750,6 @@ export const SuperAdminPage: React.FC = () => {
 
         {activeTab === 'pricing' && (
           <div className="space-y-6">
-            {/* PUBLIC BUSINESS LANDING PAGE OFFER & UPDATE BANNER CONTROLLER */}
             <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/40 rounded-3xl p-6 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -1893,7 +1876,6 @@ export const SuperAdminPage: React.FC = () => {
                 ))}
               </div>
 
-              {/* DEDICATED CUSTOMIZE BOX FOR REGISTRATION FORM DROPDOWN */}
               <div className="mt-6 bg-slate-950 p-6 rounded-2xl border border-teal-500/30 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
@@ -1967,12 +1949,8 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* NEW TAB: 30-DAY STATEMENTS, DIRECT vs SPLIT AUDIT & COMING SOON GATEWAY   */}
-        {/* ========================================================================= */}
         {activeTab === 'statements' && (
           <div className="space-y-6">
-            {/* RTS CENTRAL SPLIT GATEWAY MASTER CONTROLLER (COMING SOON / PAUSED MODE) */}
             <div className="bg-gradient-to-r from-teal-950/80 via-slate-900 to-indigo-950/80 border-2 border-teal-500/40 rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
@@ -2034,7 +2012,6 @@ export const SuperAdminPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 30-DAY MULTI-SHOP STATEMENT & AUDIT LEDGER */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
@@ -2062,7 +2039,6 @@ export const SuperAdminPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Filter Bar: Select Shop & Select Period (Today, 7 Days, 30 Days) */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <select
@@ -2099,7 +2075,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 3 Summary KPI Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl">
                   <span className="text-[10px] font-black uppercase text-slate-400 block">
@@ -2138,7 +2113,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Transactions Table */}
               <div className="overflow-x-auto max-h-96 border border-slate-800 rounded-2xl">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-950 text-slate-400 font-bold border-b border-slate-800 sticky top-0">
@@ -2505,18 +2479,46 @@ export const SuperAdminPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-between items-center pt-1 border-t border-emerald-800/30">
-                  <span className="text-[11px] text-slate-400">Total Valid Duration: <strong>{editingShop.subscription_days || 7} Days</strong></span>
-                  <button
-                    type="button"
-                    onClick={() => setEditingShop({ 
-                      ...editingShop, 
-                      subscription_days: (editingShop.subscription_days || 7) + 7 
-                    })}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] transition"
-                  >
-                    + Extend 7 Days
-                  </button>
+                {/* UPDATED: Direct Valid Days Input + Reduce 7 Days + Extend 7 Days */}
+                <div className="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-emerald-800/30">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-400">Valid Days:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={3650}
+                      value={editingShop.subscription_days ?? 7}
+                      onChange={(e) => setEditingShop({
+                        ...editingShop,
+                        subscription_days: Math.max(0, Number(e.target.value))
+                      })}
+                      className="w-16 bg-slate-950 border border-emerald-700 rounded-lg px-2 py-1 text-emerald-400 font-mono font-bold text-center text-xs outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditingShop({ 
+                        ...editingShop, 
+                        subscription_days: Math.max(0, (editingShop.subscription_days || 7) - 7) 
+                      })}
+                      className="px-2.5 py-1 bg-rose-900/70 hover:bg-rose-800 text-rose-200 border border-rose-700/60 rounded-lg font-bold text-[10px] transition"
+                    >
+                      - Reduce 7 Days
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditingShop({ 
+                        ...editingShop, 
+                        subscription_days: (editingShop.subscription_days || 7) + 7 
+                      })}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] transition"
+                    >
+                      + Extend 7 Days
+                    </button>
+                  </div>
                 </div>
               </div>
 

@@ -38,7 +38,13 @@ import {
   FileSpreadsheet,
   Building2,
   CreditCard,
-  Printer
+  Printer,
+  MessageSquare,
+  Star,
+  ThumbsUp,
+  ThumbsDown,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -67,7 +73,6 @@ interface ShopTenant {
   download_requested?: boolean;
   admin_message?: string | null;
   targeted_message?: string | null;
-  // Gateway, Split & 8 PM Statement Fields
   gateway_enabled?: boolean;
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
@@ -89,7 +94,6 @@ interface PlatformPlan {
   trial_days: number;
   badge_text: string;
   is_active: boolean;
-  // Dedicated Form Dropdown Fields
   form_monthly_price?: string;
   form_yearly_price?: string;
   form_trial_days?: string;
@@ -140,6 +144,15 @@ interface ShopTransactionRow {
   created_at: string;
 }
 
+interface ReviewRow {
+  id: string;
+  author_name: string;
+  rating: number;
+  comment_text: string;
+  is_approved: boolean;
+  created_at: string;
+}
+
 const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
@@ -168,16 +181,14 @@ export const SuperAdminPage: React.FC = () => {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'shops' | 'inquiries' | 'pricing' | 'statements'>('shops');
+  const [activeTab, setActiveTab] = useState<'shops' | 'inquiries' | 'pricing' | 'statements' | 'reviews'>('shops');
 
-  // Live Customer Support Chat Inbox States
   const [showLiveChatInbox, setShowLiveChatInbox] = useState(true);
   const [supportChats, setSupportChats] = useState<SupportChatSession[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [adminReplyText, setAdminReplyText] = useState('');
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
 
-  // Customizable Chat Session Timeout (5, 10, 15, 20 minutes) & Alert Sound States
   const [chatTimeoutMinutes, setChatTimeoutMinutes] = useState<number>(10);
   const [savingTimeout, setSavingTimeout] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -190,13 +201,18 @@ export const SuperAdminPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Super Admin Statements & Central Split Controller States
   const [ledgerShopFilter, setLedgerShopFilter] = useState<string>('ALL');
   const [ledgerPeriodFilter, setLedgerPeriodFilter] = useState<'today' | '7days' | '30days'>('30days');
   const [masterSplitPaused, setMasterSplitPaused] = useState<boolean>(true);
   const [masterGatewayProvider, setMasterGatewayProvider] = useState<string>('cashfree');
   const [masterGatewayAppId, setMasterGatewayAppId] = useState<string>('');
   const [dispatchingAllStatements, setDispatchingAllStatements] = useState<boolean>(false);
+
+  // Super Admin Reviews & Likes State
+  const [reviewsList, setReviewsList] = useState<ReviewRow[]>([]);
+  const [likesData, setLikesData] = useState({ likes: 150, dislikes: 2 });
+  const [showReviewsPublicly, setShowReviewsPublicly] = useState<boolean>(true);
+  const [savingLikes, setSavingLikes] = useState(false);
 
   const [editingShop, setEditingShop] = useState<ShopTenant | null>(null);
   const [isCustomPrinterModal, setIsCustomPrinterModal] = useState(false);
@@ -205,17 +221,12 @@ export const SuperAdminPage: React.FC = () => {
 
   const [broadcastText, setBroadcastText] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
-
-  // Public Business Landing Page Offer & Update Box States
   const [landingOfferText, setLandingOfferText] = useState('');
   const [savingLandingOffer, setSavingLandingOffer] = useState(false);
-
-  // Targeted Particular Shop Notice States
   const [targetShopCode, setTargetShopCode] = useState('');
   const [targetShopMessage, setTargetShopMessage] = useState('');
   const [sendingTargeted, setSendingTargeted] = useState(false);
 
-  // Dedicated Form Dropdown Customizer State
   const [formMonthlyPrice, setFormMonthlyPrice] = useState('199');
   const [formYearlyPrice, setFormYearlyPrice] = useState('2,499');
   const [formTrialDays, setFormTrialDays] = useState('7');
@@ -225,31 +236,26 @@ export const SuperAdminPage: React.FC = () => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
 
-  // Built-in Web Audio API Notification Chime (No external MP3 needed)
   const playChatAlertSound = () => {
     if (!soundEnabledRef.current) return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
-
-      // First Chime Note
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
       osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      osc1.frequency.setValueAtTime(880, ctx.currentTime);
       gain1.gain.setValueAtTime(0.25, ctx.currentTime);
       gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
       osc1.connect(gain1);
       gain1.connect(ctx.destination);
       osc1.start();
       osc1.stop(ctx.currentTime + 0.25);
-
-      // Second Higher Chime Note
       const osc2 = ctx.createOscillator();
       const gain2 = ctx.createGain();
       osc2.type = 'sine';
-      osc2.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.16); // D6
+      osc2.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.16);
       gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.16);
       gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
       osc2.connect(gain2);
@@ -261,20 +267,13 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Handler to update Customizable Chat Auto-Refresh Timer (5, 10, 15, 20 Minutes)
   const handleUpdateChatTimeout = async (minutes: number) => {
     setChatTimeoutMinutes(minutes);
     setSavingTimeout(true);
     try {
-      await supabase
-        .from('site_announcements')
-        .upsert({
-          id: 1,
-          chat_timeout_minutes: minutes,
-          updated_at: new Date().toISOString()
-        });
+      await supabase.from('site_announcements').upsert({ id: 1, chat_timeout_minutes: minutes, updated_at: new Date().toISOString() });
     } catch (err) {
-      console.error('Failed to update chat timeout:', err);
+      console.error(err);
     } finally {
       setSavingTimeout(false);
     }
@@ -286,36 +285,23 @@ export const SuperAdminPage: React.FC = () => {
     const currentDate = new Date().getTime();
     const elapsedDays = Math.floor((currentDate - approvalDate) / (1000 * 60 * 60 * 24));
     const remaining = totalDays - elapsedDays;
-    return {
-      days: Math.max(0, remaining),
-      isExpired: remaining <= 0
-    };
+    return { days: Math.max(0, remaining), isExpired: remaining <= 0 };
   };
 
   const sendShopStatusEmail = async (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
     if (!email) return;
-
     if (action === 'approved') {
       try {
         const generatedSlug = details?.slug || shopName.toLowerCase().replace(/[^a-z0-9]/g, '-');
         const generatedCode = details?.pairingCode || 'Check Admin';
-
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'approve',
-            email: email,
-            shopName: shopName,
-            slug: generatedSlug,
-            pairingCode: generatedCode,
-            downloadUrl: AGENT_DOWNLOAD_URL
-          })
+          body: JSON.stringify({ action: 'approve', email, shopName, slug: generatedSlug, pairingCode: generatedCode, downloadUrl: AGENT_DOWNLOAD_URL })
         });
         alert(`📧 Official activation email sent successfully to ${email}!`);
       } catch (err) {
-        console.error('Email dispatch failed:', err);
         alert('Failed to send automated email.');
       }
     } else {
@@ -339,22 +325,13 @@ export const SuperAdminPage: React.FC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const { data: shopsData } = await supabase
-        .from('shops')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: shopsData } = await supabase.from('shops').select('*').order('created_at', { ascending: false });
       if (shopsData) setShops(shopsData);
 
-      const { data: inqData } = await supabase
-        .from('shop_inquiries')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: inqData } = await supabase.from('shop_inquiries').select('*').order('created_at', { ascending: false });
       if (inqData) setInquiries(inqData);
 
-      const { data: plansData } = await supabase
-        .from('platform_plans')
-        .select('*')
-        .order('original_price', { ascending: true });
+      const { data: plansData } = await supabase.from('platform_plans').select('*').order('original_price', { ascending: true });
       if (plansData) {
         setPlans(plansData);
         const mainPlan = plansData[0];
@@ -366,42 +343,25 @@ export const SuperAdminPage: React.FC = () => {
         }
       }
 
-      // Check site_announcements table for Public Business Landing Page message & Chat Timer
-      const { data: announceData } = await supabase
-        .from('site_announcements')
-        .select('message, chat_timeout_minutes')
-        .eq('id', 1)
-        .maybeSingle();
-
+      const { data: announceData } = await supabase.from('site_announcements').select('*').eq('id', 1).maybeSingle();
       if (announceData) {
-        if (typeof announceData.message === 'string') {
-          setLandingOfferText(announceData.message);
-        }
-        if (announceData.chat_timeout_minutes) {
-          setChatTimeoutMinutes(Number(announceData.chat_timeout_minutes));
-        }
+        if (typeof announceData.message === 'string') setLandingOfferText(announceData.message);
+        if (announceData.chat_timeout_minutes) setChatTimeoutMinutes(Number(announceData.chat_timeout_minutes));
+        if (announceData.show_reviews_section !== undefined) setShowReviewsPublicly(announceData.show_reviews_section);
       }
 
-      // Fetch Live Customer Support Chats
-      const { data: chatData } = await supabase
-        .from('support_chats')
-        .select('*')
-        .order('updated_at', { ascending: false });
+      const { data: chatData } = await supabase.from('support_chats').select('*').order('updated_at', { ascending: false });
+      if (chatData) setSupportChats(chatData as SupportChatSession[]);
 
-      if (chatData) {
-        setSupportChats(chatData as SupportChatSession[]);
-      }
+      const { data: txData } = await supabase.from('shop_transactions').select('*').order('created_at', { ascending: false }).limit(1000);
+      if (txData) setAllTransactions(txData as ShopTransactionRow[]);
 
-      // Fetch 30-Day Shop Transactions Ledger across all shops
-      const { data: txData } = await supabase
-        .from('shop_transactions')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(1000);
+      const { data: likesRes } = await supabase.from('site_likes').select('*').eq('id', 1).maybeSingle();
+      if (likesRes) setLikesData({ likes: likesRes.likes_count || 150, dislikes: likesRes.dislikes_count || 2 });
 
-      if (txData) {
-        setAllTransactions(txData as ShopTransactionRow[]);
-      }
+      const { data: revRes } = await supabase.from('site_reviews').select('*').order('created_at', { ascending: false });
+      if (revRes) setReviewsList(revRes as ReviewRow[]);
+
     } catch (err) {
       console.error('SuperAdmin load failed:', err);
     } finally {
@@ -410,48 +370,28 @@ export const SuperAdminPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchAllData();
-    }
+    if (isAuthenticated) fetchAllData();
   }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
     const channel = supabase
-      .channel('superadmin-shops-and-livechat-sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'shops' },
-        () => fetchAllData()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'shop_transactions' },
-        () => fetchAllData()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'support_chats' },
-        (payload) => {
-          // Play Alert Chime whenever a customer starts a new chat or sends a new message (unread_admin = true)
+      .channel('superadmin-shops-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shops' }, () => fetchAllData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shop_transactions' }, () => fetchAllData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'site_reviews' }, () => fetchAllData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_chats' }, (payload) => {
           const newRecord = payload.new as any;
-          if (
-            payload.eventType === 'INSERT' ||
-            (payload.eventType === 'UPDATE' && newRecord?.unread_admin === true)
-          ) {
+          if (payload.eventType === 'INSERT' || (payload.eventType === 'UPDATE' && newRecord?.unread_admin === true)) {
             playChatAlertSound();
           }
           fetchAllData();
-        }
-      )
+      })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [isAuthenticated]);
 
-  // Select a customer conversation from the left list
   const handleSelectCustomerChat = async (chat: SupportChatSession) => {
     setSelectedChatId(chat.id);
     if (chat.unread_admin) {
@@ -460,7 +400,6 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Send Admin Reply live to customer's website chat box + email alert
   const handleSendAdminChatReply = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeChat = supportChats.find(c => c.id === selectedChatId);
@@ -481,30 +420,19 @@ export const SuperAdminPage: React.FC = () => {
     try {
       const { error } = await supabase
         .from('support_chats')
-        .update({
-          messages: updatedMessages,
-          unread_admin: false,
-          updated_at: new Date().toISOString()
-        })
+        .update({ messages: updatedMessages, unread_admin: false, updated_at: new Date().toISOString() })
         .eq('id', activeChat.id);
 
       if (error) throw error;
 
-      // Also dispatch email copy to customer's registered email address if Google Script supports it
       if (activeChat.customer_email) {
         fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'admin_chat_reply',
-            customerName: activeChat.customer_name,
-            customerEmail: activeChat.customer_email,
-            replyMessage: replyText
-          })
+          body: JSON.stringify({ action: 'admin_chat_reply', customerName: activeChat.customer_name, customerEmail: activeChat.customer_email, replyMessage: replyText })
         });
       }
-
       fetchAllData();
     } catch (err: any) {
       alert('Failed to send reply: ' + err.message);
@@ -521,7 +449,6 @@ export const SuperAdminPage: React.FC = () => {
     fetchAllData();
   };
 
-  // Send Consolidated Daily 8:00 PM Statements to All Active Shops
   const handleDispatchAllDailyStatements = async () => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -541,27 +468,17 @@ export const SuperAdminPage: React.FC = () => {
           tx => tx.shop_id === s.id && tx.status !== 'rejected' && new Date(tx.created_at).getTime() >= startOfToday.getTime()
         );
         const totalAmt = shopTxs.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-        const directAmt = shopTxs
-          .filter(r => r.collection_type !== 'SPLIT_SETTLEMENT')
-          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
-        const splitAmt = shopTxs
-          .filter(r => r.collection_type === 'SPLIT_SETTLEMENT')
-          .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const directAmt = shopTxs.filter(r => r.collection_type !== 'SPLIT_SETTLEMENT').reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const splitAmt = shopTxs.filter(r => r.collection_type === 'SPLIT_SETTLEMENT').reduce((sum, r) => sum + Number(r.amount || 0), 0);
 
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'daily_statement',
-            email: s.owner_email,
-            shopName: s.name,
-            pairingCode: s.pairing_code,
-            periodLabel: 'TODAY (8:00 PM DAILY DIGEST)',
-            totalOrders: shopTxs.length,
-            totalAmount: totalAmt.toFixed(2),
-            directShopAmount: directAmt.toFixed(2),
-            splitSettlementAmount: splitAmt.toFixed(2)
+            action: 'daily_statement', email: s.owner_email, shopName: s.name, pairingCode: s.pairing_code,
+            periodLabel: 'TODAY (8:00 PM DAILY DIGEST)', totalOrders: shopTxs.length, totalAmount: totalAmt.toFixed(2),
+            directShopAmount: directAmt.toFixed(2), splitSettlementAmount: splitAmt.toFixed(2)
           })
         });
       }
@@ -577,112 +494,59 @@ export const SuperAdminPage: React.FC = () => {
     const savedPrinter = shop.target_printer_name || 'Microsoft Print to PDF';
     setIsCustomPrinterModal(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
     setEditingShop({
-      ...shop,
-      upi_name: shop.upi_name ?? '',
-      target_printer_name: savedPrinter,
-      download_count: shop.download_count ?? 0,
-      max_downloads: shop.max_downloads ?? 3,
-      download_allowed: shop.download_allowed ?? true,
-      download_requested: shop.download_requested ?? false,
-      admin_message: shop.admin_message ?? '',
-      targeted_message: shop.targeted_message ?? '',
-      gateway_enabled: shop.gateway_enabled ?? false,
-      gateway_provider: shop.gateway_provider ?? 'razorpay',
-      gateway_key_id: shop.gateway_key_id ?? '',
-      gateway_key_secret: shop.gateway_key_secret ?? '',
-      split_payment_enabled: shop.split_payment_enabled ?? false,
-      bank_account_name: shop.bank_account_name ?? '',
-      bank_account_number: shop.bank_account_number ?? '',
-      bank_ifsc: shop.bank_ifsc ?? '',
+      ...shop, upi_name: shop.upi_name ?? '', target_printer_name: savedPrinter,
+      download_count: shop.download_count ?? 0, max_downloads: shop.max_downloads ?? 3,
+      download_allowed: shop.download_allowed ?? true, download_requested: shop.download_requested ?? false,
+      admin_message: shop.admin_message ?? '', targeted_message: shop.targeted_message ?? '',
+      gateway_enabled: shop.gateway_enabled ?? false, gateway_provider: shop.gateway_provider ?? 'razorpay',
+      gateway_key_id: shop.gateway_key_id ?? '', gateway_key_secret: shop.gateway_key_secret ?? '',
+      split_payment_enabled: shop.split_payment_enabled ?? false, bank_account_name: shop.bank_account_name ?? '',
+      bank_account_number: shop.bank_account_number ?? '', bank_ifsc: shop.bank_ifsc ?? '',
       daily_statement_enabled: shop.daily_statement_enabled ?? true
     });
   };
 
   const getWhatsAppKitLink = (inq: Inquiry) => {
-    const slug = inq.business_name
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-
+    const slug = inq.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     const existingShop = shops.find(s => s.slug === slug || s.name.toLowerCase() === inq.business_name.toLowerCase());
     const pairingCode = existingShop?.pairing_code || 'Check Admin';
-
     const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-
     const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rtsprint.online/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rtsprint.online/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Reliable Technology Services (info@rtsdigitalseva.online)_`;
-
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
 
   const handleApproveAndCreateShop = async (inq: Inquiry) => {
     if (!window.confirm(`Approve ${inq.business_name} and generate counter station?`)) return;
     setApprovingInquiryId(inq.id);
-
     try {
-      const slug = inq.business_name
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '') || `shop-${Math.floor(1000 + Math.random() * 9000)}`;
-
+      const slug = inq.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || `shop-${Math.floor(1000 + Math.random() * 9000)}`;
       const uniquePairingCode = Math.floor(100000 + Math.random() * 900000).toString();
       const shortUsername = slug.split('-')[0] || slug;
-
       const initialDays = inq.selected_plan === 'trial_14' ? 14 : inq.selected_plan === 'yearly' ? 365 : 7;
 
       const { data: newShop, error: shopErr } = await supabase
         .from('shops')
-        .insert([
-          {
-            name: inq.business_name,
-            slug: slug,
-            phone: inq.phone,
-            owner_email: inq.email,
-            subscription_status: 'trial',
-            selected_plan: inq.selected_plan || 'starter_monthly',
-            subscription_days: initialDays,
-            is_accepting_orders: true,
-            require_payment: false,
-            target_printer_name: inq.printer_model || 'Microsoft Print to PDF',
-            counter_notice: 'Please collect your prints at the counter',
-            auto_delete_hours: 24,
-            is_pin_protected: false,
-            auto_print_enabled: true,
-            pairing_code: uniquePairingCode,
-            admin_username: shortUsername,
-            admin_pin: '123456',
-            approved_at: new Date().toISOString(),
-            download_count: 0,
-            max_downloads: 3,
-            download_allowed: true,
-            download_requested: false
-          }
-        ])
-        .select()
-        .single();
+        .insert([{
+          name: inq.business_name, slug: slug, phone: inq.phone, owner_email: inq.email,
+          subscription_status: 'trial', selected_plan: inq.selected_plan || 'starter_monthly',
+          subscription_days: initialDays, is_accepting_orders: true, require_payment: false,
+          target_printer_name: inq.printer_model || 'Microsoft Print to PDF',
+          counter_notice: 'Please collect your prints at the counter', auto_delete_hours: 24,
+          is_pin_protected: false, auto_print_enabled: true, pairing_code: uniquePairingCode,
+          admin_username: shortUsername, admin_pin: '123456', approved_at: new Date().toISOString(),
+          download_count: 0, max_downloads: 3, download_allowed: true, download_requested: false
+        }])
+        .select().single();
 
       if (shopErr) throw shopErr;
 
-      await supabase.from('shop_connector_keys').insert([
-        {
-          shop_id: newShop.id,
-          pairing_code: uniquePairingCode,
-          is_active: true
-        }
-      ]);
-
+      await supabase.from('shop_connector_keys').insert([{ shop_id: newShop.id, pairing_code: uniquePairingCode, is_active: true }]);
       await supabase.from('pricing_rules').insert([
         { shop_id: newShop.id, paper_size: 'A4', is_color: false, is_double_sided: false, price_per_page: 2.0 },
         { shop_id: newShop.id, paper_size: 'A4', is_color: true, is_double_sided: false, price_per_page: 10.0 }
       ]);
-
-      await supabase
-        .from('shop_inquiries')
-        .update({ status: 'approved' })
-        .eq('id', inq.id);
-
+      await supabase.from('shop_inquiries').update({ status: 'approved' }).eq('id', inq.id);
       await sendShopStatusEmail(inq.email, inq.business_name, 'approved', { slug, pairingCode: uniquePairingCode });
 
       alert(`🎉 Shop created successfully!\nSlug: /shop/${slug}\nPairing Code: ${uniquePairingCode}\nLogin ID: ${shortUsername}`);
@@ -697,16 +561,7 @@ export const SuperAdminPage: React.FC = () => {
 
   const handleQuickUnlockDownload = async (shop: ShopTenant) => {
     try {
-      const { error } = await supabase
-        .from('shops')
-        .update({
-          download_count: 0,
-          download_allowed: true,
-          download_requested: false
-        })
-        .eq('id', shop.id);
-
-      if (error) throw error;
+      await supabase.from('shops').update({ download_count: 0, download_allowed: true, download_requested: false }).eq('id', shop.id);
       alert(`✅ Software download unlocked and reset (0/${shop.max_downloads || 3}) for ${shop.name}!`);
       fetchAllData();
     } catch (err: any) {
@@ -714,36 +569,17 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Handler to update Public Business Landing Page Offer & Update Box
   const handleSaveLandingAnnouncement = async (clear: boolean = false) => {
     const msgToSave = clear ? '' : landingOfferText.trim();
-    if (!clear && !msgToSave) {
-      alert('Please type an offer or update message for the Business Landing Page.');
-      return;
-    }
-
+    if (!clear && !msgToSave) { alert('Please type an offer or update message for the Business Landing Page.'); return; }
     setSavingLandingOffer(true);
     try {
-      // 1. Upsert into site_announcements (row id = 1)
-      await supabase
-        .from('site_announcements')
-        .upsert({ id: 1, message: msgToSave || null, updated_at: new Date().toISOString() });
-
-      // 2. Also update platform_plans.landing_message as real-time fallback
+      await supabase.from('site_announcements').upsert({ id: 1, message: msgToSave || null, updated_at: new Date().toISOString() });
       if (plans.length > 0) {
-        const planIds = plans.map(p => p.id);
-        await supabase
-          .from('platform_plans')
-          .update({ landing_message: msgToSave || null })
-          .in('id', planIds);
+        await supabase.from('platform_plans').update({ landing_message: msgToSave || null }).in('id', plans.map(p => p.id));
       }
-
       if (clear) setLandingOfferText('');
-      alert(
-        clear
-          ? '🗑️ Offer/Update message removed from the Public Business Landing Page!'
-          : '🚀 Offer/Update message published live on the Business Landing Page!'
-      );
+      alert(clear ? '🗑️ Offer/Update message removed from the Public Business Landing Page!' : '🚀 Offer/Update message published live on the Business Landing Page!');
       fetchAllData();
     } catch (err: any) {
       alert('Failed to update Business Page offer message: ' + err.message);
@@ -754,21 +590,12 @@ export const SuperAdminPage: React.FC = () => {
 
   const handleSendGlobalBroadcast = async (clear: boolean = false) => {
     const messageToSend = clear ? null : broadcastText.trim();
-    if (!clear && !messageToSend) {
-      alert('Please enter a message to broadcast to all shops.');
-      return;
-    }
+    if (!clear && !messageToSend) { alert('Please enter a message to broadcast to all shops.'); return; }
     if (!window.confirm(clear ? 'Clear broadcast notice from all shops?' : `Send this notice to ALL ${shops.length} shops?`)) return;
-
     setSendingBroadcast(true);
     try {
-      const shopIds = shops.map(s => s.id);
-      if (shopIds.length > 0) {
-        const { error } = await supabase
-          .from('shops')
-          .update({ admin_message: messageToSend })
-          .in('id', shopIds);
-        if (error) throw error;
+      if (shops.length > 0) {
+        await supabase.from('shops').update({ admin_message: messageToSend }).in('id', shops.map(s => s.id));
       }
       if (clear) setBroadcastText('');
       alert(clear ? 'Broadcast notice cleared from all shops!' : '📢 Important notice sent to all shop admin panels!');
@@ -780,43 +607,17 @@ export const SuperAdminPage: React.FC = () => {
     }
   };
 
-  // Handler to send message to a specific shop code/pairing code
   const handleSendTargetedNotice = async (clear: boolean = false) => {
     const messageToSend = clear ? null : targetShopMessage.trim();
-    if (!targetShopCode) {
-      alert('Please select or enter a shop pairing code or ID.');
-      return;
-    }
-    if (!clear && !messageToSend) {
-      alert('Please enter a message to send to this shop.');
-      return;
-    }
-
+    if (!targetShopCode) { alert('Please select or enter a shop pairing code or ID.'); return; }
+    if (!clear && !messageToSend) { alert('Please enter a message to send to this shop.'); return; }
     setSendingTargeted(true);
     try {
-      const targetShop = shops.find(
-        s => s.pairing_code === targetShopCode || s.slug === targetShopCode || s.id === targetShopCode || s.admin_username === targetShopCode
-      );
-
-      if (!targetShop) {
-        alert('Shop not found with code: ' + targetShopCode);
-        setSendingTargeted(false);
-        return;
-      }
-
-      const { error } = await supabase
-        .from('shops')
-        .update({ targeted_message: messageToSend })
-        .eq('id', targetShop.id);
-
-      if (error) throw error;
-
+      const targetShop = shops.find(s => s.pairing_code === targetShopCode || s.slug === targetShopCode || s.id === targetShopCode || s.admin_username === targetShopCode);
+      if (!targetShop) { alert('Shop not found with code: ' + targetShopCode); setSendingTargeted(false); return; }
+      await supabase.from('shops').update({ targeted_message: messageToSend }).eq('id', targetShop.id);
       if (clear) setTargetShopMessage('');
-      alert(
-        clear
-          ? `🗑️ Targeted notice deleted/cleared for ${targetShop.name} (${targetShop.pairing_code})!`
-          : `🎯 Targeted notice sent to ${targetShop.name} (${targetShop.pairing_code})!`
-      );
+      alert(clear ? `🗑️ Targeted notice deleted/cleared for ${targetShop.name} (${targetShop.pairing_code})!` : `🎯 Targeted notice sent to ${targetShop.name} (${targetShop.pairing_code})!`);
       fetchAllData();
     } catch (err: any) {
       alert('Failed to send targeted notice: ' + err.message);
@@ -827,26 +628,12 @@ export const SuperAdminPage: React.FC = () => {
 
   const handleDeleteShop = async (shop: ShopTenant) => {
     const confirmation = window.prompt(`⚠️ PERMANENT DELETE\n\nType the shop name "${shop.name}" to delete this store, all files, and inquiries:`);
-    if (confirmation !== shop.name) {
-      if (confirmation !== null) alert('Shop name did not match. Deletion cancelled.');
-      return;
-    }
-
+    if (confirmation !== shop.name) return;
     try {
       const { data: files } = await supabase.storage.from('print-files').list(shop.id);
-      if (files && files.length > 0) {
-        const filePaths = files.map(f => `${shop.id}/${f.name}`);
-        await supabase.storage.from('print-files').remove(filePaths);
-      }
-
-      await supabase
-        .from('shop_inquiries')
-        .delete()
-        .or(`business_name.ilike.%${shop.name}%,email.eq.${shop.owner_email || ''}`);
-
-      const { error } = await supabase.from('shops').delete().eq('id', shop.id);
-      if (error) throw error;
-
+      if (files && files.length > 0) await supabase.storage.from('print-files').remove(files.map(f => `${shop.id}/${f.name}`));
+      await supabase.from('shop_inquiries').delete().or(`business_name.ilike.%${shop.name}%,email.eq.${shop.owner_email || ''}`);
+      await supabase.from('shops').delete().eq('id', shop.id);
       alert(`Shop "${shop.name}" and associated inquiries were permanently deleted.`);
       fetchAllData();
     } catch (err: any) {
@@ -857,8 +644,7 @@ export const SuperAdminPage: React.FC = () => {
   const handleDeleteInquiry = async (inq: Inquiry) => {
     if (!window.confirm(`Delete inquiry for "${inq.business_name}"?`)) return;
     try {
-      const { error } = await supabase.from('shop_inquiries').delete().eq('id', inq.id);
-      if (error) throw error;
+      await supabase.from('shop_inquiries').delete().eq('id', inq.id);
       fetchAllData();
     } catch (err: any) {
       alert('Failed to delete inquiry: ' + err.message);
@@ -868,15 +654,8 @@ export const SuperAdminPage: React.FC = () => {
   const handleSuspendShop = async (shop: ShopTenant) => {
     if (!window.confirm(`Suspend ${shop.name}? Customer kiosk will be paused.`)) return;
     try {
-      await supabase
-        .from('shops')
-        .update({ subscription_status: 'suspended', is_accepting_orders: false })
-        .eq('id', shop.id);
-
-      if (shop.owner_email) {
-        sendShopStatusEmail(shop.owner_email, shop.name, 'suspended');
-      }
-
+      await supabase.from('shops').update({ subscription_status: 'suspended', is_accepting_orders: false }).eq('id', shop.id);
+      if (shop.owner_email) sendShopStatusEmail(shop.owner_email, shop.name, 'suspended');
       alert(`${shop.name} has been suspended.`);
       fetchAllData();
     } catch (err: any) {
@@ -887,19 +666,8 @@ export const SuperAdminPage: React.FC = () => {
   const handleReactivateShop = async (shop: ShopTenant) => {
     if (!window.confirm(`Re-approve and activate ${shop.name}?`)) return;
     try {
-      await supabase
-        .from('shops')
-        .update({ 
-          subscription_status: 'active', 
-          is_accepting_orders: true,
-          approved_at: new Date().toISOString()
-        })
-        .eq('id', shop.id);
-
-      if (shop.owner_email) {
-        sendShopStatusEmail(shop.owner_email, shop.name, 'reactivated');
-      }
-
+      await supabase.from('shops').update({ subscription_status: 'active', is_accepting_orders: true, approved_at: new Date().toISOString() }).eq('id', shop.id);
+      if (shop.owner_email) sendShopStatusEmail(shop.owner_email, shop.name, 'reactivated');
       alert(`${shop.name} has been reactivated successfully!`);
       fetchAllData();
     } catch (err: any) {
@@ -913,53 +681,27 @@ export const SuperAdminPage: React.FC = () => {
     setModalSaving(true);
     try {
       const cleanPairingCode = (editingShop.pairing_code || '').trim();
-      const cleanPrinter = (editingShop.target_printer_name || '').trim() || 'Microsoft Print to PDF';
-
-      const { error } = await supabase
-        .from('shops')
-        .update({
-          name: editingShop.name,
-          phone: editingShop.phone,
-          owner_email: editingShop.owner_email,
-          admin_username: editingShop.admin_username,
-          admin_pin: editingShop.admin_pin,
-          pairing_code: cleanPairingCode,
-          upi_id: editingShop.upi_id?.trim() || null,
-          upi_name: editingShop.upi_name?.trim() || null,
-          target_printer_name: cleanPrinter,
-          counter_notice: editingShop.counter_notice,
-          subscription_status: editingShop.subscription_status,
-          selected_plan: editingShop.selected_plan,
-          subscription_days: Number(editingShop.subscription_days || 7),
-          auto_delete_hours: Number(editingShop.auto_delete_hours || 24),
-          is_accepting_orders: editingShop.subscription_status !== 'suspended',
-          download_count: Number(editingShop.download_count ?? 0),
-          max_downloads: Number(editingShop.max_downloads ?? 3),
-          download_allowed: Boolean(editingShop.download_allowed ?? true),
-          download_requested: Boolean(editingShop.download_requested ?? false),
-          admin_message: editingShop.admin_message?.trim() || null,
-          targeted_message: editingShop.targeted_message?.trim() || null,
-          gateway_enabled: Boolean(editingShop.gateway_enabled ?? false),
-          gateway_provider: editingShop.gateway_provider || 'razorpay',
-          gateway_key_id: editingShop.gateway_key_id?.trim() || null,
-          gateway_key_secret: editingShop.gateway_key_secret?.trim() || null,
-          split_payment_enabled: Boolean(editingShop.split_payment_enabled ?? false),
-          bank_account_name: editingShop.bank_account_name?.trim() || null,
-          bank_account_number: editingShop.bank_account_number?.trim() || null,
-          bank_ifsc: editingShop.bank_ifsc?.toUpperCase().trim() || null,
-          daily_statement_enabled: Boolean(editingShop.daily_statement_enabled ?? true)
-        })
-        .eq('id', editingShop.id);
-
-      if (error) throw error;
+      await supabase.from('shops').update({
+        name: editingShop.name, phone: editingShop.phone, owner_email: editingShop.owner_email,
+        admin_username: editingShop.admin_username, admin_pin: (editingShop.admin_pin || '123456').trim(),
+        pairing_code: cleanPairingCode, upi_id: editingShop.upi_id?.trim() || null, upi_name: editingShop.upi_name?.trim() || null,
+        target_printer_name: (editingShop.target_printer_name || '').trim() || 'Microsoft Print to PDF',
+        counter_notice: editingShop.counter_notice, subscription_status: editingShop.subscription_status,
+        selected_plan: editingShop.selected_plan, subscription_days: Number(editingShop.subscription_days || 7),
+        auto_delete_hours: Number(editingShop.auto_delete_hours || 24), is_accepting_orders: editingShop.subscription_status !== 'suspended',
+        download_count: Number(editingShop.download_count ?? 0), max_downloads: Number(editingShop.max_downloads ?? 3),
+        download_allowed: Boolean(editingShop.download_allowed ?? true), download_requested: Boolean(editingShop.download_requested ?? false),
+        admin_message: editingShop.admin_message?.trim() || null, targeted_message: editingShop.targeted_message?.trim() || null,
+        gateway_enabled: Boolean(editingShop.gateway_enabled ?? false), gateway_provider: editingShop.gateway_provider || 'razorpay',
+        gateway_key_id: editingShop.gateway_key_id?.trim() || null, gateway_key_secret: editingShop.gateway_key_secret?.trim() || null,
+        split_payment_enabled: Boolean(editingShop.split_payment_enabled ?? false), bank_account_name: editingShop.bank_account_name?.trim() || null,
+        bank_account_number: editingShop.bank_account_number?.trim() || null, bank_ifsc: editingShop.bank_ifsc?.toUpperCase().trim() || null,
+        daily_statement_enabled: Boolean(editingShop.daily_statement_enabled ?? true)
+      }).eq('id', editingShop.id);
 
       if (cleanPairingCode) {
-        await supabase
-          .from('shop_connector_keys')
-          .update({ pairing_code: cleanPairingCode })
-          .eq('shop_id', editingShop.id);
+        await supabase.from('shop_connector_keys').update({ pairing_code: cleanPairingCode }).eq('shop_id', editingShop.id);
       }
-
       setEditingShop(null);
       fetchAllData();
     } catch (err: any) {
@@ -970,25 +712,14 @@ export const SuperAdminPage: React.FC = () => {
   };
 
   const handleUpdatePlan = async (planId: string, updates: Partial<PlatformPlan>) => {
-    try {
-      await supabase.from('platform_plans').update(updates).eq('id', planId);
-      fetchAllData();
-    } catch (err: any) {
-      alert('Failed to update plan: ' + err.message);
-    }
+    try { await supabase.from('platform_plans').update(updates).eq('id', planId); fetchAllData(); } catch (err: any) { alert('Failed to update plan: ' + err.message); }
   };
 
-  // Save Custom Form Dropdown Pricing Settings across platform plans
   const handleSaveFormPricing = async () => {
     setFormPricingSaving(true);
     try {
       for (const p of plans) {
-        await supabase.from('platform_plans').update({
-          form_monthly_price: formMonthlyPrice,
-          form_yearly_price: formYearlyPrice,
-          form_trial_days: formTrialDays,
-          trial_days: Number(formTrialDays || 7)
-        }).eq('id', p.id);
+        await supabase.from('platform_plans').update({ form_monthly_price: formMonthlyPrice, form_yearly_price: formYearlyPrice, form_trial_days: formTrialDays, trial_days: Number(formTrialDays || 7) }).eq('id', p.id);
       }
       alert('✅ Registration form dropdown pricing updated successfully!');
       fetchAllData();
@@ -998,6 +729,42 @@ export const SuperAdminPage: React.FC = () => {
       setFormPricingSaving(false);
     }
   };
+
+  // -------------------------------------------------------------------------
+  // NEW: CUSTOMER REVIEW & LIKES MODERATION HANDLERS
+  // -------------------------------------------------------------------------
+  const handleToggleReviewsVisibility = async () => {
+    const newState = !showReviewsPublicly;
+    setShowReviewsPublicly(newState);
+    try {
+      await supabase.from('site_announcements').upsert({ id: 1, show_reviews_section: newState });
+    } catch (err) { console.error(err); }
+  };
+
+  const handleUpdateLikes = async (field: 'likes' | 'dislikes', val: number) => {
+    setSavingLikes(true);
+    const newLikesData = { ...likesData, [field]: val };
+    setLikesData(newLikesData);
+    try {
+      await supabase.from('site_likes').upsert({ id: 1, likes_count: newLikesData.likes, dislikes_count: newLikesData.dislikes });
+    } catch (err) { console.error(err); } finally { setSavingLikes(false); }
+  };
+
+  const handleApproveReview = async (id: string) => {
+    try {
+      await supabase.from('site_reviews').update({ is_approved: true }).eq('id', id);
+      fetchAllData();
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteReview = async (id: string) => {
+    if (!window.confirm("Delete this review completely?")) return;
+    try {
+      await supabase.from('site_reviews').delete().eq('id', id);
+      fetchAllData();
+    } catch (err) { console.error(err); }
+  };
+
 
   if (!isAuthenticated) {
     return (
@@ -1042,28 +809,24 @@ export const SuperAdminPage: React.FC = () => {
   const unreadChatCount = supportChats.filter(c => c.unread_admin).length;
   const activeSupportChat = supportChats.find(c => c.id === selectedChatId) || null;
 
-  // Filter Super Admin Transactions Ledger
   const filteredAdminTransactions = allTransactions.filter((tx) => {
     if (tx.status === 'rejected') return false;
     if (ledgerShopFilter !== 'ALL' && tx.shop_id !== ledgerShopFilter) return false;
-
     const txTime = new Date(tx.created_at).getTime();
     const now = Date.now();
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-
     if (ledgerPeriodFilter === 'today') return txTime >= startOfToday.getTime();
     if (ledgerPeriodFilter === '7days') return txTime >= now - 7 * 24 * 60 * 60 * 1000;
     return txTime >= now - 30 * 24 * 60 * 60 * 1000;
   });
 
   const adminTotalGross = filteredAdminTransactions.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const adminDirectShopTotal = filteredAdminTransactions
-    .filter(r => r.collection_type !== 'SPLIT_SETTLEMENT')
-    .reduce((s, r) => s + Number(r.amount || 0), 0);
-  const adminSplitSettlementTotal = filteredAdminTransactions
-    .filter(r => r.collection_type === 'SPLIT_SETTLEMENT')
-    .reduce((s, r) => s + Number(r.amount || 0), 0);
+  const adminDirectShopTotal = filteredAdminTransactions.filter(r => r.collection_type !== 'SPLIT_SETTLEMENT').reduce((s, r) => s + Number(r.amount || 0), 0);
+  const adminSplitSettlementTotal = filteredAdminTransactions.filter(r => r.collection_type === 'SPLIT_SETTLEMENT').reduce((s, r) => s + Number(r.amount || 0), 0);
+
+  const pendingReviews = reviewsList.filter(r => !r.is_approved);
+  const approvedReviews = reviewsList.filter(r => r.is_approved);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-16">
@@ -1131,7 +894,7 @@ export const SuperAdminPage: React.FC = () => {
                 activeTab === 'pricing' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Pricing & Offers ({plans.length})
+              Pricing ({plans.length})
             </button>
             <button
               onClick={() => setActiveTab('statements')}
@@ -1141,6 +904,22 @@ export const SuperAdminPage: React.FC = () => {
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Statements & Split</span>
+            </button>
+            
+            {/* NEW: Reviews & Likes Moderation Tab */}
+            <button
+              onClick={() => setActiveTab('reviews')}
+              className={`px-4 py-1.5 rounded-xl font-bold transition flex items-center gap-1 ${
+                activeTab === 'reviews' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Star className="w-3.5 h-3.5" />
+              <span>Reviews & Likes</span>
+              {pendingReviews.length > 0 && (
+                <span className="ml-1 bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full text-[9px] font-black">
+                  {pendingReviews.length}
+                </span>
+              )}
             </button>
           </div>
 
@@ -1386,6 +1165,146 @@ export const SuperAdminPage: React.FC = () => {
                     {sendingAdminReply ? 'Sending...' : 'Send Reply →'}
                   </button>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* NEW: PUBLIC REVIEWS & LIKES MODERATION DASHBOARD                          */}
+        {/* ========================================================================= */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-amber-950/70 via-slate-900 to-amber-950/70 border-2 border-amber-500/40 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+              <div>
+                <h2 className="text-lg font-black text-white flex items-center gap-2">
+                  <Star className="w-5 h-5 text-amber-400" />
+                  Public Landing Page Reviews & Moderation
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Control what customers see on the Business Page. You can manually adjust likes/dislikes, approve positive reviews, delete bad ones, and completely hide the section if needed.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleToggleReviewsVisibility}
+                className={`px-4 py-2.5 rounded-xl font-black text-xs transition flex items-center gap-2 border ${
+                  showReviewsPublicly
+                    ? 'bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-500 shadow-lg shadow-emerald-500/20'
+                    : 'bg-rose-950/60 text-rose-400 border-rose-800 hover:bg-rose-900'
+                }`}
+              >
+                {showReviewsPublicly ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                <span>{showReviewsPublicly ? 'Section is VISIBLE to Public' : 'Section is HIDDEN from Public'}</span>
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Manual Like & Dislike Controller */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                  <ThumbsUp className="w-4 h-4 text-emerald-400" />
+                  Manual Likes & Dislikes Override
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Override the counts displayed on the landing page manually to combat spam dislikes.
+                </p>
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1 flex items-center gap-1">
+                      <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" /> Total Likes
+                    </label>
+                    <input
+                      type="number"
+                      value={likesData.likes}
+                      onChange={(e) => handleUpdateLikes('likes', Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1 flex items-center gap-1">
+                      <ThumbsDown className="w-3.5 h-3.5 text-rose-400" /> Total Dislikes
+                    </label>
+                    <input
+                      type="number"
+                      value={likesData.dislikes}
+                      onChange={(e) => handleUpdateLikes('dislikes', Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-rose-400 font-mono font-bold outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Pending Reviews Inbox */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-amber-400" />
+                  Pending Approval Inbox ({pendingReviews.length})
+                </h3>
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                  {pendingReviews.length === 0 ? (
+                    <div className="text-center py-6 text-slate-500 text-xs">No pending reviews.</div>
+                  ) : (
+                    pendingReviews.map((rev) => (
+                      <div key={rev.id} className="bg-amber-950/20 border border-amber-500/30 p-3.5 rounded-2xl">
+                        <div className="flex justify-between items-start">
+                          <span className="font-extrabold text-white text-xs">{rev.author_name}</span>
+                          <span className="text-amber-400 text-[10px] font-black">{'⭐'.repeat(rev.rating)}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 mt-1 italic">"{rev.comment_text}"</p>
+                        <div className="flex gap-2 justify-end mt-2 pt-2 border-t border-amber-500/20">
+                          <button
+                            type="button"
+                            onClick={() => handleApproveReview(rev.id)}
+                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold transition flex items-center gap-1"
+                          >
+                            <Check className="w-3 h-3" /> Approve & Publish
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReview(rev.id)}
+                            className="px-2 py-1 bg-rose-950/60 hover:bg-rose-900 text-rose-400 rounded-lg text-[10px] font-bold transition"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Published / Approved Reviews Audit */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                Live / Approved Reviews on Landing Page ({approvedReviews.length})
+              </h3>
+              <div className="grid md:grid-cols-3 gap-4">
+                {approvedReviews.map((rev) => (
+                  <div key={rev.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                    <div className="flex justify-between items-start">
+                      <span className="font-extrabold text-white text-xs">{rev.author_name}</span>
+                      <span className="text-amber-400 text-[9px] font-black">{'⭐'.repeat(rev.rating)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1 italic">"{rev.comment_text}"</p>
+                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800">
+                      <span className="text-[9px] text-slate-500 font-mono">
+                        {new Date(rev.created_at).toLocaleDateString()}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteReview(rev.id)}
+                        className="p-1 text-rose-400 hover:text-rose-300 transition"
+                        title="Delete Published Review"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

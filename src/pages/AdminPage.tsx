@@ -238,6 +238,7 @@ export default function AdminPage() {
 
   const [shop, setShop] = useState<ShopData | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [pricing, setPricing] = useState<PricingRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -364,6 +365,21 @@ export default function AdminPage() {
         .single();
 
       if (shopErr || !shopRes) throw new Error('Shop not found');
+
+      // Auto-check subscription countdown and pause kiosk if 0 days left
+      const approvalDate = shopRes.approved_at
+        ? new Date(shopRes.approved_at).getTime()
+        : new Date(shopRes.created_at || Date.now()).getTime();
+      const elapsedDays = Math.floor((Date.now() - approvalDate) / (1000 * 60 * 60 * 24));
+      const remainingDays = Math.max(0, (shopRes.subscription_days || 7) - elapsedDays);
+
+      if (remainingDays <= 0 && shopRes.is_accepting_orders) {
+        await supabase
+          .from('shops')
+          .update({ is_accepting_orders: false })
+          .eq('id', shopRes.id);
+        shopRes.is_accepting_orders = false;
+      }
 
       // 1. Automatic Storage & Queue Purge (1h, 4h, 12h, 24h)
       const retentionHours = shopRes.auto_delete_hours || 1;
@@ -951,44 +967,78 @@ export default function AdminPage() {
     }
   };
 
-  const handleApproveOrder = async (orderNumber: string) => {
+  // FIXED: Approves ONLY the specific clicked file row by unique `orderRow.id` (instead of all files sharing order_number)
+  const handleApproveOrder = async (orderRow: OrderRow) => {
     try {
-      const target = orders.find((o) => o.order_number === orderNumber);
-      await supabase.from('print_orders').update({ status: 'paid' }).eq('order_number', orderNumber);
+      await supabase
+        .from('print_orders')
+        .update({ status: 'paid' })
+        .eq('id', orderRow.id);
 
       // Record into 30-day lightweight transaction ledger
-      if (shop && target) {
+      if (shop) {
         await supabase.from('shop_transactions').insert([
           {
             shop_id: shop.id,
-            order_number: orderNumber,
-            amount: Number(target.total_amount || 0),
-            payment_mode: target.payment_ref === 'CASH_AT_COUNTER' ? 'CASH' : gatewayEnabled ? gatewayProvider.toUpperCase() : 'UPI',
+            order_number: orderRow.order_number,
+            amount: Number(orderRow.total_amount || 0),
+            payment_mode:
+              orderRow.payment_ref === 'CASH_AT_COUNTER'
+                ? 'CASH'
+                : gatewayEnabled
+                ? gatewayProvider.toUpperCase()
+                : 'UPI',
             collection_type: splitPaymentEnabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
-            payment_ref: target.payment_ref || 'COUNTER_APPROVED',
+            payment_ref: orderRow.payment_ref || 'COUNTER_APPROVED',
             status: 'paid'
           }
         ]);
       }
 
+      setSelectedOrderIds((prev) => prev.filter((id) => id !== orderRow.id));
       loadShopData();
     } catch (err: any) {
       alert('Error approving order: ' + err.message);
     }
   };
 
-  const handleRejectOrder = async (orderNumber: string) => {
-    if (!window.confirm(`Discard order ${orderNumber}?`)) return;
+  // Batch Print Selected Files Only
+  const handlePrintSelectedOrders = async () => {
+    if (selectedOrderIds.length === 0) return;
     try {
-      const target = orders.find((o) => o.order_number === orderNumber);
-      if (target?.file_url) {
-        await supabase.storage.from('print-files').remove([target.file_url]);
+      const targets = orders.filter((o) => selectedOrderIds.includes(o.id));
+      for (const row of targets) {
+        await handleApproveOrder(row);
       }
-      await supabase.from('print_orders').update({ status: 'rejected' }).eq('order_number', orderNumber);
+      setSelectedOrderIds([]);
+    } catch (err: any) {
+      alert('Error printing selected files: ' + err.message);
+    }
+  };
+
+  // FIXED: Rejects/Deletes ONLY the specific clicked file row by unique `orderRow.id`
+  const handleRejectOrder = async (orderRow: OrderRow) => {
+    if (!window.confirm(`Discard file "${orderRow.file_name}" (${orderRow.order_number})?`)) return;
+    try {
+      if (orderRow.file_url) {
+        await supabase.storage.from('print-files').remove([orderRow.file_url]);
+      }
+      await supabase
+        .from('print_orders')
+        .update({ status: 'rejected' })
+        .eq('id', orderRow.id);
+
+      setSelectedOrderIds((prev) => prev.filter((id) => id !== orderRow.id));
       loadShopData();
     } catch (err: any) {
       alert('Error rejecting order: ' + err.message);
     }
+  };
+
+  const toggleSelectOrder = (orderId: string) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
+    );
   };
 
   const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
@@ -1347,6 +1397,13 @@ export default function AdminPage() {
     .filter((tx) => tx.collection_type === 'SPLIT_SETTLEMENT')
     .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
 
+  const approvalDateMs = shop.approved_at
+    ? new Date(shop.approved_at).getTime()
+    : new Date(shop.created_at || Date.now()).getTime();
+  const elapsedSubscriptionDays = Math.floor((Date.now() - approvalDateMs) / (1000 * 60 * 60 * 24));
+  const remainingSubscriptionDays = Math.max(0, (shop.subscription_days || 7) - elapsedSubscriptionDays);
+  const isSubscriptionExpired = remainingSubscriptionDays <= 0 || shop.subscription_status === 'suspended';
+
   // =========================================================================
   // LOGGED-IN SHOP ADMIN DASHBOARD
   // =========================================================================
@@ -1359,26 +1416,15 @@ export default function AdminPage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className={`w-2.5 h-2.5 rounded-full ${isSubscriptionExpired ? 'bg-rose-500' : 'bg-emerald-500 animate-pulse'}`}></span>
               <h1 className="font-black text-white text-base">{shop.name}</h1>
-              {(() => {
-                const approvalDate = shop.approved_at 
-                  ? new Date(shop.approved_at).getTime() 
-                  : new Date(shop.created_at || Date.now()).getTime();
-                const elapsedDays = Math.floor((new Date().getTime() - approvalDate) / (1000 * 60 * 60 * 24));
-                const remainingDays = Math.max(0, (shop.subscription_days || 7) - elapsedDays);
-                const isExpired = remainingDays <= 0;
-
-                return (
-                  <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full uppercase border ${
-                    isExpired ? 'bg-rose-100 text-rose-800 border-rose-300' :
-                    remainingDays <= 2 ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                    'bg-emerald-100 text-emerald-800 border-emerald-300'
-                  }`}>
-                    ⏳ {isExpired ? 'Expired' : `${remainingDays} Days Left`}
-                  </span>
-                );
-              })()}
+              <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full uppercase border ${
+                isSubscriptionExpired ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                remainingSubscriptionDays <= 2 ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                'bg-emerald-100 text-emerald-800 border-emerald-300'
+              }`}>
+                ⏳ {isSubscriptionExpired ? 'Expired (Kiosk Paused)' : `${remainingSubscriptionDays} Days Left`}
+              </span>
             </div>
             <p className="text-[11px] text-slate-400">Self-Service Document Print Kiosk</p>
           </div>
@@ -1478,9 +1524,13 @@ export default function AdminPage() {
                 {shop.pairing_code || '---'}
               </span>
               <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase ${
-                shop.subscription_status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                isSubscriptionExpired
+                  ? 'bg-rose-100 text-rose-800'
+                  : shop.subscription_status === 'active'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-blue-100 text-blue-800'
               }`}>
-                {shop.subscription_status}
+                {isSubscriptionExpired ? 'EXPIRED' : shop.subscription_status}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
@@ -1810,9 +1860,7 @@ export default function AdminPage() {
                 </button>
               </div>
 
-              {/* ========================================================================= */}
-              {/* NEW: PRINTER DOUBLE-SIDED (DUPLEX) CAPABILITY TOGGLE                      */}
-              {/* ========================================================================= */}
+              {/* PRINTER DOUBLE-SIDED (DUPLEX) CAPABILITY TOGGLE */}
               <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-2xl flex items-center justify-between">
                 <div>
                   <span className="font-bold text-blue-950 flex items-center gap-1.5 text-xs">
@@ -2010,21 +2058,35 @@ export default function AdminPage() {
         {/* Right Column: Live Queue, Dynamic Page Rate & 1-Month Statement Ledger */}
         <div className="md:col-span-2 space-y-6">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+            <div className="p-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
               <div>
                 <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
                   <Printer className="w-4 h-4 text-emerald-600" />
                   Live Print Queue
                 </h2>
-                <p className="text-[11px] text-slate-400">Live incoming counter print jobs</p>
+                <p className="text-[11px] text-slate-400">
+                  Select individual files or click Print Now on the specific file you want to print
+                </p>
               </div>
-              <button
-                onClick={loadShopData}
-                className="text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition flex items-center gap-1"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Refresh ({orders.length})</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {selectedOrderIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePrintSelectedOrders}
+                    className="text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-full transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Print Selected ({selectedOrderIds.length})</span>
+                  </button>
+                )}
+                <button
+                  onClick={loadShopData}
+                  className="text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh ({orders.length})</span>
+                </button>
+              </div>
             </div>
 
             {orders.length === 0 ? (
@@ -2036,11 +2098,12 @@ export default function AdminPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
                     <tr>
-                      <th className="py-2.5 px-4">Order #</th>
-                      <th className="py-2.5 px-4">Document</th>
-                      <th className="py-2.5 px-4">Copies</th>
-                      <th className="py-2.5 px-4">Amount</th>
-                      <th className="py-2.5 px-4">Status</th>
+                      <th className="py-2.5 px-3 w-8">Select</th>
+                      <th className="py-2.5 px-3">Order #</th>
+                      <th className="py-2.5 px-3">Document</th>
+                      <th className="py-2.5 px-3">Copies</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Status</th>
                       <th className="py-2.5 px-4 text-right">Counter Action</th>
                     </tr>
                   </thead>
@@ -2050,17 +2113,28 @@ export default function AdminPage() {
                         o.status === 'waiting_counter_approval' || 
                         o.status === 'pending' || 
                         o.status === 'held';
+                      const isChecked = selectedOrderIds.includes(o.id);
 
                       return (
                         <tr 
                           key={o.id} 
                           className={needsApproval ? 'bg-amber-50/60 font-semibold' : 'hover:bg-slate-50/50'}
                         >
-                          <td className="py-3 px-4 font-mono font-bold text-slate-900">{o.order_number}</td>
-                          <td className="py-3 px-4 truncate max-w-[140px]">{o.file_name}</td>
-                          <td className="py-3 px-4">{o.copies}</td>
-                          <td className="py-3 px-4 font-semibold text-slate-900">₹{o.total_amount?.toFixed(2)}</td>
-                          <td className="py-3 px-4">
+                          <td className="py-3 px-3">
+                            {needsApproval && (
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleSelectOrder(o.id)}
+                                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                              />
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-mono font-bold text-slate-900">{o.order_number}</td>
+                          <td className="py-3 px-3 truncate max-w-[150px]" title={o.file_name}>{o.file_name}</td>
+                          <td className="py-3 px-3">{o.copies}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-900">₹{o.total_amount?.toFixed(2)}</td>
+                          <td className="py-3 px-3">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase inline-block ${
                               o.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
                               o.status === 'printing' ? 'bg-blue-100 text-blue-800 animate-pulse' : 
@@ -2076,7 +2150,7 @@ export default function AdminPage() {
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleApproveOrder(o.order_number)}
+                                  onClick={() => handleApproveOrder(o)}
                                   className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -2084,8 +2158,9 @@ export default function AdminPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRejectOrder(o.order_number)}
+                                  onClick={() => handleRejectOrder(o)}
                                   className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl transition"
+                                  title="Reject & Delete This File Only"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -2096,17 +2171,17 @@ export default function AdminPage() {
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleApproveOrder(o.order_number)}
+                                  onClick={() => handleApproveOrder(o)}
                                   className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold text-[10px] transition"
-                                  title="Re-trigger PC Agent Print"
+                                  title="Re-trigger PC Agent Print for This File"
                                 >
                                   🖨️ Print
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRejectOrder(o.order_number)}
+                                  onClick={() => handleRejectOrder(o)}
                                   className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition"
-                                  title="Delete Order"
+                                  title="Delete This File"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                 </button>
@@ -2151,9 +2226,7 @@ export default function AdminPage() {
               ))}
             </div>
 
-            {/* ========================================================================= */}
-            {/* NEW: ID CARD PRINT (2-IN-1 FRONT + BACK / CROPPING SERVICE) CUSTOM RATE   */}
-            {/* ========================================================================= */}
+            {/* ID CARD PRINT (2-IN-1 FRONT + BACK / CROPPING SERVICE) CUSTOM RATE */}
             <div className="pt-3 border-t border-slate-100">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">

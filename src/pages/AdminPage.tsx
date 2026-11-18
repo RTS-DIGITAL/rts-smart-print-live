@@ -1,2357 +1,2670 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
 import { 
-  UploadCloud, 
-  FileText, 
-  Image as ImageIcon, 
-  Trash2, 
-  Plus, 
-  Minus, 
+  Store, 
   Printer, 
+  Settings, 
+  RefreshCw, 
+  CreditCard, 
+  ExternalLink, 
+  ShieldAlert, 
+  Save, 
+  QrCode, 
   Banknote, 
   Smartphone, 
-  AlertCircle,
-  Copy,
-  Check,
-  Lock,
-  KeyRound,
-  ShieldCheck,
-  ExternalLink,
-  EyeOff,
-  Clock,
+  Lock, 
+  Unlock, 
+  Play, 
+  Pause, 
+  Trash2, 
+  Check, 
+  KeyRound, 
+  LogOut, 
+  Mail,
   Download,
-  CreditCard,
-  Zap,
-  Scissors,
-  RotateCw,
-  RotateCcw,
-  Sun,
-  Layers,
+  Bell,
+  Send,
+  MessageCircle,
+  HelpCircle,
   X,
-  CheckCircle2,
-  RefreshCw,
   Languages,
-  Crop
+  Calendar,
+  FileSpreadsheet,
+  Building2,
+  Clock,
+  Scissors,
+  Layers
 } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
 
-// Pinned cdnjs worker for PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
-// Pinned cdnjs URLs for Cropper.js v1.6.2 (Open Source Mobile-Friendly Cropper)
-const CROPPER_CSS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css';
-const CROPPER_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js';
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB limit
-
-interface ShopConfig {
+interface ShopData {
   id: string;
-  name: string;
   slug: string;
+  name: string;
   phone: string | null;
+  owner_email: string | null;
   upi_id: string | null;
   upi_name?: string | null;
-  require_payment: boolean;
-  is_accepting_orders: boolean;
+  target_printer_name: string | null;
   counter_notice: string | null;
+  is_accepting_orders: boolean;
+  require_payment: boolean;
   subscription_status: string;
   is_pin_protected: boolean;
   counter_pin: string;
   auto_print_enabled: boolean;
-  auto_delete_hours?: number | null;
-  gateway_enabled?: boolean;
-  gateway_provider?: string | null;
-  gateway_key_id?: string | null;
-  split_payment_enabled?: boolean;
-  // Duplex, Expiry & ID Card 2-in-1 Pricing Fields
-  duplex_supported?: boolean;
-  id_card_bw_price?: number | null;
-  id_card_color_price?: number | null;
+  auto_delete_hours: number;
+  pairing_code: string;
+  admin_pin: string;
+  admin_username: string;
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
+  download_count?: number;
+  download_allowed?: boolean;
+  max_downloads?: number;
+  download_requested?: boolean;
+  admin_message?: string | null;
+  targeted_message?: string | null;
+  // Gateway, Split & 8 PM Statement Fields
+  gateway_enabled?: boolean;
+  gateway_provider?: string | null;
+  gateway_key_id?: string | null;
+  gateway_key_secret?: string | null;
+  split_payment_enabled?: boolean;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_ifsc?: string | null;
+  daily_statement_enabled?: boolean;
+  // Duplex & ID Card 2-in-1 Custom Rate Fields
+  duplex_supported?: boolean;
+  id_card_bw_price?: number | null;
+  id_card_color_price?: number | null;
 }
 
-type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size';
-type CropShapeType = 'id_card' | 'free' | 'square';
-
-interface UploadedItem {
+interface OrderRow {
   id: string;
-  file: File;
-  originalFile: File;
-  backOriginalFile?: File | null;
-  croppedFrontBlob?: Blob | null;
-  croppedBackBlob?: Blob | null;
-  fileKind: 'pdf' | 'image';
-  name: string;
-  size: number;
-  totalPdfPages: number;
-  pages: number;
+  order_number: string;
+  file_name: string;
+  file_url?: string;
+  total_amount: number;
+  status: string;
+  created_at: string;
   copies: number;
-  isColor: boolean;
-  isDoubleSided: boolean;
-  paperSize: string;
-  // Image Layout & PDF Page Range Options
-  layoutMode: ImageLayoutType;
-  pageRangeText: string;
-  hasBackImage?: boolean;
+  page_count: number;
+  payment_ref?: string;
+}
+
+interface TransactionLedgerRow {
+  id: string;
+  order_number: string;
+  amount: number;
+  payment_mode: string;
+  collection_type: string;
+  payment_ref?: string;
+  status: string;
+  created_at: string;
 }
 
 interface PricingRule {
+  id: string;
   paper_size: string;
   is_color: boolean;
   is_double_sided: boolean;
   price_per_page: number;
 }
 
-const KIOSK_TEXTS = {
-  en: {
-    subtitle: 'Self-Service Document Print Kiosk',
-    paymentMode: 'Payment Mode',
-    onlineUpi: 'Online UPI',
-    cashAtCounter: 'Cash at Counter',
-    pinRequiredTitle: 'Counter PIN Required',
-    pinRequiredDesc: 'Please enter the 4-digit PIN displayed on the counter standee to unlock printing.',
-    unlockBtn: 'Unlock Print Station',
-    incorrectPin: 'Incorrect PIN. Please check the counter standee.',
-    uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
-    uploadReading: 'Reading & Verifying Files...',
-    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Images open directly in Cropper Studio',
-    aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your Aadhaar number before uploading. Files are auto-deleted on schedule.',
-    uploadedFiles: 'Uploaded Files',
-    addMoreBtn: 'Add More PDF / Image',
-    copies: 'Copies:',
-    singleSided: '1-Sided',
-    doubleSided: '2-Sided',
-    totalDocPages: 'Total Document Pages:',
-    actualSheetsNeeded: 'Actual A4 Paper Sheets Needed:',
-    totalBill: 'Total Bill:',
-    proceedPayBtn: 'Proceed to Pay & Print',
-    sendCashBtn: 'Send to Print (Pay Cash at Counter)',
-    submitStaffBtn: 'Submit to Counter (Staff Will Release)',
-    cropGuidance: '📌 Tip: Place the card flat, in good light, with all four corners visible.',
-    useThisCrop: 'Use this crop',
-    resetCrop: 'Reset',
-    manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
-    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
-    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
+interface SupportChatMessage {
+  id: string;
+  sender: 'bot' | 'user' | 'admin';
+  text: string;
+  time?: string;
+}
+
+const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
+
+const COMMON_PRINTERS = [
+  "Microsoft Print to PDF",
+  "Canon LBP2900",
+  "Brother DCP-T730DW Printer",
+  "Brother DCP-T720DW",
+  "Brother DCP-T426W",
+  "Brother HL-L2321D series",
+  "HP LaserJet Professional P1108",
+  "HP LaserJet M1005",
+  "HP Ink Tank 310 series",
+  "HP Smart Tank 580 series",
+  "Epson L3110 Series",
+  "Epson L3210 Series",
+  "Epson L3250 Series",
+  "Canon G2010 series",
+  "Canon G3010 series",
+  "POS-58-Series",
+  "POS-80-Printer"
+];
+
+const SHOP_ADMIN_FAQS = [
+  {
+    id: 'q1',
+    qEn: '1. What is RTS Smart Print?',
+    aEn: 'RTS Smart Print is an automated printing system for your shop. Customers scan your counter QR code, upload their file, choose copies and colour, and pay by UPI or cash. Your shop computer receives the order and prints it.',
+    qMl: '1. എന്താണ് RTS Smart Print?',
+    aMl: 'നിങ്ങളുടെ കടയ്ക്കായുള്ള ഒരു ഓട്ടോമേറ്റഡ് പ്രിന്റിംഗ് സംവിധാനമാണ് RTS Smart Print. ഉപഭോക്താക്കൾ കൗണ്ടറിലെ QR കോഡ് സ്കാൻ ചെയ്ത് ഫയൽ അപ്‌ലോഡ് ചെയ്യുകയും UPI വഴിയോ ക്യാഷ് ആയോ പണമടയ്ക്കുകയും ചെയ്യുന്നു. ഓർഡർ നിങ്ങളുടെ കമ്പ്യൂട്ടറിൽ എത്തുകയും പ്രിന്റ് ആകുകയും ചെയ്യുന്നു.'
   },
-  ml: {
-    subtitle: 'സെൽഫ് സർവീസ് പ്രിന്റ് കിയോസ്ക്',
-    paymentMode: 'പേയ്‌മെന്റ് രീതി',
-    onlineUpi: 'ഓൺലൈൻ UPI',
-    cashAtCounter: 'കൗണ്ടറിൽ ക്യാഷ്',
-    pinRequiredTitle: 'കൗണ്ടർ PIN ആവശ്യമാണ്',
-    pinRequiredDesc: 'പ്രിന്റിംഗ് തുടങ്ങാൻ കൗണ്ടറിലെ സ്റ്റാൻഡിയിൽ കാണുന്ന 4-അക്ക PIN നൽകുക.',
-    unlockBtn: 'പ്രിന്റ് സ്റ്റേഷൻ തുറക്കുക',
-    incorrectPin: 'തെറ്റായ PIN. ദയവായി കൗണ്ടറിൽ പരിശോധിക്കുക.',
-    uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
-    uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ നേരിട്ട് ക്രോപ്പ് സ്റ്റുഡിയോയിൽ തുറക്കുന്നു',
-    aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. ആധാർ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
-    uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
-    addMoreBtn: 'കൂടുതൽ ഫയലുകൾ ചേർക്കുക',
-    copies: 'കോപ്പികൾ:',
-    singleSided: 'ഒരു വശം (1-Sided)',
-    doubleSided: 'രണ്ട് വശം (2-Sided)',
-    totalDocPages: 'മൊത്തം പേജുകൾ:',
-    actualSheetsNeeded: 'ആവശ്യമായ A4 പേപ്പർ ഷീറ്റുകൾ:',
-    totalBill: 'മൊത്തം തുക:',
-    proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
-    sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
-    submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക (സ്റ്റാഫ് പ്രിന്റ് നൽകും)',
-    cropGuidance: '📌 കാർഡ് നല്ല വെളിച്ചത്തിൽ നാല് മൂലകളും കാണുന്ന രീതിയിൽ പരത്തി വെച്ച് ക്രോപ്പ് ചെയ്യുക.',
-    useThisCrop: 'ഈ ക്രോപ്പ് ഉപയോഗിക്കുക (Use Crop)',
-    resetCrop: 'റീസെറ്റ് (Reset)',
-    manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
-    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, and PNG files are accepted.',
-    fileTooLargeMsg: 'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
+  {
+    id: 'q2',
+    qEn: '2. How much does it cost?',
+    aEn: 'The Starter Station plan is ₹199 per month. It includes a 7-day free trial. You can see the plan details on the pricing section of the website, or ask RTS Support for the current offer.',
+    qMl: '2. ഇതിന് എത്രയാണ് നിരക്ക്?',
+    aMl: 'Starter Station പ്ലാനിന് പ്രതിമാസം ₹199 ആണ്. ഇതിൽ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ഉൾപ്പെടുന്നു. നിലവിലെ ഓഫറുകൾ അറിയാൻ RTS Support-ൽ ചോദിക്കാവുന്നതാണ്.'
+  },
+  {
+    id: 'q3',
+    qEn: '3. Is there a free trial?',
+    aEn: 'Yes, the Starter Station plan includes a 7-day free trial with no card or upfront payment required to start. When the trial ends, you can renew your subscription to continue receiving orders.',
+    qMl: '3. സൗജന്യ ട്രയൽ ലഭ്യമാണോ?',
+    aMl: 'അതെ, കാർഡോ മുൻകൂർ പേയ്‌മെന്റോ ഇല്ലാതെ തന്നെ 7 ദിവസത്തെ സൗജന്യ ട്രയൽ ലഭിക്കും. ട്രയൽ അവസാനിക്കുമ്പോൾ സബ്‌സ്‌ക്രിപ്ഷൻ പുതുക്കി സേവനം തുടരാവുന്നതാണ്.'
+  },
+  {
+    id: 'q4',
+    qEn: '4. Does RTS Smart Print take a commission on my payments?',
+    aEn: 'No. Customer UPI payments go directly to your own UPI ID, and cash payments are collected directly at your counter — both with 0% commission.',
+    qMl: '4. എന്റെ പേയ്‌മെന്റുകളിൽ നിന്ന് കമ്മീഷൻ ഈടാക്കുമോ?',
+    aMl: 'ഇല്ല. കസ്റ്റമർ നൽകുന്ന UPI പേയ്‌മെന്റുകൾ നേരിട്ട് നിങ്ങളുടെ സ്വന്തം UPI ID-യിലേക്കും ക്യാഷ് പേയ്‌മെന്റുകൾ നേരിട്ട് കൗണ്ടറിലേക്കും ലഭിക്കുന്നു (0% കമ്മീഷൻ).'
+  },
+  {
+    id: 'q5',
+    qEn: "5. How do I change my shop's printing prices?",
+    aEn: "In your Shop Admin Dashboard, scroll to the 'Dynamic Page Rate' section. Change the rate for A4, Legal, Letter, colour, black and white, single-sided or double-sided printing. The new prices appear on the customer's screen as soon as they are saved, so there is no need to restart anything.",
+    qMl: '5. പ്രിന്റിംഗ് നിരക്കുകൾ എങ്ങനെ മാറ്റാം?',
+    aMl: "ഈ ഡാഷ്‌ബോർഡിലെ 'Dynamic Page Rate' കാർഡിൽ A4, Legal, Letter, B&W, Color നിരക്കുകൾ മാറ്റിയാൽ ഉടൻ തന്നെ അത് സേവ് ആകുകയും കസ്റ്റമറുടെ സ്ക്രീനിൽ തത്സമയം മാറുകയും ചെയ്യും."
+  },
+  {
+    id: 'q6',
+    qEn: '6. How do I connect my shop computer to RTS Smart Print?',
+    aEn: '1. Log in to the Shop Admin Dashboard and copy your permanent 6-digit pairing code.\n2. Download the PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Install it on the shop computer and run it.\n4. Enter the 6-digit pairing code when asked.\nThe pairing code does not change when you refresh the page. You can download the agent up to 3 times per account. If you need more, request re-download approval from RTS Support.',
+    qMl: '6. കടയിലെ കമ്പ്യൂട്ടർ എങ്ങനെ കണക്റ്റ് ചെയ്യാം?',
+    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്ത് റൺ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക.\nഈ കോഡ് പേജ് റീഫ്രഷ് ചെയ്താലും മാറില്ല. 3 തവണ വരെ സോഫ്റ്റ്‌വെയർ ഡൗൺലോഡ് ചെയ്യാം.'
+  },
+  {
+    id: 'q7',
+    qEn: '7. Do I need to install anything on my phone?',
+    aEn: 'No app is needed for customers. They scan the QR code with their phone camera and use the web page. You only need the PC Print Agent on your shop computer.',
+    qMl: '7. ഫോണിൽ ആപ്പ് ഇൻസ്റ്റാൾ ചെയ്യേണ്ടതുണ്ടോ?',
+    aMl: 'ഇല്ല. ഉപഭോക്താക്കൾക്ക് ആപ്പിന്റെ ആവശ്യമില്ല. അവർ ഫോൺ ക്യാമറ വഴി QR കോഡ് സ്കാൻ ചെയ്ത് വെബ് പേജ് ഉപയോഗിക്കുന്നു. കടയിലെ കമ്പ്യൂട്ടറിൽ മാത്രം PC Print Agent ഉണ്ടായാൽ മതി.'
+  },
+  {
+    id: 'q8',
+    qEn: '8. What do I need before I start?',
+    aEn: 'You need a Windows computer, an internet connection, a printer connected to that computer, your UPI ID (or cash payment), and a phone to test with.',
+    qMl: '8. തുടങ്ങുന്നതിന് മുൻപ് എന്തെല്ലാം ആവശ്യമാണ്?',
+    aMl: 'ഒരു വിൻഡോസ് കമ്പ്യൂട്ടർ, ഇന്റർനെറ്റ് കണക്ഷൻ, കമ്പ്യൂട്ടറുമായി ഘടിപ്പിച്ച പ്രിന്റർ, നിങ്ങളുടെ UPI ID (അല്ലെങ്കിൽ ക്യാഷ് പേയ്‌മെന്റ്), ടെസ്റ്റ് ചെയ്യാൻ ഒരു ഫോൺ എന്നിവ മാത്രം മതി.'
+  },
+  {
+    id: 'q9',
+    qEn: '9. How do I print the QR code for my counter?',
+    aEn: 'Open the Shop Admin Dashboard and click Print Counter Standee. Print the QR code and place it on your counter. Customers can scan it with any phone camera.',
+    qMl: '9. കൗണ്ടറിൽ വെക്കാനുള്ള QR കോഡ് എങ്ങനെ പ്രിന്റ് ചെയ്യാം?',
+    aMl: 'Shop Admin Dashboard-ലെ "Print Counter Standee" ക്ലിക്ക് ചെയ്ത് QR കോഡ് പ്രിന്റ് എടുത്ത് കൗണ്ടറിൽ വെക്കുക. ഏത് ഫോൺ ക്യാമറ ഉപയോഗിച്ചും ഇത് സ്കാൻ ചെയ്യാം.'
+  },
+  {
+    id: 'q10',
+    qEn: '10. What happens when a customer places an order?',
+    aEn: "The order appears in your Live Print Queue, showing the order number, file name, copies, amount and status. In Auto-Pilot mode, printing starts automatically after payment is confirmed. In Manual mode, press Print Now after you check the order. You can press Reject / Discard to remove an order you don't want to print.",
+    qMl: '10. കസ്റ്റമർ ഓർഡർ നൽകുമ്പോൾ എന്ത് സംഭവിക്കും?',
+    aMl: 'ഓർഡർ നിങ്ങളുടെ Live Print Queue-ൽ കാണാം. Auto-Pilot മോഡിൽ പേയ്‌മെന്റ് കഴിഞ്ഞാൽ തനിയെ പ്രിന്റ് ആകും. Manual മോഡിൽ ഓർഡർ പരിശോധിച്ച ശേഷം "Print Now" ക്ലിക്ക് ചെയ്യാം, അല്ലെങ്കിൽ ഒഴിവാക്കാൻ Reject ബട്ടൺ അമർത്താം.'
+  },
+  {
+    id: 'q11',
+    qEn: '11. How long are customer files kept?',
+    aEn: "You choose how long customer files are kept: 1 hour, 4 hours, 12 hours or 24 hours. When that time ends, the files are removed automatically from the Shop Admin Dashboard and our database. You don't need to clear any storage yourself.",
+    qMl: '11. ഉപഭോക്താക്കളുടെ ഫയലുകൾ എത്ര സമയം സൂക്ഷിക്കും?',
+    aMl: '1 മണിക്കൂർ, 4 മണിക്കൂർ, 12 മണിക്കൂർ, അല്ലെങ്കിൽ 24 മണിക്കൂർ എന്നിങ്ങനെ നിങ്ങൾ തിരഞ്ഞെടുക്കുന്ന സമയത്തിന് ശേഷം ഫയലുകൾ ഡാഷ്‌ബോർഡിൽ നിന്നും ഡാറ്റാബേസിൽ നിന്നും തനിയെ നീക്കം ചെയ്യപ്പെടും.'
+  },
+  {
+    id: 'q12',
+    qEn: '12. Who do I contact if I have a problem?',
+    aEn: 'First check that the printer is on, has paper, is connected to the computer, and is selected in the dashboard, and that the internet is working. If the problem continues, switch to the "Live Chat (Super Admin)" tab above to contact RTS Support directly.',
+    qMl: '12. എന്തെങ്കിലും പ്രശ്നമുണ്ടായാൽ ആരെ ബന്ധപ്പെടണം?',
+    aMl: 'ആദ്യം പ്രിന്റർ ഓൺ ആണെന്നും പേപ്പർ ഉണ്ടെന്നും ഇന്റർനെറ്റ് പ്രവർത്തിക്കുന്നുണ്ടെന്നും ഉറപ്പാക്കുക. പ്രശ്നം തുടരുകയാണെങ്കിൽ മുകളിലുള്ള "Live Chat (Super Admin)" ടാബിൽ ക്ലിക്ക് ചെയ്ത് RTS Support-മായി നേരിട്ട് ചാറ്റ് ചെയ്യുക.'
   }
-};
+];
 
-function cleanVpa(input: string | null | undefined): string {
-  return (input || '').trim().replace(/\s+/g, '').toLowerCase();
-}
-
-function loadRazorpayScript(): Promise<boolean> {
-  return new Promise((resolve) => {
-    if ((window as any).Razorpay) {
-      resolve(true);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
-
-// Load Cropper.js v1.6.2 CSS & JS from cdnjs.cloudflare.com with pinned version
-function loadCropperAssets(): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (!document.querySelector(`link[href="${CROPPER_CSS_URL}"]`)) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = CROPPER_CSS_URL;
-      document.head.appendChild(link);
-    }
-    if ((window as any).Cropper) {
-      resolve(true);
-      return;
-    }
-    const existingScript = document.querySelector(`script[src="${CROPPER_JS_URL}"]`) as HTMLScriptElement | null;
-    if (existingScript) {
-      existingScript.addEventListener('load', () => resolve(true));
-      existingScript.addEventListener('error', () => resolve(false));
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = CROPPER_JS_URL;
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
-
-// Verify real file signature bytes (%PDF = 25 50 44 46, JPEG = FF D8 FF, PNG = 89 50 4E 47)
-async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invalid'> {
-  try {
-    const buffer = await file.slice(0, 8).arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    if (
-      bytes.length >= 4 &&
-      bytes[0] === 0x25 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x44 &&
-      bytes[3] === 0x46
-    ) {
-      return 'pdf';
-    }
-    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-      return 'image';
-    }
-    if (
-      bytes.length >= 8 &&
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47 &&
-      bytes[4] === 0x0d &&
-      bytes[5] === 0x0a &&
-      bytes[6] === 0x1a &&
-      bytes[7] === 0x0a
-    ) {
-      return 'image';
-    }
-    return 'invalid';
-  } catch {
-    return 'invalid';
-  }
-}
-
-// Compress large mobile camera images in the browser before upload to save mobile data
-async function compressLargeImageInBrowser(file: File): Promise<File> {
-  if (file.size <= 1.5 * 1024 * 1024) return file;
-  try {
-    const img = await loadImageElement(file);
-    const maxDim = 2200;
-    let targetW = img.width;
-    let targetH = img.height;
-    if (targetW > maxDim || targetH > maxDim) {
-      const ratio = Math.min(maxDim / targetW, maxDim / targetH);
-      targetW = Math.round(targetW * ratio);
-      targetH = Math.round(targetH * ratio);
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return file;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, targetW, targetH);
-    ctx.drawImage(img, 0, 0, targetW, targetH);
-
-    const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.88));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
-  } catch {
-    return file;
-  }
-}
-
-// Parse custom PDF page range like "1-2" or "1,3,5" and return count of selected pages
-function countSelectedPages(rangeStr: string, maxPages: number): number {
-  const cleaned = rangeStr.trim();
-  if (!cleaned) return maxPages;
-  const pagesSet = new Set<number>();
-  const parts = cleaned.split(',');
-
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    if (trimmed.includes('-')) {
-      const [startStr, endStr] = trimmed.split('-');
-      const start = parseInt(startStr, 10);
-      const end = parseInt(endStr, 10);
-      if (!isNaN(start) && !isNaN(end) && start <= end) {
-        for (let p = Math.max(1, start); p <= Math.min(maxPages, end); p++) {
-          pagesSet.add(p);
-        }
-      }
-    } else {
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= maxPages) {
-        pagesSet.add(num);
-      }
-    }
-  }
-  return pagesSet.size > 0 ? pagesSet.size : maxPages;
-}
-
-// Calculate physical A4 paper sheets needed for an item based on pages, layout (1, 2, 4, id_card) & duplex
-function calculateSheetsForItem(item: UploadedItem): number {
-  if (item.fileKind === 'image') {
-    return Math.max(1, item.copies);
-  }
-  const perSide =
-    item.layoutMode === 'grid_4'
-      ? 4
-      : item.layoutMode === 'id_card' || item.layoutMode === 'half_a4'
-      ? 2
-      : 1;
-  const sidesNeeded = Math.ceil(item.pages / perSide);
-  const sheetsPerCopy = item.isDoubleSided ? Math.ceil(sidesNeeded / 2) : sidesNeeded;
-  return Math.max(1, sheetsPerCopy) * item.copies;
-}
-
-function loadImageElement(file: File | Blob): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
-    img.onerror = (err) => {
-      URL.revokeObjectURL(url);
-      reject(err);
-    };
-    img.src = url;
-  });
-}
-
-export default function KioskPage() {
+export default function AdminPage() {
   const { shopSlug } = useParams<{ shopSlug: string }>();
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
-  const navigate = useNavigate();
 
-  const [lang, setLang] = useState<'en' | 'ml'>('en');
-  const t = KIOSK_TEXTS[lang];
+  const [shop, setShop] = useState<ShopData | null>(null);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [pricing, setPricing] = useState<PricingRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [requestingUnlock, setRequestingUnlock] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const studioFrontInputRef = useRef<HTMLInputElement>(null);
-  const studioBackInputRef = useRef<HTMLInputElement>(null);
+  // Authentication & Automated Forgot Password State
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginId, setLoginId] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [loginError, setLoginError] = useState('');
 
-  const [shop, setShop] = useState<ShopConfig | null>(null);
-  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
-  const [loadingShop, setLoadingShop] = useState(true);
+  const [showForgotBox, setShowForgotBox] = useState(false);
+  const [forgotUserId, setForgotUserId] = useState('');
+  const [sendingReset, setSendingReset] = useState(false);
+  const [forgotStatusMsg, setForgotStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const [isUnlocked, setIsUnlocked] = useState(false);
-  const [enteredPin, setEnteredPin] = useState('');
-  const [pinError, setPinError] = useState(false);
+  // Form State
+  const [shopName, setShopName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [upiId, setUpiId] = useState('');
+  const [upiName, setUpiName] = useState('');
+  const [targetPrinter, setTargetPrinter] = useState('');
+  const [isCustomPrinter, setIsCustomPrinter] = useState(false);
+  const [counterNotice, setCounterNotice] = useState('');
+  const [isAccepting, setIsAccepting] = useState(true);
+  const [requirePayment, setRequirePayment] = useState(false);
+  const [isPinProtected, setIsPinProtected] = useState(false);
+  const [counterPin, setCounterPin] = useState('1234');
+  const [adminPin, setAdminPin] = useState('123456');
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
+  const [autoDeleteHours, setAutoDeleteHours] = useState(24);
 
-  const [items, setItems] = useState<UploadedItem[]>([]);
-  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
-  const [uploadErrorBanner, setUploadErrorBanner] = useState<string | null>(null);
-  const [submittingOrder, setSubmittingOrder] = useState(false);
-  const [launchingGateway, setLaunchingGateway] = useState(false);
+  // Self Payment Gateway (Razorpay / Cashfree / PhonePe) & Split Bank States
+  const [gatewayEnabled, setGatewayEnabled] = useState(false);
+  const [gatewayProvider, setGatewayProvider] = useState('razorpay');
+  const [gatewayKeyId, setGatewayKeyId] = useState('');
+  const [gatewayKeySecret, setGatewayKeySecret] = useState('');
 
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [utrNumber, setUtrNumber] = useState('');
-  const [copiedUpi, setCopiedUpi] = useState(false);
-  const [savingQr, setSavingQr] = useState(false);
+  const [splitPaymentEnabled, setSplitPaymentEnabled] = useState(false);
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankIfsc, setBankIfsc] = useState('');
+  const [dailyStatementEnabled, setDailyStatementEnabled] = useState(true);
 
-  // Image Crop (Cropper.js), Rotate & ID Card 2-in-1 A4 Layout Studio Modal States
-  const [editingItem, setEditingItem] = useState<UploadedItem | null>(null);
-  const [studioLayout, setStudioLayout] = useState<ImageLayoutType>('id_card');
-  const [frontFile, setFrontFile] = useState<File | null>(null);
-  const [frontRotation, setFrontRotation] = useState<number>(0);
-  const [frontCropPct, setFrontCropPct] = useState<number>(0);
-  const [backFile, setBackFile] = useState<File | null>(null);
-  const [backRotation, setBackRotation] = useState<number>(0);
-  const [backCropPct, setBackCropPct] = useState<number>(0);
-  const [brightness, setBrightness] = useState<number>(105);
-  const [contrast, setContrast] = useState<number>(110);
-  const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
+  // Duplex & ID Card 2-in-1 Custom Pricing States
+  const [duplexSupported, setDuplexSupported] = useState(true);
+  const [idCardBwPrice, setIdCardBwPrice] = useState<number>(5);
+  const [idCardColorPrice, setIdCardColorPrice] = useState<number>(15);
 
-  // Interactive Cropper.js State for Front & Back Images
-  const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
-  const [cropShape, setCropShape] = useState<CropShapeType>('id_card');
-  const [cropperSourceUrl, setCropperSourceUrl] = useState<string | null>(null);
-  const [croppedFrontBlob, setCroppedFrontBlob] = useState<Blob | null>(null);
-  const [croppedBackBlob, setCroppedBackBlob] = useState<Blob | null>(null);
-  const [cropAppliedToast, setCropAppliedToast] = useState<string | null>(null);
-  const cropperImageRef = useRef<HTMLImageElement>(null);
-  const cropperInstanceRef = useRef<any>(null);
+  // 1-Month Statement & Transaction Ledger States
+  const [transactions, setTransactions] = useState<TransactionLedgerRow[]>([]);
+  const [statementRange, setStatementRange] = useState<'today' | '7days' | '30days' | 'custom'>('today');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [sendingStatementEmail, setSendingStatementEmail] = useState(false);
 
-  // Confirmation Popup State after "Apply to 1 A4 Sheet"
-  const [showEditConfirmPopup, setShowEditConfirmPopup] = useState<boolean>(false);
-  const [lastEditedItemId, setLastEditedItemId] = useState<string | null>(null);
+  // Shop Admin Floating Help & Live Support Chat States
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportTab, setSupportTab] = useState<'faq' | 'livechat'>('faq');
+  const [faqLang, setFaqLang] = useState<'en' | 'ml'>('en');
+  const [selectedFaqId, setSelectedFaqId] = useState<string>('q1');
 
-  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [chatTimeoutMinutes, setChatTimeoutMinutes] = useState<number>(10);
+  const [shopChatSessionId, setShopChatSessionId] = useState<string | null>(null);
+  const [shopChatStartedAt, setShopChatStartedAt] = useState<number | null>(null);
+  const [startingShopChat, setStartingShopChat] = useState(false);
+  const [shopChatInput, setShopChatInput] = useState('');
+  const [sendingShopChat, setSendingShopChat] = useState(false);
+  const [shopChatMessages, setShopChatMessages] = useState<SupportChatMessage[]>([]);
+  const lastShopMsgCountRef = useRef<number>(0);
+  const shopChatEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    loadCropperAssets();
-  }, []);
-
-  useEffect(() => {
-    async function init() {
-      setLoadingShop(true);
-      try {
-        const { data: shopData } = await supabase
-          .from('shops')
-          .select('*')
-          .eq('slug', activeSlug)
-          .single();
-
-        if (shopData) {
-          // Check if Shop Subscription / Free Trial has expired (0 Days Left)
-          const approvalDate = shopData.approved_at
-            ? new Date(shopData.approved_at).getTime()
-            : new Date(shopData.created_at || Date.now()).getTime();
-          const elapsedDays = Math.floor((Date.now() - approvalDate) / (1000 * 60 * 60 * 24));
-          const remainingDays = Math.max(0, (shopData.subscription_days || 7) - elapsedDays);
-
-          if (remainingDays <= 0 && shopData.subscription_status !== 'suspended') {
-            await supabase
-              .from('shops')
-              .update({ is_accepting_orders: false })
-              .eq('id', shopData.id);
-            shopData.is_accepting_orders = false;
-          }
-
-          setShop(shopData);
-          if (!shopData.is_pin_protected) {
-            setIsUnlocked(true);
-          }
-
-          const { data: pricingData } = await supabase
-            .from('pricing_rules')
-            .select('*')
-            .eq('shop_id', shopData.id);
-
-          if (pricingData) setPricingRules(pricingData);
-        }
-      } catch (err) {
-        console.error('Failed to load shop kiosk:', err);
-      } finally {
-        setLoadingShop(false);
-      }
+  const playReplyChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(987.77, ctx.currentTime);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {
+      // Ignore audio block
     }
-    init();
+  };
+
+  useEffect(() => {
+    const sessionKey = `rts_auth_${activeSlug}`;
+    if (localStorage.getItem(sessionKey) === 'true') {
+      setIsLoggedIn(true);
+    }
+
+    const savedChatId = sessionStorage.getItem(`rts_shop_chat_id_${activeSlug}`);
+    const savedChatStart = sessionStorage.getItem(`rts_shop_chat_start_${activeSlug}`);
+    if (savedChatId) setShopChatSessionId(savedChatId);
+    if (savedChatStart) setShopChatStartedAt(Number(savedChatStart));
   }, [activeSlug]);
 
-  const handleVerifyPin = (e: React.FormEvent) => {
+  const resetShopChatToFresh = () => {
+    sessionStorage.removeItem(`rts_shop_chat_id_${activeSlug}`);
+    sessionStorage.removeItem(`rts_shop_chat_start_${activeSlug}`);
+    setShopChatSessionId(null);
+    setShopChatStartedAt(null);
+    setShopChatInput('');
+    setShopChatMessages([]);
+    lastShopMsgCountRef.current = 0;
+  };
+
+  const loadShopData = async () => {
+    try {
+      const { data: shopRes, error: shopErr } = await supabase
+        .from('shops')
+        .select('*')
+        .eq('slug', activeSlug)
+        .single();
+
+      if (shopErr || !shopRes) throw new Error('Shop not found');
+
+      // Auto-check subscription countdown and pause kiosk if 0 days left
+      const approvalDate = shopRes.approved_at
+        ? new Date(shopRes.approved_at).getTime()
+        : new Date(shopRes.created_at || Date.now()).getTime();
+      const elapsedDays = Math.floor((Date.now() - approvalDate) / (1000 * 60 * 60 * 24));
+      const remainingDays = Math.max(0, (shopRes.subscription_days || 7) - elapsedDays);
+
+      if (remainingDays <= 0 && shopRes.is_accepting_orders) {
+        await supabase
+          .from('shops')
+          .update({ is_accepting_orders: false })
+          .eq('id', shopRes.id);
+        shopRes.is_accepting_orders = false;
+      }
+
+      // 1. Automatic Storage & Queue Purge (1h, 4h, 12h, 24h)
+      const retentionHours = shopRes.auto_delete_hours || 1;
+      const expirationThreshold = new Date(Date.now() - retentionHours * 60 * 60 * 1000).toISOString();
+
+      const { data: expiredOrders } = await supabase
+        .from('print_orders')
+        .select('id, file_url')
+        .eq('shop_id', shopRes.id)
+        .lt('created_at', expirationThreshold);
+
+      if (expiredOrders && expiredOrders.length > 0) {
+        const filePathsToRemove = expiredOrders
+          .map((o) => o.file_url)
+          .filter((url): url is string => Boolean(url));
+
+        if (filePathsToRemove.length > 0) {
+          await supabase.storage.from('print-files').remove(filePathsToRemove);
+        }
+
+        const idsToDelete = expiredOrders.map((o) => o.id);
+        await supabase.from('print_orders').delete().in('id', idsToDelete);
+      }
+
+      // 2. Auto-clean transaction ledger rows older than 31 days (protects Free Tier DB storage)
+      const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+      await supabase
+        .from('shop_transactions')
+        .delete()
+        .eq('shop_id', shopRes.id)
+        .lt('created_at', thirtyOneDaysAgo);
+
+      setShop(shopRes);
+      setShopName(shopRes.name || '');
+      setPhone(shopRes.phone || '');
+      setOwnerEmail(shopRes.owner_email || '');
+      setUpiId(shopRes.upi_id || '');
+      setUpiName(shopRes.upi_name || '');
+      
+      const savedPrinter = shopRes.target_printer_name || 'Microsoft Print to PDF';
+      setTargetPrinter(savedPrinter);
+      setIsCustomPrinter(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
+
+      setCounterNotice(shopRes.counter_notice || '');
+      setIsAccepting(shopRes.is_accepting_orders ?? true);
+      setRequirePayment(shopRes.require_payment ?? false);
+      setIsPinProtected(shopRes.is_pin_protected ?? false);
+      setCounterPin(shopRes.counter_pin || '1234');
+      setAdminPin(shopRes.admin_pin || '123456');
+      setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
+      setAutoDeleteHours(shopRes.auto_delete_hours || 24);
+
+      // Load Self Gateway & Split Settings
+      setGatewayEnabled(Boolean(shopRes.gateway_enabled));
+      setGatewayProvider(shopRes.gateway_provider || 'razorpay');
+      setGatewayKeyId(shopRes.gateway_key_id || '');
+      setGatewayKeySecret(shopRes.gateway_key_secret || '');
+      setSplitPaymentEnabled(Boolean(shopRes.split_payment_enabled));
+      setBankAccountName(shopRes.bank_account_name || shopRes.upi_name || '');
+      setBankAccountNumber(shopRes.bank_account_number || '');
+      setBankIfsc(shopRes.bank_ifsc || '');
+      setDailyStatementEnabled(shopRes.daily_statement_enabled ?? true);
+
+      // Load Duplex & ID Card 2-in-1 Custom Pricing
+      setDuplexSupported(shopRes.duplex_supported ?? true);
+      setIdCardBwPrice(Number(shopRes.id_card_bw_price ?? 5));
+      setIdCardColorPrice(Number(shopRes.id_card_color_price ?? 15));
+
+      const { data: ordersRes } = await supabase
+        .from('print_orders')
+        .select('*')
+        .eq('shop_id', shopRes.id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (ordersRes) setOrders(ordersRes);
+
+      // Load 30-Day Lightweight Transaction Ledger
+      const { data: txRes } = await supabase
+        .from('shop_transactions')
+        .select('*')
+        .eq('shop_id', shopRes.id)
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (txRes && txRes.length > 0) {
+        setTransactions(txRes as TransactionLedgerRow[]);
+      } else if (ordersRes) {
+        // Fallback to active orders if shop_transactions table is empty
+        const fallbackTx: TransactionLedgerRow[] = ordersRes.map((o: any) => ({
+          id: o.id,
+          order_number: o.order_number,
+          amount: Number(o.total_amount || 0),
+          payment_mode: o.payment_ref === 'CASH_AT_COUNTER' ? 'CASH' : 'UPI / GATEWAY',
+          collection_type: shopRes.split_payment_enabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
+          payment_ref: o.payment_ref || 'DIRECT',
+          status: o.status,
+          created_at: o.created_at
+        }));
+        setTransactions(fallbackTx);
+      }
+
+      const { data: pricingRes } = await supabase
+        .from('pricing_rules')
+        .select('*')
+        .eq('shop_id', shopRes.id);
+
+      if (pricingRes) setPricing(pricingRes);
+
+      const { data: announceData } = await supabase
+        .from('site_announcements')
+        .select('chat_timeout_minutes')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (announceData?.chat_timeout_minutes) {
+        setChatTimeoutMinutes(Number(announceData.chat_timeout_minutes));
+      }
+    } catch (err) {
+      console.error('Failed to load shop admin:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadShopData();
+  }, [activeSlug]);
+
+  useEffect(() => {
+    if (!shop?.id) return;
+    const channel = supabase
+      .channel(`admin-queue-${shop.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'print_orders', filter: `shop_id=eq.${shop.id}` },
+        () => loadShopData()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shop_transactions', filter: `shop_id=eq.${shop.id}` },
+        () => loadShopData()
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'shops', filter: `id=eq.${shop.id}` },
+        () => loadShopData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [shop?.id]);
+
+  // Automatic 8:00 PM Daily Consolidated Statement Watcher
+  useEffect(() => {
+    if (!shop || !dailyStatementEnabled || !shop.owner_email) return;
+
+    const checkEightPmDigest = () => {
+      const now = new Date();
+      const todayKey = `rts_8pm_statement_${shop.id}_${now.toISOString().slice(0, 10)}`;
+      if (now.getHours() >= 20 && !localStorage.getItem(todayKey)) {
+        localStorage.setItem(todayKey, 'sent');
+        handleSendStatementEmail(true);
+      }
+    };
+
+    const digestInterval = setInterval(checkEightPmDigest, 60000);
+    return () => clearInterval(digestInterval);
+  }, [shop, dailyStatementEnabled, transactions]);
+
+  // Auto-Expire Shop Admin Live Chat Session after customizable timeout (5, 10, 15, 20 min)
+  useEffect(() => {
+    if (!shopChatSessionId || !shopChatStartedAt) return;
+    const timeoutMs = (chatTimeoutMinutes || 10) * 60 * 1000;
+
+    const checkExpiry = () => {
+      if (Date.now() - shopChatStartedAt >= timeoutMs) {
+        resetShopChatToFresh();
+      }
+    };
+
+    checkExpiry();
+    const timer = setInterval(checkExpiry, 5000);
+    return () => clearInterval(timer);
+  }, [shopChatSessionId, shopChatStartedAt, chatTimeoutMinutes]);
+
+  // Sync Shop Admin Live Chat with Super Admin Replies
+  useEffect(() => {
+    if (!shopChatSessionId) return;
+
+    async function fetchShopChat() {
+      const { data, error } = await supabase
+        .from('support_chats')
+        .select('*')
+        .eq('id', shopChatSessionId)
+        .maybeSingle();
+
+      if (error || !data) {
+        resetShopChatToFresh();
+        return;
+      }
+
+      if (Array.isArray(data.messages)) {
+        if (data.messages.length > lastShopMsgCountRef.current) {
+          const newest = data.messages[data.messages.length - 1];
+          if (newest?.sender === 'admin') {
+            playReplyChime();
+          }
+        }
+        lastShopMsgCountRef.current = data.messages.length;
+        setShopChatMessages(data.messages);
+      }
+    }
+
+    fetchShopChat();
+    const poll = setInterval(fetchShopChat, 3000);
+
+    const chatSub = supabase
+      .channel(`shop-admin-support-${shopChatSessionId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'support_chats', filter: `id=eq.${shopChatSessionId}` },
+        () => fetchShopChat()
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'support_chats', filter: `id=eq.${shopChatSessionId}` },
+        () => resetShopChatToFresh()
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(poll);
+      supabase.removeChannel(chatSub);
+    };
+  }, [shopChatSessionId]);
+
+  useEffect(() => {
+    shopChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [shopChatMessages, supportOpen, supportTab]);
+
+  // Start Live Chat Session from Shop Admin to Super Admin (First Submit sends 1 email alert)
+  const handleStartShopLiveChat = async () => {
+    if (!shop) return;
+    setStartingShopChat(true);
+
+    try {
+      const startTimestamp = Date.now();
+      const displayShopLabel = `[SHOP: ${shop.pairing_code || shop.slug}] ${shop.name}`;
+      const shopPhone = shop.phone || 'No Phone';
+      const shopEmail = shop.owner_email || 'info@rtsdigitalseva.online';
+
+      const initialMsgs: SupportChatMessage[] = [
+        {
+          id: `sys-${startTimestamp}`,
+          sender: 'bot',
+          text: faqLang === 'en'
+            ? `✅ Connected to RTS Super Admin! Hello ${shop.name} (Code: ${shop.pairing_code}), type your question below and Super Admin will reply here live.`
+            : `✅ RTS Super Admin-മായി കണക്റ്റ് ചെയ്തു! നമസ്കാരം ${shop.name} (Code: ${shop.pairing_code}), നിങ്ങളുടെ സന്ദേശം താഴെ ടൈപ്പ് ചെയ്യുക.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ];
+
+      const { data: newChat, error } = await supabase
+        .from('support_chats')
+        .insert([
+          {
+            customer_name: displayShopLabel,
+            customer_phone: shopPhone,
+            customer_email: shopEmail,
+            messages: initialMsgs,
+            status: 'active',
+            unread_admin: true
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      sessionStorage.setItem(`rts_shop_chat_id_${activeSlug}`, newChat.id);
+      sessionStorage.setItem(`rts_shop_chat_start_${activeSlug}`, String(startTimestamp));
+
+      setShopChatSessionId(newChat.id);
+      setShopChatStartedAt(startTimestamp);
+      setShopChatMessages(initialMsgs);
+      lastShopMsgCountRef.current = initialMsgs.length;
+
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'live_chat_alert',
+          customerName: displayShopLabel,
+          customerPhone: shopPhone,
+          customerEmail: shopEmail,
+          message: `Shop Admin (${shop.name} - Pairing Code: ${shop.pairing_code}) just connected to Live Support Chat!`
+        })
+      });
+    } catch (err: any) {
+      alert('Could not start live chat: ' + (err.message || 'Check connection'));
+    } finally {
+      setStartingShopChat(false);
+    }
+  };
+
+  // Send message from Shop Admin to Super Admin Inbox
+  const handleSendShopLiveMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = shopChatInput.trim();
+    if (!trimmed || !shopChatSessionId) return;
+
+    if (shopChatStartedAt && Date.now() - shopChatStartedAt >= (chatTimeoutMinutes || 10) * 60 * 1000) {
+      resetShopChatToFresh();
+      return;
+    }
+
+    setSendingShopChat(true);
+    setShopChatInput('');
+
+    try {
+      const { data: currentRow } = await supabase
+        .from('support_chats')
+        .select('messages')
+        .eq('id', shopChatSessionId)
+        .maybeSingle();
+
+      const baseMsgs = Array.isArray(currentRow?.messages) ? currentRow.messages : shopChatMessages;
+
+      const newMsg: SupportChatMessage = {
+        id: `u-${Date.now()}`,
+        sender: 'user',
+        text: trimmed,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      const updated = [...baseMsgs, newMsg];
+      setShopChatMessages(updated);
+      lastShopMsgCountRef.current = updated.length;
+
+      await supabase
+        .from('support_chats')
+        .update({
+          messages: updated,
+          unread_admin: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', shopChatSessionId);
+    } catch (err) {
+      console.error('Failed to send shop chat message:', err);
+    } finally {
+      setSendingShopChat(false);
+    }
+  };
+
+  // Login Handler
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
 
-    if (enteredPin.trim() === (shop.counter_pin || '1234').trim()) {
-      setIsUnlocked(true);
-      setPinError(false);
-    } else {
-      setPinError(true);
-      setEnteredPin('');
-    }
-  };
+    const { data: freshShop } = await supabase
+      .from('shops')
+      .select('*')
+      .eq('id', shop.id)
+      .single();
 
-  const getPageCount = async (file: File): Promise<number> => {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      return pdf.numPages || 1;
-    } catch {
-      return 1;
-    }
-  };
-
-  // Supports simultaneous upload of PDFs and Images; opens Image Studio directly when any image is uploaded!
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = e.target.files;
-    if (!selectedFiles || selectedFiles.length === 0) return;
-
-    setIsProcessingFiles(true);
-    setUploadErrorBanner(null);
-    const newPdfItems: UploadedItem[] = [];
-    const newImageItems: UploadedItem[] = [];
-
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const rawFile = selectedFiles[i];
-
-      // 1. Check 10 MB file size limit
-      if (rawFile.size > MAX_FILE_SIZE_BYTES) {
-        setUploadErrorBanner(`"${rawFile.name}": ${t.fileTooLargeMsg}`);
-        alert(`"${rawFile.name}"\n\n${t.fileTooLargeMsg}`);
-        continue;
-      }
-
-      // 2. Verify actual file byte signature (PDF, JPEG, PNG)
-      const fileKind = await detectTrueFileKind(rawFile);
-      if (fileKind === 'invalid') {
-        setUploadErrorBanner(`"${rawFile.name}": ${t.invalidFileMsg}`);
-        alert(`"${rawFile.name}"\n\n${t.invalidFileMsg}`);
-        continue;
-      }
-
-      // 3. Compress large mobile photos in browser before upload
-      const file = fileKind === 'image' ? await compressLargeImageInBrowser(rawFile) : rawFile;
-      const pages = fileKind === 'pdf' ? await getPageCount(file) : 1;
-
-      const newItem: UploadedItem = {
-        id: `${Date.now()}-${i}-${Math.random().toString(36).substr(2, 5)}`,
-        file,
-        originalFile: file,
-        backOriginalFile: null,
-        croppedFrontBlob: null,
-        croppedBackBlob: null,
-        fileKind,
-        name: rawFile.name,
-        size: file.size,
-        totalPdfPages: pages,
-        pages,
-        copies: 1,
-        isColor: false,
-        isDoubleSided: false,
-        paperSize: 'A4',
-        layoutMode: 'fit_a4',
-        pageRangeText: '',
-        hasBackImage: false
-      };
-
-      if (fileKind === 'pdf') {
-        newPdfItems.push(newItem);
-      } else {
-        newImageItems.push(newItem);
-      }
-    }
-
-    // If user uploaded 2 images together (e.g. Front & Back of ID card), pair them into 1 item and open Studio directly!
-    if (newImageItems.length >= 2) {
-      const primaryImageItem: UploadedItem = {
-        ...newImageItems[0],
-        backOriginalFile: newImageItems[1].originalFile,
-        hasBackImage: true,
-        layoutMode: 'id_card'
-      };
-      const remainingImages = newImageItems.slice(2);
-      setItems((prev) => [...prev, ...newPdfItems, primaryImageItem, ...remainingImages]);
-      openImageStudio(primaryImageItem, newImageItems[1].originalFile);
-    } else if (newImageItems.length === 1) {
-      // Single image uploaded -> add to list & go directly to Edit Studio!
-      const singleImageItem = newImageItems[0];
-      setItems((prev) => [...prev, ...newPdfItems, singleImageItem]);
-      openImageStudio(singleImageItem);
-    } else if (newPdfItems.length > 0) {
-      // Only PDFs uploaded
-      setItems((prev) => [...prev, ...newPdfItems]);
-    }
-
-    setIsProcessingFiles(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const openImageStudio = (item: UploadedItem, preloadedBackFile?: File | null) => {
-    setEditingItem(item);
-    setFrontFile(item.originalFile);
-    const initialLayout = item.layoutMode === 'fit_a4' ? 'id_card' : item.layoutMode;
-    setStudioLayout(initialLayout);
-    setCropShape(initialLayout === 'id_card' ? 'id_card' : 'free');
-    setActiveCropSide('front');
-    setFrontRotation(0);
-    setFrontCropPct(0);
-    setBackFile(preloadedBackFile !== undefined ? preloadedBackFile : item.backOriginalFile || null);
-    setBackRotation(0);
-    setBackCropPct(0);
-    setCroppedFrontBlob(item.croppedFrontBlob || null);
-    setCroppedBackBlob(item.croppedBackBlob || null);
-    setBrightness(105);
-    setContrast(110);
-  };
-
-  // Manage Cropper.js active image URL for Front or Back side
-  useEffect(() => {
-    if (!editingItem) {
-      if (cropperInstanceRef.current) {
-        cropperInstanceRef.current.destroy();
-        cropperInstanceRef.current = null;
-      }
-      setCropperSourceUrl(null);
-      return;
-    }
-    const targetFile = activeCropSide === 'front' ? frontFile : backFile;
-    if (!targetFile) {
-      setCropperSourceUrl(null);
-      return;
-    }
-    const objectUrl = URL.createObjectURL(targetFile);
-    setCropperSourceUrl(objectUrl);
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [editingItem, activeCropSide, frontFile, backFile]);
-
-  // Initialize Cropper.js instance whenever cropperSourceUrl or cropShape changes
-  useEffect(() => {
-    let mounted = true;
-    async function initCropper() {
-      if (!cropperSourceUrl || !cropperImageRef.current) return;
-      const loaded = await loadCropperAssets();
-      if (!loaded || !mounted || !cropperImageRef.current) return;
-
-      if (cropperInstanceRef.current) {
-        cropperInstanceRef.current.destroy();
-        cropperInstanceRef.current = null;
-      }
-
-      const CropperClass = (window as any).Cropper;
-      if (!CropperClass) return;
-
-      const aspectRatio =
-        cropShape === 'id_card' ? 1.586 : cropShape === 'square' ? 1 : NaN;
-
-      cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
-        aspectRatio,
-        viewMode: 1,
-        dragMode: 'move',
-        autoCropArea: 0.92,
-        responsive: true,
-        restore: false,
-        guides: true,
-        center: true,
-        highlight: false,
-        cropBoxMovable: true,
-        cropBoxResizable: true,
-        toggleDragModeOnDblclick: false
-      });
-    }
-    initCropper();
-
-    return () => {
-      mounted = false;
-      if (cropperInstanceRef.current) {
-        cropperInstanceRef.current.destroy();
-        cropperInstanceRef.current = null;
-      }
-    };
-  }, [cropperSourceUrl, cropShape]);
-
-  // "Use this crop" button handler — extracts cropped region from Cropper.js and updates Live A4 Preview
-  const handleUseThisCrop = () => {
-    if (!cropperInstanceRef.current) return;
-    const croppedCanvas = cropperInstanceRef.current.getCroppedCanvas({
-      maxWidth: 1600,
-      maxHeight: 1600,
-      fillColor: '#ffffff',
-      imageSmoothingEnabled: true,
-      imageSmoothingQuality: 'high'
-    });
-    if (!croppedCanvas) return;
-
-    croppedCanvas.toBlob(
-      (blob: Blob | null) => {
-        if (!blob) return;
-        if (activeCropSide === 'front') {
-          setCroppedFrontBlob(blob);
-          setCropAppliedToast(
-            lang === 'en' ? '✅ Front crop applied to A4 preview!' : '✅ മുൻവശം ക്രോപ്പ് ചെയ്തു!'
-          );
-          if ((studioLayout === 'id_card' || studioLayout === 'half_a4') && backFile && !croppedBackBlob) {
-            setTimeout(() => setActiveCropSide('back'), 500);
-          }
-        } else {
-          setCroppedBackBlob(blob);
-          setCropAppliedToast(
-            lang === 'en' ? '✅ Back crop applied to A4 preview!' : '✅ പിൻവശം ക്രോപ്പ് ചെയ്തു!'
-          );
-        }
-        setTimeout(() => setCropAppliedToast(null), 2500);
-      },
-      'image/jpeg',
-      0.92
-    );
-  };
-
-  // "Reset" button handler in Cropper.js
-  const handleResetCropper = () => {
-    if (cropperInstanceRef.current) {
-      cropperInstanceRef.current.reset();
-    }
-    if (activeCropSide === 'front') {
-      setCroppedFrontBlob(null);
-      setFrontRotation(0);
-      setFrontCropPct(0);
-    } else {
-      setCroppedBackBlob(null);
-      setBackRotation(0);
-      setBackCropPct(0);
-    }
-  };
-
-  // Rotate Left / Right in Cropper.js
-  const handleRotateCropper = (deg: number) => {
-    if (cropperInstanceRef.current) {
-      cropperInstanceRef.current.rotate(deg);
-    } else {
-      if (activeCropSide === 'front') {
-        setFrontRotation((r) => (r + deg + 360) % 360);
-      } else {
-        setBackRotation((r) => (r + deg + 360) % 360);
-      }
-    }
-  };
-
-  // Remove Front Image inside Studio (Promotes Back Image if available, or prompts to upload new)
-  const handleRemoveFrontInStudio = () => {
-    if (backFile) {
-      setFrontFile(backFile);
-      setCroppedFrontBlob(croppedBackBlob);
-      setFrontRotation(backRotation);
-      setFrontCropPct(backCropPct);
-      setBackFile(null);
-      setCroppedBackBlob(null);
-      setBackRotation(0);
-      setBackCropPct(0);
-      setActiveCropSide('front');
-    } else {
-      setFrontFile(null);
-      setCroppedFrontBlob(null);
-      setFrontRotation(0);
-      setFrontCropPct(0);
-    }
-  };
-
-  // Remove Entire Item from Queue via Studio
-  const handleDeleteItemFromStudio = () => {
-    if (!editingItem) return;
-    removeItem(editingItem.id);
-    setEditingItem(null);
-  };
-
-  // Helper to draw a rotated & cropped image onto an A4 canvas region
-  const drawProcessedImage = (
-    ctx: CanvasRenderingContext2D,
-    img: HTMLImageElement,
-    rotationDeg: number,
-    cropPct: number,
-    targetX: number,
-    targetY: number,
-    targetW: number,
-    targetH: number,
-    drawCutBorder: boolean
-  ) => {
-    const offCanvas = document.createElement('canvas');
-    const rad = ((rotationDeg % 360) * Math.PI) / 180;
-    const sin = Math.abs(Math.sin(rad));
-    const cos = Math.abs(Math.cos(rad));
-
-    const trimX = (img.width * cropPct) / 200;
-    const trimY = (img.height * cropPct) / 200;
-    const srcW = Math.max(10, img.width - trimX * 2);
-    const srcH = Math.max(10, img.height - trimY * 2);
-
-    offCanvas.width = Math.round(srcW * cos + srcH * sin);
-    offCanvas.height = Math.round(srcW * sin + srcH * cos);
-
-    const offCtx = offCanvas.getContext('2d');
-    if (offCtx) {
-      offCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
-      offCtx.translate(offCanvas.width / 2, offCanvas.height / 2);
-      offCtx.rotate(rad);
-      offCtx.drawImage(img, trimX, trimY, srcW, srcH, -srcW / 2, -srcH / 2, srcW, srcH);
-    }
-
-    ctx.drawImage(offCanvas, targetX, targetY, targetW, targetH);
-
-    if (drawCutBorder) {
-      ctx.save();
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = Math.max(1, targetW * 0.004);
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(targetX - 4, targetY - 4, targetW + 8, targetH + 8);
-      ctx.restore();
-    }
-  };
-
-  // Render Live A4 Sheet Preview inside the Studio Modal
-  useEffect(() => {
-    let active = true;
-    async function renderPreview() {
-      if (!editingItem || !previewCanvasRef.current) return;
-      const canvas = previewCanvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      // Preview scale of A4 (210mm x 297mm -> 420px x 594px)
-      canvas.width = 420;
-      canvas.height = 594;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      if (!frontFile) {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 13px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('No Image Selected — Tap "+ Add Image" below', canvas.width / 2, canvas.height / 2);
-        return;
-      }
-
-      try {
-        const frontSource: File | Blob = croppedFrontBlob || frontFile;
-        const frontImg = await loadImageElement(frontSource);
-        if (!active) return;
-
-        if (studioLayout === 'id_card') {
-          // Exact ID-1 Card Size on A4 (85.6mm x 54mm -> 171px x 108px on 420x594 canvas)
-          const cardW = 171;
-          const cardH = 108;
-          const topMargin = 36;
-
-          if (backFile) {
-            const backSource: File | Blob = croppedBackBlob || backFile;
-            const backImg = await loadImageElement(backSource);
-            if (!active) return;
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 26, topMargin, cardW, cardH, true);
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 223, topMargin, cardW, cardH, true);
-          } else {
-            drawProcessedImage(
-              ctx,
-              frontImg,
-              croppedFrontBlob ? 0 : frontRotation,
-              frontCropPct,
-              (canvas.width - cardW) / 2,
-              topMargin,
-              cardW,
-              cardH,
-              true
-            );
-          }
-        } else if (studioLayout === 'half_a4') {
-          const boxW = 360;
-          const boxH = 250;
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
-          if (backFile) {
-            const backSource: File | Blob = croppedBackBlob || backFile;
-            const backImg = await loadImageElement(backSource);
-            if (!active) return;
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 30, 305, boxW, boxH, false);
-          }
-        } else if (studioLayout === 'grid_4') {
-          const cellW = 175;
-          const cellH = 240;
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 30, cellW, cellH, true);
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 220, 30, cellW, cellH, true);
-          if (backFile) {
-            const backSource: File | Blob = croppedBackBlob || backFile;
-            const backImg = await loadImageElement(backSource);
-            if (!active) return;
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 25, 300, cellW, cellH, true);
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 220, 300, cellW, cellH, true);
-          } else {
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 300, cellW, cellH, true);
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 220, 300, cellW, cellH, true);
-          }
-        } else if (studioLayout === 'actual_size') {
-          const w = Math.min(360, frontImg.width * 0.35);
-          const h = Math.min(520, frontImg.height * 0.35);
-          drawProcessedImage(
-            ctx,
-            frontImg,
-            croppedFrontBlob ? 0 : frontRotation,
-            frontCropPct,
-            (canvas.width - w) / 2,
-            40,
-            w,
-            h,
-            false
-          );
-        } else {
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 20, 20, 380, 554, false);
-        }
-      } catch (err) {
-        console.error('Preview render error:', err);
-      }
-    }
-    renderPreview();
-    return () => {
-      active = false;
-    };
-  }, [
-    editingItem,
-    frontFile,
-    croppedFrontBlob,
-    studioLayout,
-    frontRotation,
-    frontCropPct,
-    backFile,
-    croppedBackBlob,
-    backRotation,
-    backCropPct,
-    brightness,
-    contrast
-  ]);
-
-  // Generate High-Resolution A4 Sheet (1240 x 1754 px) & Show Confirmation Popup!
-  const handleApplyImageStudio = async () => {
-    if (!editingItem) return;
-    if (!frontFile) {
-      alert('Please select or upload at least 1 image from your gallery before applying.');
-      return;
-    }
-
-    setApplyingStudio(true);
-
-    try {
-      let finalFrontBlob = croppedFrontBlob;
-      let finalBackBlob = croppedBackBlob;
-
-      if (cropperInstanceRef.current) {
-        const autoCanvas = cropperInstanceRef.current.getCroppedCanvas({
-          maxWidth: 1600,
-          maxHeight: 1600,
-          fillColor: '#ffffff'
-        });
-        if (autoCanvas) {
-          const autoBlob: Blob | null = await new Promise((res) =>
-            autoCanvas.toBlob((b: Blob | null) => res(b), 'image/jpeg', 0.92)
-          );
-          if (autoBlob) {
-            if (activeCropSide === 'front' && !finalFrontBlob) finalFrontBlob = autoBlob;
-            if (activeCropSide === 'back' && !finalBackBlob) finalBackBlob = autoBlob;
-          }
-        }
-      }
-
-      const hiCanvas = document.createElement('canvas');
-      hiCanvas.width = 1240;
-      hiCanvas.height = 1754;
-      const ctx = hiCanvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas context unavailable');
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, hiCanvas.width, hiCanvas.height);
-
-      const frontImg = await loadImageElement(finalFrontBlob || frontFile);
-
-      if (studioLayout === 'id_card') {
-        // Exact ID-1 Standard Size: 85.6 mm × 54 mm on 210 mm × 297 mm A4 (505 px × 319 px)
-        const cardW = 505;
-        const cardH = 319;
-        const topY = 110;
-
-        if (backFile) {
-          const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 80, topY, cardW, cardH, true);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 655, topY, cardW, cardH, true);
-        } else {
-          drawProcessedImage(
-            ctx,
-            frontImg,
-            finalFrontBlob ? 0 : frontRotation,
-            frontCropPct,
-            (hiCanvas.width - cardW) / 2,
-            topY,
-            cardW,
-            cardH,
-            true
-          );
-        }
-      } else if (studioLayout === 'half_a4') {
-        const boxW = 1080;
-        const boxH = 760;
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 80, 70, boxW, boxH, false);
-        if (backFile) {
-          const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 80, 910, boxW, boxH, false);
-        }
-      } else if (studioLayout === 'grid_4') {
-        const cellW = 520;
-        const cellH = 740;
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 75, 90, cellW, cellH, true);
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 645, 90, cellW, cellH, true);
-        if (backFile) {
-          const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 75, 900, cellW, cellH, true);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 645, 900, cellW, cellH, true);
-        } else {
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 75, 900, cellW, cellH, true);
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 645, 900, cellW, cellH, true);
-        }
-      } else if (studioLayout === 'actual_size') {
-        const w = Math.min(1080, frontImg.width);
-        const h = Math.min(1550, frontImg.height);
-        drawProcessedImage(
-          ctx,
-          frontImg,
-          finalFrontBlob ? 0 : frontRotation,
-          frontCropPct,
-          (hiCanvas.width - w) / 2,
-          100,
-          w,
-          h,
-          false
-        );
-      } else {
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 60, 60, 1120, 1634, false);
-      }
-
-      const blob: Blob = await new Promise((resolve, reject) => {
-        hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.92);
-      });
-
-      const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
-      const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : studioLayout;
-      const composedFile = new File([blob], `${baseName}_${layoutTag}.jpg`, { type: 'image/jpeg' });
-
-      updateItem(editingItem.id, {
-        file: composedFile,
-        originalFile: frontFile,
-        backOriginalFile: backFile,
-        croppedFrontBlob: finalFrontBlob,
-        croppedBackBlob: finalBackBlob,
-        name: frontFile.name,
-        size: composedFile.size,
-        layoutMode: studioLayout,
-        pages: 1,
-        hasBackImage: Boolean(backFile)
-      });
-
-      setLastEditedItemId(editingItem.id);
-      setEditingItem(null);
-      setShowEditConfirmPopup(true);
-    } catch (err: any) {
-      alert('Failed to apply layout: ' + err.message);
-    } finally {
-      setApplyingStudio(false);
-    }
-  };
-
-  const removeItem = (id: string) => {
-    setItems((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const updateItem = (id: string, updates: Partial<UploadedItem>) => {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
-    );
-  };
-
-  // Price Calculation: Priced by actual sheets + Shopkeeper's Custom "ID Card 2-in-1 / Cropping" Rate
-  const calculateItemPrice = (item: UploadedItem): number => {
-    const rule = pricingRules.find(
-      (r) =>
-        r.paper_size === item.paperSize &&
-        r.is_color === item.isColor &&
-        r.is_double_sided === item.isDoubleSided
-    );
-    const standardPerPageRate = rule ? Number(rule.price_per_page) : item.isColor ? 10.0 : 2.0;
+    const currentShop = freshShop || shop;
+    const validId = (currentShop.admin_username || currentShop.slug || '').toLowerCase().trim();
+    const validSlug = (currentShop.slug || '').toLowerCase().trim();
+    const validPhone = (currentShop.phone || '').trim();
+    const enteredId = loginId.toLowerCase().trim();
+    const validPin = (currentShop.admin_pin || '123456').trim();
 
     if (
-      item.fileKind === 'image' &&
-      (item.layoutMode === 'id_card' ||
-        (item.layoutMode === 'half_a4' && item.hasBackImage) ||
-        item.layoutMode === 'grid_4')
+      (enteredId === validId || enteredId === validSlug || enteredId === validPhone) &&
+      loginPin.trim() === validPin
     ) {
-      const customIdRate = item.isColor
-        ? Number(shop?.id_card_color_price || standardPerPageRate * 2)
-        : Number(shop?.id_card_bw_price || standardPerPageRate * 2);
-      return customIdRate * item.copies;
-    }
-
-    const sheetsUsed = calculateSheetsForItem(item);
-    return item.isDoubleSided ? sheetsUsed * standardPerPageRate * 2 : sheetsUsed * standardPerPageRate;
-  };
-
-  const totalAmount = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
-  const totalPages = items.reduce((sum, item) => sum + item.pages * item.copies, 0);
-  const totalSheetsNeeded = items.reduce((sum, item) => sum + calculateSheetsForItem(item), 0);
-
-  const cleanUpiId = cleanVpa(shop?.upi_id);
-  const payeeName = (shop?.upi_name && shop.upi_name.trim() !== '')
-    ? shop.upi_name.trim()
-    : (shop?.name || 'RTS Smart Print').trim();
-  const formattedAmount = Number(totalAmount || 0).toFixed(2);
-
-  const hasActiveShopGateway = Boolean(
-    shop?.gateway_enabled && shop?.gateway_key_id && shop.gateway_key_id.trim() !== ''
-  );
-  const activeGatewayProvider = (shop?.gateway_provider || 'razorpay').toLowerCase();
-  const isDuplexSupported = shop?.duplex_supported ?? true;
-
-  const upiDeepLink = cleanUpiId
-    ? `upi://pay?pa=${encodeURIComponent(cleanUpiId)}&pn=${encodeURIComponent(payeeName)}&am=${formattedAmount}&cu=INR`
-    : '';
-
-  const qrCodeImageUrl = cleanUpiId
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(upiDeepLink)}`
-    : '';
-
-  const handleDownloadQrForGallery = async () => {
-    if (!qrCodeImageUrl) return;
-    setSavingQr(true);
-    try {
-      const response = await fetch(qrCodeImageUrl);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = `RTS-Pay-Rs${formattedAmount}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      window.open(qrCodeImageUrl, '_blank');
-    } finally {
-      setSavingQr(false);
+      setShop(currentShop);
+      setAdminPin(validPin);
+      setIsLoggedIn(true);
+      localStorage.setItem(`rts_auth_${activeSlug}`, 'true');
+      setLoginError('');
+    } else {
+      setLoginError('Invalid User ID or 6-digit PIN');
     }
   };
 
-  // FIXED: Uses ONE unified Order Number (`orderNumber`) for all files in the batch
-  // so the customer's final Order Status page shows ALL uploaded files (e.g. 1 ID Card + 1 PDF = 2 files),
-  // while Shop Admin approves each row individually using `orderRow.id`!
-  const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
-    if (!shop || items.length === 0) return;
-    setSubmittingOrder(true);
+  const handleLogout = () => {
+    localStorage.removeItem(`rts_auth_${activeSlug}`);
+    setIsLoggedIn(false);
+  };
+
+  // Automated Forgot Password Handler
+  const handleSendResetPinEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shop) return;
+
+    const enteredUser = forgotUserId.toLowerCase().trim();
+    const validUsername = (shop.admin_username || '').toLowerCase().trim();
+    const validSlug = (shop.slug || '').toLowerCase().trim();
+    const validName = (shop.name || '').toLowerCase().trim();
+    const validPhone = (shop.phone || '').trim();
+
+    if (!enteredUser) {
+      setForgotStatusMsg({ type: 'error', text: 'Please enter your Shop ID / User ID (e.g. ramu).' });
+      return;
+    }
+
+    if (
+      enteredUser !== validUsername &&
+      enteredUser !== validSlug &&
+      enteredUser !== validName &&
+      enteredUser !== validPhone
+    ) {
+      setForgotStatusMsg({
+        type: 'error',
+        text: `User ID "${forgotUserId}" does not match this shop. Try "${shop.admin_username || shop.slug}".`
+      });
+      return;
+    }
+
+    if (!shop.owner_email) {
+      setForgotStatusMsg({
+        type: 'error',
+        text: 'No owner email is registered for this shop. Please contact RTS Support (info@rtsdigitalseva.online).'
+      });
+      return;
+    }
+
+    setSendingReset(true);
+    setForgotStatusMsg(null);
 
     try {
-      const { data: latestShop } = await supabase
+      const newSixDigitPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+      const { error: updateErr } = await supabase
         .from('shops')
-        .select('auto_print_enabled, require_payment, split_payment_enabled')
-        .eq('id', shop.id)
-        .maybeSingle();
+        .update({ admin_pin: newSixDigitPin })
+        .eq('id', shop.id);
 
-      const isAutoPilot = latestShop ? Boolean(latestShop.auto_print_enabled) : Boolean(shop.auto_print_enabled);
-      const isCashMode = !(latestShop ? latestShop.require_payment : shop.require_payment);
-      const isGatewayVerified = Boolean(verifiedGatewayPaymentId);
+      if (updateErr) throw updateErr;
 
-      const targetStatus = isAutoPilot ? 'paid' : 'pending';
+      setAdminPin(newSixDigitPin);
+      setShop({ ...shop, admin_pin: newSixDigitPin });
 
-      const orderNumber = `RTS-${Math.floor(100000 + Math.random() * 900000)}`;
-      const finalPaymentRef = isGatewayVerified
-        ? `${activeGatewayProvider.toUpperCase()}_${verifiedGatewayPaymentId}`
-        : isCashMode
-        ? 'CASH_AT_COUNTER'
-        : utrNumber || 'UPI_SUBMITTED';
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reset_pin',
+          email: shop.owner_email,
+          shopName: shop.name,
+          userId: shop.admin_username || shop.slug,
+          newPin: newSixDigitPin,
+          slug: shop.slug
+        })
+      });
 
-      for (let idx = 0; idx < items.length; idx++) {
-        const item = items[idx];
-        const fileExt = item.file.name.split('.').pop() || 'pdf';
-        const storagePath = `${shop.id}/${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}.${fileExt}`;
+      const maskedEmail = shop.owner_email.replace(/(.{2})(.*)(?=@)/, '$1***');
+      setForgotStatusMsg({
+        type: 'success',
+        text: `✅ A new 6-digit Admin PIN has been sent to your registered email (${maskedEmail}). Enter it above to sign in!`
+      });
+      setLoginId(shop.admin_username || shop.slug);
+    } catch (err: any) {
+      setForgotStatusMsg({
+        type: 'error',
+        text: 'Failed to reset PIN: ' + (err.message || 'Please try again.')
+      });
+    } finally {
+      setSendingReset(false);
+    }
+  };
 
-        const { error: uploadError } = await supabase.storage
-          .from('print-files')
-          .upload(storagePath, item.file, {
-            contentType: item.file.type,
-            upsert: false
-          });
+  // Software Download & Unlock Request Handlers
+  const handleDownloadSetup = async () => {
+    if (!shop) return;
+    const used = shop.download_count || 0;
+    const max = shop.max_downloads || 3;
+    const allowed = shop.download_allowed ?? true;
 
-        if (uploadError) throw uploadError;
+    if (!allowed || used >= max) {
+      alert(`Download limit reached (${used}/${max}) or paused by Super Admin. Please click "Request Re-Download Approval" below.`);
+      return;
+    }
 
-        const itemTotal = Number(calculateItemPrice(item).toFixed(2));
-        const displayDocName =
-          item.fileKind === 'image' && item.layoutMode === 'id_card'
-            ? `[ID-2in1] ${item.name}`
-            : item.fileKind === 'image' && item.layoutMode === 'grid_4'
-            ? `[4-Per-Page] ${item.name}`
-            : item.pageRangeText
-            ? `[Pages ${item.pageRangeText}] ${item.name}`
-            : item.name;
+    setDownloading(true);
+    try {
+      const newCount = used + 1;
+      const stillAllowed = newCount < max;
 
-        const { error: orderError } = await supabase.from('print_orders').insert([
-          {
-            shop_id: shop.id,
-            order_number: orderNumber,
-            file_name: displayDocName,
-            file_url: storagePath,
-            page_count: calculateSheetsForItem(item),
-            copies: item.copies,
-            is_color: item.isColor,
-            is_double_sided: item.isDoubleSided,
-            paper_size: item.paperSize,
-            total_amount: itemTotal,
-            status: targetStatus,
-            payment_ref: finalPaymentRef
-          }
-        ]);
+      const { error } = await supabase
+        .from('shops')
+        .update({
+          download_count: newCount,
+          download_allowed: stillAllowed,
+          download_requested: false
+        })
+        .eq('id', shop.id);
 
-        if (orderError) throw orderError;
-      }
+      if (error) throw error;
 
-      try {
+      window.open(AGENT_DOWNLOAD_URL, '_blank');
+      await loadShopData();
+    } catch (err: any) {
+      alert('Failed to process download: ' + err.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleRequestDownloadUnlock = async () => {
+    if (!shop) return;
+    setRequestingUnlock(true);
+    try {
+      const { error } = await supabase
+        .from('shops')
+        .update({
+          download_requested: true
+        })
+        .eq('id', shop.id);
+
+      if (error) throw error;
+      alert(`Re-download request for Shop Code (${shop.pairing_code}) sent to Super Admin!`);
+      await loadShopData();
+    } catch (err: any) {
+      alert('Failed to send unlock request: ' + err.message);
+    } finally {
+      setRequestingUnlock(false);
+    }
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shop) return;
+    setSaving(true);
+    try {
+      const cleanAdminPin = adminPin.trim() || '123456';
+      const { error } = await supabase
+        .from('shops')
+        .update({
+          name: shopName,
+          phone: phone,
+          owner_email: ownerEmail,
+          upi_id: upiId.trim(),
+          upi_name: upiName.trim(),
+          target_printer_name: targetPrinter.trim() || 'Microsoft Print to PDF',
+          counter_notice: counterNotice,
+          is_accepting_orders: isAccepting,
+          require_payment: requirePayment,
+          is_pin_protected: isPinProtected,
+          counter_pin: counterPin,
+          admin_pin: cleanAdminPin,
+          auto_print_enabled: autoPrintEnabled,
+          auto_delete_hours: autoDeleteHours,
+          // Save Self Payment Gateway, Split Bank & 8 PM Statement Settings
+          gateway_enabled: gatewayEnabled,
+          gateway_provider: gatewayProvider,
+          gateway_key_id: gatewayKeyId.trim() || null,
+          gateway_key_secret: gatewayKeySecret.trim() || null,
+          split_payment_enabled: splitPaymentEnabled,
+          bank_account_name: bankAccountName.trim() || null,
+          bank_account_number: bankAccountNumber.trim() || null,
+          bank_ifsc: bankIfsc.toUpperCase().trim() || null,
+          daily_statement_enabled: dailyStatementEnabled,
+          // Save Duplex & ID Card 2-in-1 Custom Pricing
+          duplex_supported: duplexSupported,
+          id_card_bw_price: Number(idCardBwPrice || 5),
+          id_card_color_price: Number(idCardColorPrice || 15)
+        })
+        .eq('id', shop.id);
+
+      if (error) throw error;
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      loadShopData();
+    } catch (err: any) {
+      alert('Failed to save settings: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // FIXED: Approves ONLY the specific clicked file row by unique `orderRow.id` (instead of all files sharing order_number)
+  const handleApproveOrder = async (orderRow: OrderRow) => {
+    try {
+      await supabase
+        .from('print_orders')
+        .update({ status: 'paid' })
+        .eq('id', orderRow.id);
+
+      // Record into 30-day lightweight transaction ledger
+      if (shop) {
         await supabase.from('shop_transactions').insert([
           {
             shop_id: shop.id,
-            order_number: orderNumber,
-            amount: Number(formattedAmount),
-            payment_mode: isGatewayVerified
-              ? activeGatewayProvider.toUpperCase()
-              : isCashMode
-              ? 'CASH'
-              : 'UPI',
-            collection_type: shop.split_payment_enabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
-            payment_ref: finalPaymentRef,
-            status: targetStatus
+            order_number: orderRow.order_number,
+            amount: Number(orderRow.total_amount || 0),
+            payment_mode:
+              orderRow.payment_ref === 'CASH_AT_COUNTER'
+                ? 'CASH'
+                : gatewayEnabled
+                ? gatewayProvider.toUpperCase()
+                : 'UPI',
+            collection_type: splitPaymentEnabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP',
+            payment_ref: orderRow.payment_ref || 'COUNTER_APPROVED',
+            status: 'paid'
           }
         ]);
-      } catch {
-        // Ignore if table not created
       }
 
-      navigate(`/shop/${shop.slug}/order/${orderNumber}`);
+      setSelectedOrderIds((prev) => prev.filter((id) => id !== orderRow.id));
+      loadShopData();
     } catch (err: any) {
-      alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
+      alert('Error approving order: ' + err.message);
+    }
+  };
+
+  // Batch Print Selected Files Only
+  const handlePrintSelectedOrders = async () => {
+    if (selectedOrderIds.length === 0) return;
+    try {
+      const targets = orders.filter((o) => selectedOrderIds.includes(o.id));
+      for (const row of targets) {
+        await handleApproveOrder(row);
+      }
+      setSelectedOrderIds([]);
+    } catch (err: any) {
+      alert('Error printing selected files: ' + err.message);
+    }
+  };
+
+  // FIXED: Rejects/Deletes ONLY the specific clicked file row by unique `orderRow.id`
+  const handleRejectOrder = async (orderRow: OrderRow) => {
+    if (!window.confirm(`Discard file "${orderRow.file_name}" (${orderRow.order_number})?`)) return;
+    try {
+      if (orderRow.file_url) {
+        await supabase.storage.from('print-files').remove([orderRow.file_url]);
+      }
+      await supabase
+        .from('print_orders')
+        .update({ status: 'rejected' })
+        .eq('id', orderRow.id);
+
+      setSelectedOrderIds((prev) => prev.filter((id) => id !== orderRow.id));
+      loadShopData();
+    } catch (err: any) {
+      alert('Error rejecting order: ' + err.message);
+    }
+  };
+
+  const toggleSelectOrder = (orderId: string) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
+    );
+  };
+
+  const handleUpdatePrice = async (ruleId: string, newPrice: number) => {
+    await supabase.from('pricing_rules').update({ price_per_page: newPrice }).eq('id', ruleId);
+    loadShopData();
+  };
+
+  // Instant onBlur save for ID Card 2-in-1 / Cropping Service Rates
+  const handleUpdateIdCardRate = async (field: 'id_card_bw_price' | 'id_card_color_price', newRate: number) => {
+    if (!shop || isNaN(newRate)) return;
+    await supabase.from('shops').update({ [field]: newRate }).eq('id', shop.id);
+    loadShopData();
+  };
+
+  // Filter Transactions by Date Range (Today, 7 Days, 30 Days / 1 Month, or Custom)
+  const getFilteredTransactions = (): TransactionLedgerRow[] => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    return transactions.filter((tx) => {
+      if (tx.status === 'rejected') return false;
+      const txTime = new Date(tx.created_at).getTime();
+
+      if (statementRange === 'today') {
+        return txTime >= startOfToday;
+      }
+      if (statementRange === '7days') {
+        return txTime >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
+      }
+      if (statementRange === '30days') {
+        return txTime >= now.getTime() - 30 * 24 * 60 * 60 * 1000;
+      }
+      if (statementRange === 'custom') {
+        const start = customStartDate ? new Date(customStartDate).getTime() : 0;
+        const end = customEndDate ? new Date(customEndDate).getTime() + 86400000 : Infinity;
+        return txTime >= start && txTime <= end;
+      }
+      return true;
+    });
+  };
+
+  // Send Consolidated Daily 8 PM Statement Email (or On-Demand Statement)
+  const handleSendStatementEmail = async (silent: boolean = false) => {
+    if (!shop || !shop.owner_email) {
+      if (!silent) alert('Please save an Owner Email in Counter Configuration first.');
+      return;
+    }
+
+    setSendingStatementEmail(true);
+    try {
+      const filtered = getFilteredTransactions();
+      const totalAmount = filtered.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      const directTotal = filtered
+        .filter((r) => r.collection_type !== 'SPLIT_SETTLEMENT')
+        .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      const splitTotal = filtered
+        .filter((r) => r.collection_type === 'SPLIT_SETTLEMENT')
+        .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'daily_statement',
+          email: shop.owner_email,
+          shopName: shop.name,
+          pairingCode: shop.pairing_code,
+          periodLabel: statementRange.toUpperCase(),
+          totalOrders: filtered.length,
+          totalAmount: totalAmount.toFixed(2),
+          directShopAmount: directTotal.toFixed(2),
+          splitSettlementAmount: splitTotal.toFixed(2)
+        })
+      });
+
+      if (!silent) {
+        alert(`📧 Consolidated Statement (${filtered.length} orders • ₹${totalAmount.toFixed(2)}) emailed to ${shop.owner_email}!`);
+      }
+    } catch (err) {
+      if (!silent) alert('Failed to email statement.');
     } finally {
-      setSubmittingOrder(false);
+      setSendingStatementEmail(false);
     }
   };
 
-  const handlePayWithShopGateway = async () => {
-    if (!shop || !hasActiveShopGateway) return;
-    const keyId = (shop.gateway_key_id || '').trim();
+  // Print / Save PDF Statement for up to 1 Month
+  const handlePrintStatementReport = () => {
+    if (!shop) return;
+    const filtered = getFilteredTransactions();
+    const totalRev = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
 
-    if (activeGatewayProvider === 'razorpay') {
-      setLaunchingGateway(true);
-      const loaded = await loadRazorpayScript();
-      setLaunchingGateway(false);
+    const win = window.open('', '_blank');
+    if (!win) return;
 
-      if (!loaded || !(window as any).Razorpay) {
-        alert('Failed to load Razorpay Checkout. Please check your internet connection.');
-        return;
-      }
+    const rowsHtml = filtered
+      .map(
+        (r) => `
+        <tr>
+          <td>${new Date(r.created_at).toLocaleString('en-IN')}</td>
+          <td><strong>${r.order_number}</strong></td>
+          <td>${r.payment_mode}</td>
+          <td>${r.collection_type === 'SPLIT_SETTLEMENT' ? 'RTS Split Settlement' : 'Direct Shop Collection'}</td>
+          <td style="text-align:right;font-weight:bold;">₹${Number(r.amount || 0).toFixed(2)}</td>
+        </tr>`
+      )
+      .join('');
 
-      const amountInPaise = Math.round(Number(totalAmount || 0) * 100);
-      const options = {
-        key: keyId,
-        amount: amountInPaise,
-        currency: 'INR',
-        name: shop.name,
-        description: `Print Job (${totalSheetsNeeded} sheets)`,
-        prefill: {
-          contact: shop.phone || ''
-        },
-        theme: {
-          color: '#059669'
-        },
-        handler: function (response: any) {
-          const paymentId = response?.razorpay_payment_id || `RZP_${Date.now()}`;
-          handleProceedOrder(paymentId);
-        }
-      };
-
-      const rzp = new (window as any).Razorpay(options);
-      rzp.open();
-    } else {
-      if (keyId.startsWith('http://') || keyId.startsWith('https://')) {
-        window.open(keyId, '_blank');
-      } else {
-        alert(`Opening ${activeGatewayProvider.toUpperCase()} checkout for ₹${formattedAmount}...`);
-      }
-    }
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${shop.name} - Print Earnings Statement</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 30px; color: #0f172a; }
+            h1 { margin: 0 0 4px 0; font-size: 22px; }
+            p { margin: 0 0 16px 0; font-size: 12px; color: #475569; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+            th { background: #f1f5f9; }
+            .summary { margin-top: 16px; font-size: 14px; font-weight: bold; text-align: right; }
+          </style>
+        </head>
+        <body>
+          <h1>${shop.name} — Print Earnings & Transaction Statement</h1>
+          <p>Shop Code: ${shop.pairing_code} | Period: ${statementRange.toUpperCase()} | Generated: ${new Date().toLocaleString('en-IN')}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Order #</th>
+                <th>Mode</th>
+                <th>Settlement Type</th>
+                <th style="text-align:right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml || '<tr><td colspan="5">No transactions in selected period.</td></tr>'}</tbody>
+          </table>
+          <div class="summary">Total Orders: ${filtered.length} | Total Collection: ₹${totalRev.toFixed(2)}</div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   };
 
-  if (loadingShop) {
+  const handlePrintStandee = () => {
+    if (!shop) return;
+    const kioskUrl = `${window.location.origin}/shop/${shop.slug}`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(kioskUrl)}`;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${shop.name} - Counter QR Standee</title>
+          <style>
+            @page { size: A4 portrait; margin: 0; }
+            body { 
+              font-family: system-ui, -apple-system, sans-serif;
+              margin: 0; padding: 40px 20px; 
+              display: flex; justify-content: center; align-items: center; 
+              min-height: 100vh; background-color: #f8fafc;
+            }
+            .card { 
+              width: 480px; background: white; border: 3px solid #059669; 
+              border-radius: 28px; padding: 40px 32px; text-align: center;
+            }
+            .header-tag {
+              display: inline-block; background: #ecfdf5; color: #059669;
+              font-weight: 800; font-size: 13px; padding: 6px 16px;
+              border-radius: 9999px; text-transform: uppercase; margin-bottom: 12px;
+            }
+            h1 { font-size: 28px; color: #0f172a; margin: 0 0 6px 0; font-weight: 900; }
+            p.sub { color: #64748b; font-size: 14px; margin: 0 0 20px 0; }
+            .qr-box { 
+              background: white; padding: 16px; border: 2px dashed #cbd5e1; 
+              border-radius: 24px; display: inline-block; margin-bottom: 18px;
+            }
+            .qr-box img { width: 240px; height: 240px; display: block; }
+            .pin-badge {
+              background: #fef3c7; border: 2px solid #f59e0b; color: #92400e;
+              padding: 8px 16px; border-radius: 14px; font-size: 14px;
+              font-weight: 900; margin-bottom: 20px;
+              display: ${isPinProtected ? 'inline-block' : 'none'};
+            }
+            .steps { 
+              background: #f8fafc; border-radius: 16px; padding: 16px; 
+              text-align: left; font-size: 13px; color: #334155; line-height: 1.8; margin-bottom: 20px;
+            }
+            .steps strong { color: #059669; }
+            .footer { font-size: 11px; color: #94a3b8; font-weight: 600; }
+            @media print { body { background: transparent; padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="header-tag">Self-Service Print Station</div>
+            <h1>${shop.name}</h1>
+            <p class="sub">Scan below to upload and print documents instantly</p>
+            <div class="qr-box">
+              <img src="${qrImageUrl}" alt="Scan to Print" />
+            </div>
+            <div class="pin-badge">🔑 Counter Access PIN: ${counterPin}</div>
+            <div class="steps">
+              <div><strong>1. Scan QR</strong> using phone camera or Google Lens</div>
+              ${isPinProtected ? `<div><strong>2. Enter PIN (${counterPin})</strong> to unlock document upload</div>` : ''}
+              <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> documents</div>
+              <div><strong>${isPinProtected ? '4' : '3'}. Collect Prints</strong> at this counter</div>
+            </div>
+            <div class="footer">Powered by RTS Smart Print</div>
+          </div>
+          <script>window.onload = function() { window.print(); }</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-xs font-bold text-slate-400 animate-pulse">Connecting to Print Counter...</p>
+        <RefreshCw className="w-5 h-5 animate-spin text-emerald-600" />
       </div>
     );
   }
 
-  // Real-Time Shop Subscription Expiry Calculation (Blocks Kiosk when 0 Days Left)
-  const shopApprovalTimestamp = shop?.approved_at
-    ? new Date(shop.approved_at).getTime()
-    : new Date(shop?.created_at || Date.now()).getTime();
-  const shopElapsedDays = Math.floor((Date.now() - shopApprovalTimestamp) / (1000 * 60 * 60 * 24));
-  const shopRemainingDays = Math.max(0, (shop?.subscription_days || 7) - shopElapsedDays);
-  const isShopExpired =
-    !shop ||
-    !shop.is_accepting_orders ||
-    shop.subscription_status === 'suspended' ||
-    shopRemainingDays <= 0;
-
-  if (isShopExpired) {
+  if (!shop) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center max-w-sm space-y-3 shadow-sm">
-          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto" />
-          <h2 className="text-lg font-black text-slate-900">{shop?.name || 'Counter Offline'}</h2>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {shopRemainingDays <= 0
-              ? 'This print counter subscription has expired. Please ask the shop operator to renew their RTS Smart Print plan.'
-              : 'This print counter is currently paused or offline. Please contact the shop operator.'}
-          </p>
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center max-w-sm space-y-3">
+          <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto" />
+          <h2 className="text-lg font-black text-slate-900">Shop Not Found</h2>
+          <Link to="/" className="inline-block mt-2 text-xs font-bold text-emerald-600 hover:underline">
+            Return to Home
+          </Link>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between relative overflow-x-hidden">
-      <div>
-        <header className="bg-white border-b border-slate-200 py-3.5 px-4 sm:px-6 sticky top-0 z-40 shadow-sm flex justify-between items-center gap-2">
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-slate-950 border border-slate-800 p-8 rounded-3xl max-w-sm w-full text-center space-y-4 shadow-2xl">
+          <div className="w-14 h-14 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20">
+            <Lock className="w-7 h-7" />
+          </div>
+
           <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <h1 className="font-black text-slate-900 text-sm sm:text-base">{shop.name}</h1>
-            </div>
-            <p className="text-[11px] text-slate-400">{t.subtitle}</p>
+            <h1 className="text-lg font-black text-white">{shop.name}</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Counter Admin Login</p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* English / Malayalam Language Switcher */}
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'en' ? 'ml' : 'en')}
-              className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-extrabold text-slate-700 flex items-center gap-1.5 transition"
-            >
-              <Languages className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{lang === 'en' ? 'മലയാളം' : 'English'}</span>
-            </button>
-
-            <div className="text-right hidden sm:block">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                {t.paymentMode}
-              </span>
-              <span
-                className={`text-xs font-black px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
-                  shop.require_payment ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                {shop.require_payment ? <Smartphone className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
-                {shop.require_payment
-                  ? hasActiveShopGateway
-                    ? `${activeGatewayProvider.toUpperCase()}`
-                    : t.onlineUpi
-                  : t.cashAtCounter}
-              </span>
-            </div>
-          </div>
-        </header>
-
-        <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
-          {shop.counter_notice && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2">
-              <Printer className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span>{shop.counter_notice}</span>
-            </div>
-          )}
-
-          {uploadErrorBanner && (
-            <div className="bg-rose-50 border-2 border-rose-200 text-rose-900 px-4 py-3 rounded-2xl text-xs flex items-start justify-between gap-2">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <p className="whitespace-pre-line font-semibold leading-relaxed">{uploadErrorBanner}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setUploadErrorBanner(null)}
-                className="p-1 text-rose-500 hover:text-rose-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {!isUnlocked && shop.is_pin_protected ? (
-            <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-sm text-center space-y-4">
-              <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                <Lock className="w-7 h-7" />
-              </div>
-
-              <div>
-                <h2 className="text-base font-black text-slate-900">{t.pinRequiredTitle}</h2>
-                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{t.pinRequiredDesc}</p>
-              </div>
-
-              <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3">
-                <div className="relative">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    placeholder="Enter PIN"
-                    value={enteredPin}
-                    onChange={(e) => setEnteredPin(e.target.value)}
-                    className="w-full min-h-[46px] py-3 px-4 border border-slate-200 rounded-2xl text-center font-mono font-black text-lg tracking-widest text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                </div>
-
-                {pinError && <p className="text-xs font-bold text-rose-600">{t.incorrectPin}</p>}
-
-                <button
-                  type="submit"
-                  className="w-full min-h-[46px] py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs shadow transition flex items-center justify-center gap-1.5"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  {t.unlockBtn}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <>
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-7 sm:p-8 rounded-3xl text-center cursor-pointer transition space-y-2.5"
-              >
-                <input
-                  type="file"
-                  multiple
-                  ref={fileInputRef}
-                  onChange={handleFileSelect}
-                  accept=".pdf,.png,.jpg,.jpeg"
-                  className="hidden"
-                />
-                <div className="w-12 h-12 bg-white text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                  <UploadCloud className="w-6 h-6" />
-                </div>
-                <h3 className="font-extrabold text-slate-900 text-sm">
-                  {isProcessingFiles ? t.uploadReading : t.uploadTitle}
-                </h3>
-                <p className="text-[11px] text-slate-600">{t.uploadSub}</p>
-                <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed max-w-md mx-auto">
-                  {t.aadhaarSafetyNote}
-                </div>
-              </div>
-
-              {items.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-xs font-bold text-slate-700">
-                      {t.uploadedFiles} ({items.length})
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      {t.addMoreBtn}
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    {items.map((item) => {
-                      const itemTotal = calculateItemPrice(item);
-                      const sheetsCount = calculateSheetsForItem(item);
-                      const isPdf = item.fileKind === 'pdf';
-
-                      return (
-                        <div
-                          key={item.id}
-                          className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3"
-                        >
-                          <div className="flex justify-between items-start gap-2">
-                            <div className="flex items-center gap-2.5 overflow-hidden">
-                              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
-                                {isPdf ? (
-                                  <FileText className="w-4 h-4 text-rose-500" />
-                                ) : (
-                                  <ImageIcon className="w-4 h-4 text-blue-500" />
-                                )}
-                              </div>
-                              <div className="truncate">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                                      isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
-                                    }`}
-                                  >
-                                    {isPdf ? 'PDF' : 'IMAGE'}
-                                  </span>
-                                  <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
-                                </div>
-                                <p className="text-[11px] text-slate-500 mt-0.5">
-                                  {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} • Uses{' '}
-                                  <strong className="text-emerald-700">
-                                    {sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}
-                                  </strong>
-                                  {item.layoutMode === 'id_card' && (
-                                    <span className="ml-1.5 text-indigo-600 font-bold">
-                                      • 🪪 ID Card (85.6×54mm) {item.hasBackImage ? 'Front+Back' : ''}
-                                    </span>
-                                  )}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {!isPdf && (
-                                <button
-                                  type="button"
-                                  onClick={() => openImageStudio(item)}
-                                  className="min-h-[38px] px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] transition flex items-center gap-1"
-                                >
-                                  <Scissors className="w-3.5 h-3.5" />
-                                  <span>{item.layoutMode === 'id_card' ? 'Edit ID 2-in-1' : 'Crop / Layout'}</span>
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeItem(item.id)}
-                                className="min-h-[38px] px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1"
-                                title="Remove File"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Remove</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* PDF Page Selection & Layout Selector Row */}
-                          {isPdf && (
-                            <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                              {item.totalPdfPages > 1 && (
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-semibold text-slate-600">
-                                    Pages (1-{item.totalPdfPages}):
-                                  </span>
-                                  <input
-                                    type="text"
-                                    placeholder={`All or e.g. 1-2`}
-                                    value={item.pageRangeText}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const newCount = countSelectedPages(val, item.totalPdfPages);
-                                      updateItem(item.id, { pageRangeText: val, pages: newCount });
-                                    }}
-                                    className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono w-32 outline-none focus:border-emerald-500"
-                                  />
-                                </div>
-                              )}
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-600">Layout:</span>
-                                <select
-                                  value={item.layoutMode}
-                                  onChange={(e) =>
-                                    updateItem(item.id, { layoutMode: e.target.value as ImageLayoutType })
-                                  }
-                                  className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
-                                >
-                                  <option value="fit_a4">1 Per Page (Fit A4)</option>
-                                  <option value="half_a4">2 Per Page (2-Up)</option>
-                                  <option value="grid_4">4 Per Page (4-Up)</option>
-                                </select>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Copies, B&W / Color, Single / Double-Sided Controls */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-slate-500">{t.copies}</span>
-                              <div className="flex items-center bg-slate-100 rounded-xl p-1">
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })}
-                                  className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
-                                >
-                                  <Minus className="w-3.5 h-3.5 text-slate-700" />
-                                </button>
-                                <span className="px-2.5 font-black text-xs text-slate-900">{item.copies}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { copies: item.copies + 1 })}
-                                  className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
-                                >
-                                  <Plus className="w-3.5 h-3.5 text-slate-700" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => updateItem(item.id, { isColor: false })}
-                                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                  !item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                B&W
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => updateItem(item.id, { isColor: true })}
-                                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                  item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                Color
-                              </button>
-                            </div>
-
-                            {/* Single-Sided vs Double-Sided (Duplex) Toggle */}
-                            {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { isDoubleSided: false })}
-                                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                    !item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  {t.singleSided}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { isDoubleSided: true })}
-                                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                    item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  {t.doubleSided}
-                                </button>
-                              </div>
-                            )}
-
-                            <div className="font-extrabold text-slate-900 text-sm">
-                              ₹{itemTotal.toFixed(2)}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Summary Bill & Real Paper Sheet Count Card */}
-                  <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
-                    <div className="flex justify-between items-center text-xs text-slate-400">
-                      <span>{t.totalDocPages}</span>
-                      <span className="font-bold text-white">
-                        {totalPages} {totalPages === 1 ? 'page' : 'pages'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs text-emerald-300">
-                      <span className="flex items-center gap-1">
-                        <Layers className="w-3.5 h-3.5" />
-                        <span>{t.actualSheetsNeeded}</span>
-                      </span>
-                      <span className="font-black text-white font-mono">
-                        {totalSheetsNeeded} A4 {totalSheetsNeeded === 1 ? 'Sheet' : 'Sheets'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
-                      <span className="text-sm font-bold">{t.totalBill}</span>
-                      <span className="text-2xl font-black text-emerald-400">₹{formattedAmount}</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!shop.require_payment) {
-                          handleProceedOrder();
-                        } else if (hasActiveShopGateway && activeGatewayProvider === 'razorpay') {
-                          handlePayWithShopGateway();
-                        } else {
-                          setShowCheckout(true);
-                        }
-                      }}
-                      disabled={submittingOrder || launchingGateway}
-                      className="w-full min-h-[48px] py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm"
-                    >
-                      <Printer className="w-4 h-4" />
-                      {submittingOrder
-                        ? 'Sending to Printer...'
-                        : launchingGateway
-                        ? `Opening ${activeGatewayProvider.toUpperCase()}...`
-                        : shop.require_payment
-                        ? hasActiveShopGateway
-                          ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
-                          : t.proceedPayBtn
-                        : shop.auto_print_enabled
-                        ? t.sendCashBtn
-                        : t.submitStaffBtn}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </main>
-      </div>
-
-      {/* Bottom Promotional Link + Security Shield & Privacy Icons Section */}
-      <div className="mt-10 relative pt-6 bg-gradient-to-b from-transparent via-sky-50/70 to-blue-100/60">
-        <div className="max-w-xl mx-auto px-4 text-center">
-          <div className="border-t border-slate-200/80 pt-5 mb-6">
-            <p className="text-xs text-slate-500">
-              Own a printing or digital service shop?{' '}
-              <a
-                href="/for-business"
-                target="_blank"
-                rel="noreferrer"
-                className="text-emerald-600 font-extrabold hover:underline inline-flex items-center gap-1"
-              >
-                Get RTS Smart Print for your shop →
-              </a>
-            </p>
-          </div>
-
-          <div className="relative mx-auto w-28 h-28 flex items-center justify-center mb-5">
-            <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/20 to-emerald-400/30 rounded-full blur-xl"></div>
-            <div className="absolute w-28 h-12 border-2 border-emerald-400/60 rounded-full -rotate-12 shadow-[0_0_12px_rgba(16,185,129,0.3)]"></div>
-            <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full absolute right-0 top-7 shadow-md"></div>
-
-            <div className="relative z-10 w-20 h-24 bg-gradient-to-b from-sky-400 via-blue-600 to-blue-900 rounded-t-2xl rounded-b-[40px] p-1 shadow-xl shadow-blue-900/20 flex items-center justify-center border-2 border-white/80">
-              <div className="w-full h-full rounded-t-xl rounded-b-[36px] bg-gradient-to-br from-sky-400/40 via-blue-600 to-indigo-950 flex items-center justify-center">
-                <div className="bg-white text-blue-700 p-2.5 rounded-xl shadow-md">
-                  <Lock className="w-7 h-7 stroke-[2.5]" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 gap-2 max-w-md mx-auto pb-8 px-2">
-            <div className="flex flex-col items-center space-y-1.5">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-emerald-100 shadow-sm flex items-center justify-center text-emerald-600">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">100% Safe</span>
-            </div>
-
-            <div className="flex flex-col items-center space-y-1.5 border-l border-slate-200/70 pl-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-blue-100 shadow-sm flex items-center justify-center text-blue-600">
-                <FileText className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">SSL Locked</span>
-            </div>
-
-            <div className="flex flex-col items-center space-y-1.5 border-l border-slate-200/70 pl-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-emerald-100 shadow-sm flex items-center justify-center text-emerald-600">
-                <Clock className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">Auto-Delete</span>
-            </div>
-
-            <div className="flex flex-col items-center space-y-1.5 border-l border-slate-200/70 pl-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/90 border border-blue-100 shadow-sm flex items-center justify-center text-blue-700">
-                <EyeOff className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-600 leading-tight">Zero Leak</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="w-full overflow-hidden leading-none">
-          <svg viewBox="0 0 1440 110" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-14 sm:h-20 preserve-3d">
-            <path d="M0 50C320 120 1120 -20 1440 40V110H0V50Z" fill="#10b981" />
-            <path d="M0 65C400 125 1040 5 1440 60V110H0V65Z" fill="#0f296b" />
-          </svg>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* PROFESSIONAL CROPPER.JS + A4 PAGE LAYOUT & ID CARD 2-IN-1 STUDIO MODAL    */}
-      {/* ========================================================================= */}
-      {editingItem && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <div>
-                <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
-                  <Scissors className="w-4 h-4 text-indigo-600" />
-                  <span>A4 Page Layout & ID Card 2-in-1 Crop Studio</span>
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Drag, pinch-zoom, rotate & place Front + Back on 1 A4 sheet (85.6 × 54 mm)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingItem(null)}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* 5 Layout Mode Buttons */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioLayout('id_card');
-                  setCropShape('id_card');
-                }}
-                className={`p-2.5 rounded-2xl border text-left transition ${
-                  studioLayout === 'id_card'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="font-extrabold block text-[11px]">🪪 ID Card (2-in-1)</span>
-                <span className="text-[10px] opacity-85 block">85.6×54mm on 1 Sheet</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioLayout('fit_a4');
-                  setCropShape('free');
-                }}
-                className={`p-2.5 rounded-2xl border text-left transition ${
-                  studioLayout === 'fit_a4'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="font-extrabold block text-[11px]">📄 Fit to A4</span>
-                <span className="text-[10px] opacity-85 block">Full A4 page</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioLayout('half_a4');
-                  setCropShape('free');
-                }}
-                className={`p-2.5 rounded-2xl border text-left transition ${
-                  studioLayout === 'half_a4'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="font-extrabold block text-[11px]">🖼️ 2 Per Page</span>
-                <span className="text-[10px] opacity-85 block">Top & bottom on 1 A4</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioLayout('grid_4');
-                  setCropShape('free');
-                }}
-                className={`p-2.5 rounded-2xl border text-left transition ${
-                  studioLayout === 'grid_4'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="font-extrabold block text-[11px]">田 4 Per Page</span>
-                <span className="text-[10px] opacity-85 block">4-up grid on 1 A4</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioLayout('actual_size');
-                  setCropShape('free');
-                }}
-                className={`p-2.5 rounded-2xl border text-left transition col-span-2 sm:col-span-1 ${
-                  studioLayout === 'actual_size'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="font-extrabold block text-[11px]">📏 Actual Size</span>
-                <span className="text-[10px] opacity-85 block">Original size, no stretch</span>
-              </button>
-            </div>
-
-            {/* INTERACTIVE CROPPER.JS BOX */}
-            <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-2.5">
-              <div className="bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl text-[11px] text-amber-300 font-semibold">
-                {t.cropGuidance}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setActiveCropSide('front')}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition ${
-                      activeCropSide === 'front'
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    1. Front Side {croppedFrontBlob ? '✓' : ''}
-                  </button>
-                  {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!backFile) {
-                          studioBackInputRef.current?.click();
-                        }
-                        setActiveCropSide('back');
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition ${
-                        activeCropSide === 'back'
-                          ? 'bg-emerald-600 text-white'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add)'}
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 text-xs">
-                  <Crop className="w-3.5 h-3.5 text-emerald-400" />
-                  <select
-                    value={cropShape}
-                    onChange={(e) => setCropShape(e.target.value as CropShapeType)}
-                    className="bg-slate-800 border border-slate-700 text-white font-bold text-[11px] px-2.5 py-1.5 rounded-xl outline-none"
-                  >
-                    <option value="id_card">ID Card (1.586 : 1)</option>
-                    <option value="free">Free Crop</option>
-                    <option value="square">Square (1 : 1)</option>
-                  </select>
-                </div>
-              </div>
-
-              {cropperSourceUrl ? (
-                <div className="w-full h-56 sm:h-64 bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center">
-                  <img
-                    ref={cropperImageRef}
-                    src={cropperSourceUrl}
-                    alt="Crop Target"
-                    className="max-h-full max-w-full block"
-                  />
-                </div>
-              ) : (
-                <div className="w-full h-44 bg-slate-950 rounded-xl border border-dashed border-slate-700 flex flex-col items-center justify-center gap-2 p-4 text-center">
-                  <p className="text-xs text-slate-400">
-                    {activeCropSide === 'back'
-                      ? 'No Back Side image selected yet.'
-                      : 'No Front Side image selected.'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      activeCropSide === 'back'
-                        ? studioBackInputRef.current?.click()
-                        : studioFrontInputRef.current?.click()
-                    }
-                    className="min-h-[42px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs flex items-center gap-1.5"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>
-                      {activeCropSide === 'back' ? 'Upload Back Side Image' : 'Upload Front Side Image'}
-                    </span>
-                  </button>
-                </div>
-              )}
-
-              {cropperSourceUrl && (
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleRotateCropper(-90)}
-                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
-                      title="Rotate Left"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Left</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRotateCropper(90)}
-                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"
-                      title="Rotate Right"
-                    >
-                      <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Right</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleResetCropper}
-                      className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs"
-                    >
-                      {t.resetCrop}
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleUseThisCrop}
-                    className="min-h-[42px] px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow flex items-center gap-1.5"
-                  >
-                    <Check className="w-4 h-4" />
-                    <span>{t.useThisCrop}</span>
-                  </button>
-                </div>
-              )}
-
-              {cropAppliedToast && (
-                <p className="text-center text-xs font-extrabold text-emerald-400 animate-pulse">
-                  {cropAppliedToast}
-                </p>
-              )}
-            </div>
-
-            {/* Live A4 Sheet Preview Box */}
-            <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                Live A4 Paper Sheet Preview (1 A4 Sheet Output)
-              </span>
-              <canvas
-                ref={previewCanvasRef}
-                className="w-40 aspect-[210/297] bg-white shadow-md rounded border border-slate-300"
+          <form onSubmit={handleLogin} className="space-y-3 text-left">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">User ID / Shop ID</label>
+              <input
+                type="text"
+                placeholder={shop.admin_username || shop.slug}
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                required
+                className="w-full py-2.5 px-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
               />
             </div>
 
-            {/* Hidden File Inputs for Add / Change Gallery Images inside Studio */}
-            <input
-              type="file"
-              ref={studioFrontInputRef}
-              accept=".png,.jpg,.jpeg"
-              onChange={async (e) => {
-                if (e.target.files && e.target.files[0]) {
-                  const f = await compressLargeImageInBrowser(e.target.files[0]);
-                  setFrontFile(f);
-                  setCroppedFrontBlob(null);
-                  setActiveCropSide('front');
-                }
-                e.target.value = '';
-              }}
-              className="hidden"
-            />
-            <input
-              type="file"
-              ref={studioBackInputRef}
-              accept=".png,.jpg,.jpeg"
-              onChange={async (e) => {
-                if (e.target.files && e.target.files[0]) {
-                  const f = await compressLargeImageInBrowser(e.target.files[0]);
-                  setBackFile(f);
-                  setCroppedBackBlob(null);
-                  setActiveCropSide('back');
-                }
-                e.target.value = '';
-              }}
-              className="hidden"
-            />
-
-            {/* Front & Back Image Add / Remove / Clarity Controls */}
-            <div className="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="font-extrabold text-slate-800 truncate max-w-[150px]">
-                    1. Front Image {frontFile ? `(${frontFile.name})` : '(Removed)'}
-                  </span>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => studioFrontInputRef.current?.click()}
-                      className="min-h-[36px] px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>{frontFile ? 'Change' : 'Add Image'}</span>
-                    </button>
-
-                    {frontFile && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setActiveCropSide('front')}
-                          className="min-h-[36px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
-                        >
-                          <Scissors className="w-3 h-3 text-indigo-600" />
-                          <span>Crop</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleRemoveFrontInStudio}
-                          className="min-h-[36px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
-                          title="Remove Front Image"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Remove</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
-                <div className="pt-2.5 border-t border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="font-extrabold text-indigo-950 truncate max-w-[150px]">
-                      2. Back Image {backFile ? `(${backFile.name})` : '(Optional)'}
-                    </span>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => studioBackInputRef.current?.click()}
-                        className="min-h-[36px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>{backFile ? 'Change' : 'Add Back Image'}</span>
-                      </button>
-
-                      {backFile && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setActiveCropSide('back')}
-                            className="min-h-[36px] px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-100"
-                          >
-                            <Scissors className="w-3 h-3 text-indigo-600" />
-                            <span>Crop</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBackFile(null);
-                              setCroppedBackBlob(null);
-                              setBackRotation(0);
-                              setBackCropPct(0);
-                              setActiveCropSide('front');
-                            }}
-                            className="min-h-[36px] px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px] flex items-center gap-1"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>Remove</span>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Xerox Clarity / Brightness Control */}
-              <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
-                <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-[11px] text-slate-500 w-20 shrink-0">Clarity:</span>
-                <input
-                  type="range"
-                  min={80}
-                  max={140}
-                  value={brightness}
-                  onChange={(e) => setBrightness(Number(e.target.value))}
-                  className="flex-1 accent-emerald-600"
-                />
-                <span className="text-[10px] font-mono font-bold text-slate-700 w-8">{brightness}%</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleDeleteItemFromStudio}
-                className="min-h-[44px] px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 font-bold rounded-xl text-xs text-rose-700 flex items-center justify-center gap-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
-              <button
-                type="button"
-                disabled={applyingStudio || !frontFile}
-                onClick={handleApplyImageStudio}
-                className="flex-1 min-h-[44px] py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-black rounded-xl text-xs shadow transition flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-4 h-4" />
-                <span>{applyingStudio ? 'Creating A4 Sheet...' : 'Apply to 1 A4 Sheet'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CONFIRMATION POPUP AFTER APPLYING EDITS */}
-      {showEditConfirmPopup && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl border border-emerald-100">
-            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="font-black text-slate-900 text-base">Are you sure all edits are done?</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Your image layout has been fitted onto <strong>1 A4 Sheet</strong>. You can continue to the final submit screen (and also add more PDFs or images if needed).
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowEditConfirmPopup(false)}
-                className="w-full min-h-[44px] py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-4 h-4" />
-                <span>Yes, Continue to Final Submit →</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEditConfirmPopup(false);
-                  const target = items.find((i) => i.id === lastEditedItemId);
-                  if (target) openImageStudio(target);
-                }}
-                className="w-full min-h-[44px] py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition"
-              >
-                ← Go Back & Edit More
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ONLINE PAYMENT MODAL */}
-      {showCheckout && shop.require_payment && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">
             <div>
-              <h3 className="font-extrabold text-slate-900 text-base">Payment for {shop.name}</h3>
-              <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-0.5 inline-block mt-1">
-                Banking Name: {payeeName}
-              </p>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1">6-Digit Admin PIN</label>
+              <input
+                type="password"
+                maxLength={6}
+                placeholder="••••••"
+                value={loginPin}
+                onChange={(e) => setLoginPin(e.target.value)}
+                required
+                className="w-full py-2.5 px-3 bg-slate-900 border border-slate-800 rounded-xl text-center text-lg font-mono tracking-widest text-emerald-400 outline-none focus:border-emerald-500"
+              />
             </div>
 
-            {hasActiveShopGateway ? (
-              <div className="space-y-4">
-                <div className="p-4 bg-indigo-50 border-2 border-indigo-500/40 rounded-2xl space-y-3">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">
-                    ⚡ Verified Merchant Gateway ({activeGatewayProvider.toUpperCase()})
-                  </span>
-                  <button
-                    type="button"
-                    disabled={launchingGateway || submittingOrder}
-                    onClick={handlePayWithShopGateway}
-                    className="w-full min-h-[46px] py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
-                  >
-                    <Zap className="w-4 h-4" />
-                    <span>
-                      {launchingGateway
-                        ? 'Opening Secure Gateway...'
-                        : `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} (Auto-Print)`}
-                    </span>
-                  </button>
-                  <p className="text-[11px] text-indigo-800 leading-relaxed">
-                    1-Click GPay / PhonePe / Paytm without bank limit blocks. Your document prints automatically as soon as payment succeeds!
-                  </p>
-                </div>
+            {loginError && <p className="text-xs text-rose-500 font-bold text-center">{loginError}</p>}
 
-                <button
-                  type="button"
-                  onClick={() => setShowCheckout(false)}
-                  className="w-full min-h-[44px] py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
-                >
-                  Cancel & Go Back
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3.5">
-                {cleanUpiId && (
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                    <img
-                      src={qrCodeImageUrl}
-                      alt="UPI QR Code"
-                      className="w-40 h-40 mx-auto rounded-xl border border-slate-200 bg-white p-1.5"
-                    />
+            <button
+              type="submit"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-md shadow-emerald-600/30"
+            >
+              Sign In to Counter
+            </button>
+          </form>
 
-                    <a
-                      href={upiDeepLink}
-                      className="w-full min-h-[44px] py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <Smartphone className="w-4 h-4" />
-                      <span>Pay ₹${formattedAmount} via UPI App</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+          <div className="pt-3 border-t border-slate-900 space-y-3">
+            <button
+              type="button"
+              onClick={() => {
+                setShowForgotBox(!showForgotBox);
+                setForgotStatusMsg(null);
+              }}
+              className="text-[11px] text-slate-400 hover:text-emerald-400 font-semibold transition"
+            >
+              {showForgotBox ? 'Cancel PIN Reset' : 'Forgot 6-Digit PIN?'}
+            </button>
 
-                    <button
-                      type="button"
-                      onClick={handleDownloadQrForGallery}
-                      disabled={savingQr}
-                      className="w-full min-h-[42px] py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>{savingQr ? 'Saving QR...' : 'Save QR & Pay via GPay/PhonePe Gallery'}</span>
-                    </button>
-                    <p className="text-[10px] text-slate-500 leading-tight">
-                      Scan with another phone OR tap <strong>Save QR</strong> → Open GPay/PhonePe → <strong>Scan QR</strong> → <strong>Upload from Gallery</strong>.
-                    </p>
-                  </div>
-                )}
-
-                {cleanUpiId && (
-                  <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                    <span className="font-mono font-bold text-slate-700 truncate">{cleanUpiId}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(cleanUpiId);
-                        setCopiedUpi(true);
-                        setTimeout(() => setCopiedUpi(false), 2000);
-                      }}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 flex items-center gap-1 shrink-0"
-                    >
-                      {copiedUpi ? (
-                        <>
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span className="text-emerald-700">Copied!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3 text-slate-500" />
-                          <span>Copy UPI ID</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1 text-left">
-                    Enter Last 4 Digits of UPI Ref / UTR (Optional):
-                  </label>
+            {showForgotBox && (
+              <form onSubmit={handleSendResetPinEmail} className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl space-y-2.5 text-left">
+                <label className="block text-[11px] font-bold text-slate-300">
+                  Enter User ID / Shop ID to receive a new 6-digit PIN via email:
+                </label>
+                <div className="flex gap-2">
                   <input
                     type="text"
-                    maxLength={12}
-                    placeholder="e.g. 8492"
-                    value={utrNumber}
-                    onChange={(e) => setUtrNumber(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-center font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder={`e.g. ${shop.admin_username || shop.slug}`}
+                    value={forgotUserId}
+                    onChange={(e) => setForgotUserId(e.target.value)}
+                    required
+                    className="flex-1 py-2 px-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
                   />
+                  <button
+                    type="submit"
+                    disabled={sendingReset}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1 shrink-0"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>{sendingReset ? 'Sending...' : 'Send'}</span>
+                  </button>
                 </div>
 
-                {!shop.auto_print_enabled && (
-                  <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2 leading-tight">
-                    {t.manualVerifyNote}
+                {forgotStatusMsg && (
+                  <p className={`text-[11px] font-semibold leading-relaxed ${
+                    forgotStatusMsg.type === 'success' ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {forgotStatusMsg.text}
                   </p>
                 )}
-
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowCheckout(false)}
-                    className="w-1/2 min-h-[44px] py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleProceedOrder()}
-                    disabled={submittingOrder}
-                    className="w-1/2 min-h-[44px] py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition"
-                  >
-                    {submittingOrder ? 'Submitting...' : 'I Have Paid'}
-                  </button>
-                </div>
-              </div>
+              </form>
             )}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  const downloadsUsed = shop.download_count || 0;
+  const maxDownloads = shop.max_downloads || 3;
+  const isDownloadLocked = !(shop.download_allowed ?? true) || downloadsUsed >= maxDownloads;
+  const currentSelectedFaq = SHOP_ADMIN_FAQS.find((f) => f.id === selectedFaqId) || SHOP_ADMIN_FAQS[0];
+
+  const filteredTransactions = getFilteredTransactions();
+  const totalPeriodRevenue = filteredTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const directShopRevenue = filteredTransactions
+    .filter((tx) => tx.collection_type !== 'SPLIT_SETTLEMENT')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const splitSettlementRevenue = filteredTransactions
+    .filter((tx) => tx.collection_type === 'SPLIT_SETTLEMENT')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+  const approvalDateMs = shop.approved_at
+    ? new Date(shop.approved_at).getTime()
+    : new Date(shop.created_at || Date.now()).getTime();
+  const elapsedSubscriptionDays = Math.floor((Date.now() - approvalDateMs) / (1000 * 60 * 60 * 24));
+  const remainingSubscriptionDays = Math.max(0, (shop.subscription_days || 7) - elapsedSubscriptionDays);
+  const isSubscriptionExpired = remainingSubscriptionDays <= 0 || shop.subscription_status === 'suspended';
+
+  // =========================================================================
+  // LOGGED-IN SHOP ADMIN DASHBOARD
+  // =========================================================================
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
+      <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center font-black text-slate-900 text-lg">
+            S
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${isSubscriptionExpired ? 'bg-rose-500' : 'bg-emerald-500 animate-pulse'}`}></span>
+              <h1 className="font-black text-white text-base">{shop.name}</h1>
+              <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full uppercase border ${
+                isSubscriptionExpired ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                remainingSubscriptionDays <= 2 ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                'bg-emerald-100 text-emerald-800 border-emerald-300'
+              }`}>
+                ⏳ {isSubscriptionExpired ? 'Expired (Kiosk Paused)' : `${remainingSubscriptionDays} Days Left`}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">Self-Service Document Print Kiosk</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handlePrintStandee}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 shadow-md shadow-emerald-600/30"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Print Counter Standee</span>
+          </button>
+          <a
+            href={`/shop/${shop.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs transition flex items-center gap-1.5"
+          >
+            <span>Open Kiosk</span>
+            <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+          </a>
+          <button
+            onClick={loadShopData}
+            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
+            title="Refresh Orders"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-2 bg-rose-950/40 hover:bg-rose-900 border border-rose-800/60 text-rose-300 rounded-xl transition"
+            title="Sign Out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* SUPER ADMIN IMPORTANT UPDATE / MESSAGE BANNER */}
+      {shop.admin_message && (
+        <div className="max-w-6xl mx-auto px-4 pt-4">
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+            <div className="p-2 bg-amber-500 text-white rounded-xl shrink-0 mt-0.5">
+              <Bell className="w-4 h-4 animate-bounce" />
+            </div>
+            <div className="flex-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 block">
+                Important Notice from RTS Super Admin
+              </span>
+              <p className="text-xs font-bold text-slate-900 mt-0.5 leading-relaxed">
+                {shop.admin_message}
+              </p>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* TARGETED PARTICULAR SHOP HIDDEN TICKER BOX */}
+      {shop.targeted_message && (
+        <div className="max-w-6xl mx-auto px-4 pt-3">
+          <div className="bg-teal-50 border-2 border-teal-400 rounded-2xl p-4 flex items-start justify-between gap-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-teal-600 text-white rounded-xl shrink-0 mt-0.5">
+                <MessageCircle className="w-4 h-4 animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-teal-800 block">
+                  🎯 Special Update / Instruction for {shop.name} (Code: {shop.pairing_code})
+                </span>
+                <p className="text-xs font-bold text-slate-900 mt-0.5 leading-relaxed">
+                  {shop.targeted_message}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={loadShopData}
+              className="p-1.5 bg-teal-100 hover:bg-teal-200 text-teal-800 rounded-lg transition shrink-0"
+              title="Refresh Notice"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-6xl mx-auto px-4 pt-6 grid md:grid-cols-3 gap-6">
+        <div className="md:col-span-1 space-y-6">
+          {/* PERMANENT AGENT PAIRING CODE CARD */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-2">
+            <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">
+              Permanent Windows Pairing Code
+            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-mono font-black text-slate-900 tracking-widest bg-slate-100 px-3 py-1 rounded-xl border border-slate-200">
+                {shop.pairing_code || '---'}
+              </span>
+              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase ${
+                isSubscriptionExpired
+                  ? 'bg-rose-100 text-rose-800'
+                  : shop.subscription_status === 'active'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
+                {isSubscriptionExpired ? 'EXPIRED' : shop.subscription_status}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
+              Enter this permanent 6-digit code in <code>RTS-Print-Setup.exe</code>. Never changes on refresh!
+            </p>
+          </div>
+
+          {/* WINDOWS PRINT AGENT DOWNLOAD CARD */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
+                PC Print Agent Software
+              </span>
+              <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full ${
+                isDownloadLocked ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {downloadsUsed} / {maxDownloads} Downloads
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadSetup}
+              disabled={isDownloadLocked || downloading}
+              className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm ${
+                isDownloadLocked
+                  ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
+              }`}
+            >
+              {isDownloadLocked ? (
+                <>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Download Paused ({downloadsUsed}/{maxDownloads} Used)</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{downloading ? 'Preparing...' : 'Download RTS-Print-Setup.exe'}</span>
+                </>
+              )}
+            </button>
+
+            {isDownloadLocked && (
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                {shop.download_requested ? (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                    <p className="text-[11px] font-bold text-amber-900">
+                      ⏳ Unlock Request Sent (Shop Code: {shop.pairing_code})
+                    </p>
+                    <p className="text-[10px] text-amber-700 mt-0.5">
+                      Waiting for Super Admin approval to re-enable download.
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleRequestDownloadUnlock}
+                    disabled={requestingUnlock}
+                    className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-[11px] transition flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>
+                      {requestingUnlock
+                        ? 'Sending Request...'
+                        : `Request Re-Download (Code: ${shop.pairing_code})`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Maximum {maxDownloads} downloads allowed per shop for security. Request admin unlock if reinstalling on a new PC.
+            </p>
+          </div>
+
+          {/* Configuration Form */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
+            <h2 className="text-sm font-extrabold text-slate-900 mb-4 flex items-center gap-2">
+              <Settings className="w-4 h-4 text-emerald-600" />
+              Counter Configuration
+            </h2>
+
+            <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Shop Display Name</label>
+                <input
+                  type="text"
+                  value={shopName}
+                  onChange={(e) => setShopName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Owner Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Owner Email (Statements)</label>
+                  <input
+                    type="email"
+                    placeholder="shop@gmail.com"
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* 6-DIGIT ADMIN PIN FIELD */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
+                <label className="block font-bold text-slate-800 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                  Counter Admin PIN (6 Numbers)
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={adminPin}
+                  onChange={(e) => setAdminPin(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-300 font-mono text-center font-bold tracking-widest text-slate-900 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Password to log in to this shop admin panel. You can change this anytime and click Save Settings.
+                </p>
+              </div>
+
+              {/* ALWAYS VISIBLE UPI ID + REGISTERED BANKING NAME (Scanner Option) */}
+              <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-2.5">
+                <div>
+                  <label className="block font-bold text-emerald-950 flex items-center gap-1.5 mb-1">
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                    Shop Direct UPI ID (QR Scanner Collection)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. yourname@okaxis, shop@okhdfcbank"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-300 font-mono text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-emerald-950 mb-1">
+                    UPI Registered Banking Name (Account Holder Name)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. RAJANEESH T / RTS DIGITAL SEVA"
+                    value={upiName}
+                    onChange={(e) => setUpiName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-300 text-emerald-950 bg-white font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <p className="text-[10px] text-emerald-700 leading-tight">
+                  Generates your shop's direct UPI QR code. Customer payments scanned on this QR go 100% directly into your UPI ID.
+                </p>
+              </div>
+
+              {/* SELF PAYMENT GATEWAY INTEGRATION BOX (Razorpay / Cashfree / PhonePe) */}
+              <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-indigo-950 flex items-center gap-1.5 text-xs">
+                      <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                      Self Payment Gateway (Optional)
+                    </span>
+                    <span className="text-[10px] text-indigo-700 block">
+                      Connect your own Razorpay / Cashfree / PhonePe Key
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setGatewayEnabled(!gatewayEnabled)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      gatewayEnabled ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {gatewayEnabled ? 'ACTIVE (ON)' : 'OFF'}
+                  </button>
+                </div>
+
+                {gatewayEnabled && (
+                  <div className="space-y-2 pt-1 border-t border-indigo-200/60">
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-950 mb-1">Select Gateway Provider</label>
+                      <select
+                        value={gatewayProvider}
+                        onChange={(e) => setGatewayProvider(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl border border-indigo-300 bg-white font-bold text-indigo-950 outline-none"
+                      >
+                        <option value="razorpay">Razorpay Payment Gateway</option>
+                        <option value="cashfree">Cashfree Payments</option>
+                        <option value="phonepe">PhonePe PG</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                        {gatewayProvider === 'razorpay' ? 'Razorpay Key ID (e.g. rzp_live_...)' : 'App ID / Merchant Key ID'}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={gatewayProvider === 'razorpay' ? 'rzp_live_xxxxxxxxxxxx' : 'Enter API Key / App ID'}
+                        value={gatewayKeyId}
+                        onChange={(e) => setGatewayKeyId(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-indigo-300 font-mono text-xs bg-white text-slate-900 outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                        Secret Key / Salt Key (Optional for Client Checkout)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="••••••••••••••••"
+                        value={gatewayKeySecret}
+                        onChange={(e) => setGatewayKeySecret(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-indigo-300 font-mono text-xs bg-white text-slate-900 outline-none"
+                      />
+                    </div>
+
+                    <p className="text-[10px] text-indigo-800 leading-tight">
+                      ✅ When ON, customers clicking "Pay via UPI" on your kiosk pay directly through your {gatewayProvider.toUpperCase()} account and auto-print starts immediately on payment success!
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* RTS AUTOMATIC SPLIT SETTLEMENT (COMING SOON - PAUSED TOGGLE + BANK) */}
+              <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-teal-700" />
+                      <span className="font-extrabold text-teal-950 text-xs">RTS Auto-Split Settlement</span>
+                      <span className="text-[9px] font-black uppercase bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full">
+                        Coming Soon
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-teal-700 block">
+                      1-Click UPI collection & direct bank split settlement
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSplitPaymentEnabled(!splitPaymentEnabled)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      splitPaymentEnabled ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {splitPaymentEnabled ? 'OPTED IN' : 'PAUSED / OFF'}
+                  </button>
+                </div>
+
+                {splitPaymentEnabled && (
+                  <div className="space-y-2 pt-1 border-t border-teal-200/60">
+                    <p className="text-[10px] font-semibold text-amber-900 bg-amber-100/80 border border-amber-300 rounded-xl p-2 leading-tight">
+                      ⏳ RTS Central Split Gateway is currently in <strong>Coming Soon (Paused)</strong> mode. Pre-fill your bank details below to be ready when activated by Super Admin.
+                    </p>
+                    <div>
+                      <label className="block text-[11px] font-bold text-teal-950 mb-1">Bank Account Holder Name</label>
+                      <input
+                        type="text"
+                        placeholder="Exact name as per bank passbook"
+                        value={bankAccountName}
+                        onChange={(e) => setBankAccountName(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-teal-300 bg-white text-slate-900 outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-teal-950 mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          placeholder="Bank A/c No"
+                          value={bankAccountNumber}
+                          onChange={(e) => setBankAccountNumber(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-teal-300 font-mono bg-white text-slate-900 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-teal-950 mb-1">IFSC Code</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. SBIN0001234"
+                          value={bankIfsc}
+                          onChange={(e) => setBankIfsc(e.target.value.toUpperCase())}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-teal-300 font-mono uppercase bg-white text-slate-900 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* DAILY 8:00 PM CONSOLIDATED EMAIL STATEMENT TOGGLE */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                    <Mail className="w-3.5 h-3.5 text-emerald-600" />
+                    Daily 8:00 PM Statement Email
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    Sends 1 consolidated summary email daily at 8 PM
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDailyStatementEnabled(!dailyStatementEnabled)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    dailyStatementEnabled ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {dailyStatementEnabled ? 'ON (8 PM)' : 'OFF'}
+                </button>
+              </div>
+
+              {/* PRINTER DOUBLE-SIDED (DUPLEX) CAPABILITY TOGGLE */}
+              <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-blue-950 flex items-center gap-1.5 text-xs">
+                    <Layers className="w-3.5 h-3.5 text-blue-600" />
+                    Printer Supports Double-Sided (Duplex)
+                  </span>
+                  <span className="text-[10px] text-blue-700 block">
+                    Shows 1-Sided / 2-Sided option to customers on Kiosk
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDuplexSupported(!duplexSupported)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    duplexSupported ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {duplexSupported ? 'YES (ON)' : 'NO (1-SIDE ONLY)'}
+                </button>
+              </div>
+
+              {/* PAYMENT MODE TOGGLE */}
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                <span className="font-bold text-slate-800 block text-xs">Customer Payment Mode</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRequirePayment(true)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      requirePayment 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    Direct UPI / Gateway
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRequirePayment(false)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      !requirePayment 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4" />
+                    Pay Cash at Counter
+                  </button>
+                </div>
+              </div>
+
+              {/* ANTI-SPAM PIN GATE */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Counter PIN Protection</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsPinProtected(!isPinProtected)}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      isPinProtected ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {isPinProtected ? 'ENABLED' : 'DISABLED'}
+                  </button>
+                </div>
+
+                {isPinProtected && (
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-semibold text-amber-900 mb-1">
+                      Set 4-Digit Access PIN:
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={counterPin}
+                      onChange={(e) => setCounterPin(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-xl border border-amber-300 font-mono font-bold text-amber-950 text-center tracking-widest text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* PRINT EXECUTION MODE */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <span className="font-bold text-slate-800 block text-xs">Print Execution Mode</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAutoPrintEnabled(true)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      autoPrintEnabled 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    Auto-Pilot
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAutoPrintEnabled(false)}
+                    className={`py-2 px-2 rounded-xl font-bold text-[11px] flex flex-col items-center gap-1 border transition ${
+                      !autoPrintEnabled 
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Pause className="w-3.5 h-3.5" />
+                    Manual Approval
+                  </button>
+                </div>
+              </div>
+
+              {/* TARGET COUNTER PRINTER DROPDOWN + CUSTOM INPUT */}
+              <div className="space-y-2">
+                <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
+                <select
+                  value={isCustomPrinter ? 'CUSTOM' : targetPrinter}
+                  onChange={(e) => {
+                    if (e.target.value === 'CUSTOM') {
+                      setIsCustomPrinter(true);
+                      setTargetPrinter('');
+                    } else {
+                      setIsCustomPrinter(false);
+                      setTargetPrinter(e.target.value);
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-bold bg-white"
+                >
+                  {COMMON_PRINTERS.map((printerName) => (
+                    <option key={printerName} value={printerName}>
+                      {printerName}
+                    </option>
+                  ))}
+                  <option value="CUSTOM">➕ Other Printer (Type Custom Name)</option>
+                </select>
+
+                {isCustomPrinter && (
+                  <input
+                    type="text"
+                    placeholder="Type exact Windows printer name (e.g. Canon LBP2900)"
+                    value={targetPrinter}
+                    onChange={(e) => setTargetPrinter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50/30 outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                  />
+                )}
+                <p className="text-[10px] text-slate-400">
+                  Select from list or choose "Other Printer" to type your exact Windows printer name.
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Auto-Delete Files</label>
+                <select
+                  value={autoDeleteHours}
+                  onChange={(e) => setAutoDeleteHours(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none font-bold"
+                >
+                  <option value={1}>Auto-delete after 1 Hour</option>
+                  <option value={4}>Auto-delete after 4 Hours</option>
+                  <option value={12}>Auto-delete after 12 Hours</option>
+                  <option value={24}>Auto-delete after 24 Hours</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Counter Collection Notice</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Collect prints at Counter 1"
+                  value={counterNotice}
+                  onChange={(e) => setCounterNotice(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition flex items-center justify-center gap-1.5 mt-2 shadow"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Settings'}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Right Column: Live Queue, Dynamic Page Rate & 1-Month Statement Ledger */}
+        <div className="md:col-span-2 space-y-6">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-emerald-600" />
+                  Live Print Queue
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Select individual files or click Print Now on the specific file you want to print
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedOrderIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePrintSelectedOrders}
+                    className="text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-full transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Print Selected ({selectedOrderIds.length})</span>
+                  </button>
+                )}
+                <button
+                  onClick={loadShopData}
+                  className="text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full transition flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh ({orders.length})</span>
+                </button>
+              </div>
+            </div>
+
+            {orders.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                No orders placed yet today.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+                    <tr>
+                      <th className="py-2.5 px-3 w-8">Select</th>
+                      <th className="py-2.5 px-3">Order #</th>
+                      <th className="py-2.5 px-3">Document</th>
+                      <th className="py-2.5 px-3">Copies</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-4 text-right">Counter Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {orders.map((o) => {
+                      const needsApproval = 
+                        o.status === 'waiting_counter_approval' || 
+                        o.status === 'pending' || 
+                        o.status === 'held';
+                      const isChecked = selectedOrderIds.includes(o.id);
+
+                      return (
+                        <tr 
+                          key={o.id} 
+                          className={needsApproval ? 'bg-amber-50/60 font-semibold' : 'hover:bg-slate-50/50'}
+                        >
+                          <td className="py-3 px-3">
+                            {needsApproval && (
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleSelectOrder(o.id)}
+                                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                              />
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-mono font-bold text-slate-900">{o.order_number}</td>
+                          <td className="py-3 px-3 truncate max-w-[150px]" title={o.file_name}>{o.file_name}</td>
+                          <td className="py-3 px-3">{o.copies}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-900">₹{o.total_amount?.toFixed(2)}</td>
+                          <td className="py-3 px-3">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase inline-block ${
+                              o.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                              o.status === 'printing' ? 'bg-blue-100 text-blue-800 animate-pulse' : 
+                              o.status === 'rejected' ? 'bg-rose-100 text-rose-800' : 
+                              o.status === 'waiting_counter_approval' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                              'bg-slate-100 text-slate-800'
+                            }`}>
+                              {o.status === 'waiting_counter_approval' ? 'HOLD: NEEDS APPROVAL' : o.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {needsApproval ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveOrder(o)}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Print Now</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectOrder(o)}
+                                  className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl transition"
+                                  title="Reject & Delete This File Only"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : o.status === 'completed' ? (
+                              <span className="text-[10px] font-bold text-emerald-600">Printed</span>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveOrder(o)}
+                                  className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold text-[10px] transition"
+                                  title="Re-trigger PC Agent Print for This File"
+                                >
+                                  🖨️ Print
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectOrder(o)}
+                                  className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition"
+                                  title="Delete This File"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Pricing Rules + ID Card 2-in-1 Custom Cropping Rate Box */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-emerald-600" />
+              Dynamic Page Rate
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+              {pricing.map((rule) => (
+                <div key={rule.id} className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-700 block">
+                    {rule.paper_size} {rule.is_color ? 'Color' : 'B&W'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {rule.is_double_sided ? 'Double-sided' : 'Single-sided'}
+                  </span>
+                  <div className="flex items-center gap-1 pt-1">
+                    <span className="text-xs font-bold text-slate-600">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      defaultValue={rule.price_per_page}
+                      onBlur={(e) => handleUpdatePrice(rule.id, parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* ID CARD PRINT (2-IN-1 FRONT + BACK / CROPPING SERVICE) CUSTOM RATE */}
+            <div className="pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                  <Scissors className="w-3.5 h-3.5 text-indigo-600" />
+                  🪪 ID Print Two-in-One (Front + Back on 1 Sheet / Cropping Rate)
+                </span>
+                <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  Saves Paper • Custom 2-Side Charge
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+                <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold text-indigo-950 block">
+                      ID Print 2-in-1 (B&W)
+                    </span>
+                    <span className="text-[10px] text-indigo-600 block">
+                      Front + Back on 1 A4 Sheet
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-bold text-indigo-900">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={idCardBwPrice}
+                      onChange={(e) => setIdCardBwPrice(parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => handleUpdateIdCardRate('id_card_bw_price', parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold text-indigo-950 block">
+                      ID Print 2-in-1 (Color)
+                    </span>
+                    <span className="text-[10px] text-indigo-600 block">
+                      Front + Back on 1 A4 Sheet
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-bold text-indigo-900">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={idCardColorPrice}
+                      onChange={(e) => setIdCardColorPrice(parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => handleUpdateIdCardRate('id_card_color_price', parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 1-MONTH TRANSACTION & SETTLEMENT STATEMENT LEDGER (8 PM Digest) */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  Print Earnings & 30-Day Statement Ledger
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Lightweight 1-month accounting record • Consolidated email sent daily at 8:00 PM
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePrintStatementReport}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-[11px] transition flex items-center gap-1"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print / PDF</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingStatementEmail}
+                  onClick={() => handleSendStatementEmail(false)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px] transition flex items-center gap-1 shadow-sm"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{sendingStatementEmail ? 'Emailing...' : 'Email Statement Now'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Period Filter Pills (Today, 7 Days, 30 Days / 1 Month, Custom) */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {[
+                  { id: 'today', label: 'Today' },
+                  { id: '7days', label: 'Last 7 Days' },
+                  { id: '30days', label: 'Last 30 Days (1 Month)' },
+                  { id: 'custom', label: 'Custom Dates' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStatementRange(tab.id as any)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition ${
+                      statementRange === tab.id
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {statementRange === 'custom' && (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px]"
+                  />
+                  <span className="text-slate-400">to</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px]"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Summary KPI Cards (Separates Direct Shop Collection vs Split Settlement) */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold uppercase text-emerald-700 block">Total Period Collection</span>
+                <span className="text-lg font-black font-mono text-emerald-950">₹{totalPeriodRevenue.toFixed(2)}</span>
+                <span className="text-[10px] text-emerald-600 block">{filteredTransactions.length} Orders</span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold uppercase text-slate-500 block">Direct Shop (UPI/Cash/Own PG)</span>
+                <span className="text-lg font-black font-mono text-slate-900">₹{directShopRevenue.toFixed(2)}</span>
+                <span className="text-[10px] text-slate-400 block">100% In Your Account</span>
+              </div>
+
+              <div className="bg-teal-50/60 border border-teal-200 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold uppercase text-teal-700 block">RTS Split Collection</span>
+                <span className="text-lg font-black font-mono text-teal-950">₹{splitSettlementRevenue.toFixed(2)}</span>
+                <span className="text-[10px] text-teal-600 block">Coming Soon Mode</span>
+              </div>
+            </div>
+
+            {/* Compact Statement Table */}
+            <div className="overflow-x-auto max-h-60 border border-slate-100 rounded-2xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100 sticky top-0">
+                  <tr>
+                    <th className="py-2 px-3">Date & Time</th>
+                    <th className="py-2 px-3">Order #</th>
+                    <th className="py-2 px-3">Mode</th>
+                    <th className="py-2 px-3">Collection Channel</th>
+                    <th className="py-2 px-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400 text-xs">
+                        No transactions recorded in this date range.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTransactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-50/60">
+                        <td className="py-2 px-3 text-[11px] text-slate-500">
+                          {new Date(tx.created_at).toLocaleString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="py-2 px-3 font-mono font-bold text-slate-900">{tx.order_number}</td>
+                        <td className="py-2 px-3">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
+                            {tx.payment_mode}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                            tx.collection_type === 'SPLIT_SETTLEMENT'
+                              ? 'bg-teal-100 text-teal-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {tx.collection_type === 'SPLIT_SETTLEMENT' ? 'RTS Split' : 'Direct Shop'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                          ₹{Number(tx.amount || 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* ========================================================================= */}
+      {/* FLOATING SHOP ADMIN HELP & LIVE SUPPORT WIDGET (12 FAQs + Live Chat Tab)  */}
+      {/* ========================================================================= */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end">
+        {supportOpen && (
+          <div className="w-[360px] sm:w-[400px] max-w-[calc(100vw-24px)] bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden mb-3 flex flex-col">
+            <div className="bg-[#0b3b42] text-white px-4 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center font-black text-emerald-300 text-base">
+                  ⚡
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs sm:text-sm text-white leading-tight">
+                    RTS Shop Admin Support
+                  </h4>
+                  <span className="text-[10px] text-emerald-300 font-semibold flex items-center gap-1 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {shop.name} (Code: {shop.pairing_code})
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFaqLang(faqLang === 'en' ? 'ml' : 'en')}
+                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-emerald-200 flex items-center gap-1 border border-white/15"
+                >
+                  <Languages className="w-3 h-3" />
+                  <span>{faqLang === 'en' ? 'മലയാളം' : 'EN'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSupportOpen(false)}
+                  className="p-1 text-slate-300 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 bg-slate-100 p-1 border-b border-slate-200 text-xs font-extrabold">
+              <button
+                type="button"
+                onClick={() => setSupportTab('faq')}
+                className={`py-2 rounded-xl transition flex items-center justify-center gap-1.5 ${
+                  supportTab === 'faq'
+                    ? 'bg-white text-[#0b3b42] shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span>12 Help FAQs</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSupportTab('livechat')}
+                className={`py-2 rounded-xl transition flex items-center justify-center gap-1.5 ${
+                  supportTab === 'livechat'
+                    ? 'bg-[#0b5c58] text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Live Chat (Super Admin)</span>
+              </button>
+            </div>
+
+            {supportTab === 'faq' ? (
+              <div className="p-3.5 max-h-[380px] overflow-y-auto space-y-3 bg-slate-50 text-xs">
+                <div className="bg-white border-2 border-emerald-500/40 rounded-2xl p-3.5 shadow-sm space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-emerald-700 block">
+                    {faqLang === 'en' ? currentSelectedFaq.qEn : currentSelectedFaq.qMl}
+                  </span>
+                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                    {faqLang === 'en' ? currentSelectedFaq.aEn : currentSelectedFaq.aMl}
+                  </p>
+                </div>
+
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 pt-1">
+                  {faqLang === 'en' ? 'Tap any question below:' : 'ചുവടെയുള്ള ഏത് ചോദ്യവും തിരഞ്ഞെടുക്കാം:'}
+                </p>
+
+                <div className="space-y-1.5">
+                  {SHOP_ADMIN_FAQS.map((item) => {
+                    const isSelected = item.id === selectedFaqId;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedFaqId(item.id)}
+                        className={`w-full text-left px-3 py-2 rounded-xl font-bold text-[11px] transition border ${
+                          isSelected
+                            ? 'bg-[#0b5c58] text-white border-[#0b5c58]'
+                            : 'bg-white hover:bg-emerald-50 text-slate-800 border-slate-200'
+                        }`}
+                      >
+                        {faqLang === 'en' ? item.qEn : item.qMl}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">Need direct assistance?</span>
+                  <button
+                    type="button"
+                    onClick={() => setSupportTab('livechat')}
+                    className="text-[11px] font-extrabold text-teal-700 hover:underline flex items-center gap-1"
+                  >
+                    <span>Chat Live with Super Admin →</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                <div className="p-3.5 max-h-64 overflow-y-auto space-y-2.5 bg-slate-50 text-xs">
+                  {!shopChatSessionId ? (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-2">
+                      <p className="font-bold text-slate-800">
+                        👋 {faqLang === 'en' ? 'Direct Super Admin Support' : 'സൂപ്പർ അഡ്മിൻ ലൈവ് ചാറ്റ്'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        {faqLang === 'en'
+                          ? `Click below to start a live chat for ${shop.name} (Code: ${shop.pairing_code}). Super Admin will be notified immediately.`
+                          : `${shop.name} (Code: ${shop.pairing_code}) കടയുടെ പേരിൽ സൂപ്പർ അഡ്മിനുമായി തത്സമയം ചാറ്റ് ചെയ്യാൻ താഴെ ക്ലിക്ക് ചെയ്യുക.`}
+                      </p>
+                    </div>
+                  ) : (
+                    shopChatMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`rounded-2xl px-3.5 py-2.5 max-w-[86%] leading-relaxed ${
+                            msg.sender === 'user'
+                              ? 'bg-[#0b5c58] text-white font-semibold'
+                              : msg.sender === 'admin'
+                              ? 'bg-emerald-50 border-2 border-emerald-400 text-slate-900 font-semibold shadow-sm'
+                              : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
+                          }`}
+                        >
+                          {msg.sender === 'admin' && (
+                            <span className="text-[9px] font-black uppercase text-emerald-700 block mb-0.5">
+                              👨‍💻 RTS Super Admin Reply
+                            </span>
+                          )}
+                          <p className="whitespace-pre-line">{msg.text}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div ref={shopChatEndRef} />
+                </div>
+
+                {!shopChatSessionId ? (
+                  <div className="p-3.5 bg-white border-t border-slate-200 space-y-2">
+                    <div className="text-[11px] bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-600 space-y-0.5">
+                      <div><strong>Shop:</strong> {shop.name} (Code: <code>{shop.pairing_code}</code>)</div>
+                      <div><strong>Phone:</strong> {shop.phone || 'N/A'} • <strong>Email:</strong> {shop.owner_email || 'N/A'}</div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={startingShopChat}
+                      onClick={handleStartShopLiveChat}
+                      className="w-full py-2.5 bg-[#0b4b54] hover:bg-[#093b42] text-white font-extrabold text-xs rounded-xl transition shadow flex items-center justify-center gap-1.5"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>
+                        {startingShopChat
+                          ? 'Connecting to Super Admin...'
+                          : 'Start Live Chat with Super Admin →'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-white border-t border-slate-200">
+                    <form
+                      onSubmit={handleSendShopLiveMessage}
+                      className="p-2.5 flex items-center gap-2"
+                    >
+                      <input
+                        type="text"
+                        placeholder="Type message to Super Admin..."
+                        value={shopChatInput}
+                        onChange={(e) => setShopChatInput(e.target.value)}
+                        className="flex-1 px-3.5 py-2 text-xs border border-slate-300 rounded-full outline-none focus:border-teal-700 text-slate-800"
+                      />
+                      <button
+                        type="submit"
+                        disabled={sendingShopChat}
+                        className="px-4 py-2 bg-[#0b5c58] hover:bg-teal-700 text-white font-bold text-xs rounded-full transition shrink-0"
+                      >
+                        Send →
+                      </button>
+                    </form>
+                    <div className="px-3.5 pb-2 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Auto-refreshes after {chatTimeoutMinutes} min</span>
+                      <button
+                        type="button"
+                        onClick={resetShopChatToFresh}
+                        className="text-teal-700 hover:underline font-bold"
+                      >
+                        Reset Chat
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setSupportOpen(!supportOpen)}
+          className="px-4 py-3 rounded-full bg-[#0b5c58] hover:bg-teal-700 text-white font-extrabold text-xs shadow-xl flex items-center gap-2 border border-teal-400/40"
+        >
+          <MessageCircle className="w-4 h-4" />
+          <span>Shop Help & Super Admin Chat</span>
+        </button>
+      </div>
     </div>
   );
 }

@@ -118,7 +118,7 @@ const KIOSK_TEXTS = {
     uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
     uploadReading: 'Reading & Verifying Files...',
     uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Images open directly in Cropper Studio',
-    aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your Aadhaar number before uploading. Files are auto-deleted on schedule.',
+    aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your ID number before uploading. Files are auto-deleted on schedule.',
     uploadedFiles: 'Uploaded Files',
     addMoreBtn: 'Add More PDF / Image',
     copies: 'Copies:',
@@ -149,7 +149,7 @@ const KIOSK_TEXTS = {
     uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
     uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
     uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ നേരിട്ട് ക്രോപ്പ് സ്റ്റുഡിയോയിൽ തുറക്കുന്നു',
-    aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. ആധാർ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
+    aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
     addMoreBtn: 'കൂടുതൽ ഫയലുകൾ ചേർക്കുക',
     copies: 'കോപ്പികൾ:',
@@ -783,7 +783,7 @@ export default function KioskPage() {
     }
   };
 
-  // Render Live A4 Sheet Preview inside the Studio Modal
+  // Render Live A4 Sheet Preview inside the Studio Modal (Matched proportionally to 560x354 high-res output)
   useEffect(() => {
     let active = true;
     async function renderPreview() {
@@ -812,17 +812,17 @@ export default function KioskPage() {
         if (!active) return;
 
         if (studioLayout === 'id_card') {
-          // Exact ID-1 Card Size on A4 (85.6mm x 54mm -> 171px x 108px on 420x594 canvas)
-          const cardW = 171;
-          const cardH = 108;
-          const topMargin = 36;
+          // Proportional to 560x354 on 1240x1754 A4 -> 190px x 120px on 420x594 preview
+          const cardW = 190;
+          const cardH = 120;
+          const topMargin = 32;
 
           if (backFile) {
             const backSource: File | Blob = croppedBackBlob || backFile;
             const backImg = await loadImageElement(backSource);
             if (!active) return;
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 26, topMargin, cardW, cardH, true);
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 223, topMargin, cardW, cardH, true);
+            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 15, topMargin, cardW, cardH, true);
+            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 215, topMargin, cardW, cardH, true);
           } else {
             drawProcessedImage(
               ctx,
@@ -901,7 +901,7 @@ export default function KioskPage() {
     contrast
   ]);
 
-  // Generate High-Resolution A4 Sheet (1240 x 1754 px) & Show Confirmation Popup!
+  // Generate High-Resolution A4 Sheet (1240 x 1754 px) with Larger Crystal-Clear ID Card Size (560 x 354 px)
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     if (!frontFile) {
@@ -944,15 +944,15 @@ export default function KioskPage() {
       const frontImg = await loadImageElement(finalFrontBlob || frontFile);
 
       if (studioLayout === 'id_card') {
-        // Exact ID-1 Standard Size: 85.6 mm × 54 mm on 210 mm × 297 mm A4 (505 px × 319 px)
-        const cardW = 505;
-        const cardH = 319;
-        const topY = 110;
+        // Larger, crystal-clear ID Card Size on A4 (95mm x 60mm -> 560px x 354px) for easy readability of RC books & IDs
+        const cardW = 560;
+        const cardH = 354;
+        const topY = 95;
 
         if (backFile) {
           const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 80, topY, cardW, cardH, true);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 655, topY, cardW, cardH, true);
+          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 45, topY, cardW, cardH, true);
+          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 635, topY, cardW, cardH, true);
         } else {
           drawProcessedImage(
             ctx,
@@ -1117,9 +1117,9 @@ export default function KioskPage() {
     }
   };
 
-  // FIXED: Uses ONE unified Order Number (`orderNumber`) for all files in the batch
-  // so the customer's final Order Status page shows ALL uploaded files (e.g. 1 ID Card + 1 PDF = 2 files),
-  // while Shop Admin approves each row individually using `orderRow.id`!
+  // Uses ONE unified Order Number (`orderNumber`) for all files in the batch
+  // so the customer's final Order Status page shows ALL uploaded files,
+  // while Shop Admin approves each row individually using `orderRow.id`
   const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
@@ -1478,7 +1478,7 @@ export default function KioskPage() {
                                   </strong>
                                   {item.layoutMode === 'id_card' && (
                                     <span className="ml-1.5 text-indigo-600 font-bold">
-                                      • 🪪 ID Card (85.6×54mm) {item.hasBackImage ? 'Front+Back' : ''}
+                                      • 🪪 ID Card (2-in-1) {item.hasBackImage ? 'Front+Back' : ''}
                                     </span>
                                   )}
                                 </p>
@@ -1763,7 +1763,7 @@ export default function KioskPage() {
                   <span>A4 Page Layout & ID Card 2-in-1 Crop Studio</span>
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Drag, pinch-zoom, rotate & place Front + Back on 1 A4 sheet (85.6 × 54 mm)
+                  Drag, pinch-zoom, rotate & place Front + Back on 1 A4 sheet
                 </p>
               </div>
               <button
@@ -1790,7 +1790,7 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">🪪 ID Card (2-in-1)</span>
-                <span className="text-[10px] opacity-85 block">85.6×54mm on 1 Sheet</span>
+                <span className="text-[10px] opacity-85 block">Clear 2-in-1 on 1 Sheet</span>
               </button>
 
               <button
@@ -2264,7 +2264,7 @@ export default function KioskPage() {
                       className="w-full min-h-[44px] py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
                     >
                       <Smartphone className="w-4 h-4" />
-                      <span>Pay ₹${formattedAmount} via UPI App</span>
+                      <span>Pay ₹{formattedAmount} via UPI App</span>
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
 

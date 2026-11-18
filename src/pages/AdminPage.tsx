@@ -2182,6 +2182,9 @@ export default function AdminPage() {
                                 </button>
                               </div>
                             ) : null}
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>

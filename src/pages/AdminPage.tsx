@@ -239,6 +239,7 @@ export default function AdminPage() {
   const [shop, setShop] = useState<ShopData | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [approvingIds, setApprovingIds] = useState<string[]>([]);
   const [pricing, setPricing] = useState<PricingRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -967,8 +968,11 @@ export default function AdminPage() {
     }
   };
 
-  // FIXED: Approves ONLY the specific clicked file row by unique `orderRow.id` (instead of all files sharing order_number)
+  // FIXED: Approves ONLY the specific clicked file row by unique `orderRow.id` and locks button immediately
   const handleApproveOrder = async (orderRow: OrderRow) => {
+    if (approvingIds.includes(orderRow.id)) return;
+    setApprovingIds((prev) => [...prev, orderRow.id]);
+
     try {
       await supabase
         .from('print_orders')
@@ -996,9 +1000,11 @@ export default function AdminPage() {
       }
 
       setSelectedOrderIds((prev) => prev.filter((id) => id !== orderRow.id));
-      loadShopData();
+      await loadShopData();
     } catch (err: any) {
       alert('Error approving order: ' + err.message);
+    } finally {
+      setApprovingIds((prev) => prev.filter((id) => id !== orderRow.id));
     }
   };
 
@@ -2114,6 +2120,7 @@ export default function AdminPage() {
                         o.status === 'pending' || 
                         o.status === 'held';
                       const isChecked = selectedOrderIds.includes(o.id);
+                      const isCurrentlyApproving = approvingIds.includes(o.id);
 
                       return (
                         <tr 
@@ -2150,11 +2157,12 @@ export default function AdminPage() {
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
+                                  disabled={isCurrentlyApproving}
                                   onClick={() => handleApproveOrder(o)}
-                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 text-white rounded-xl font-black text-[11px] transition flex items-center gap-1 shadow-md shadow-emerald-600/30"
                                 >
                                   <Check className="w-3.5 h-3.5" />
-                                  <span>Print Now</span>
+                                  <span>{isCurrentlyApproving ? 'Sending...' : 'Print Now'}</span>
                                 </button>
                                 <button
                                   type="button"
@@ -2184,8 +2192,8 @@ export default function AdminPage() {
                             ) : null}
                           </td>
                         </tr>
-                      ))
-                    ) : null}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -74,9 +74,6 @@ interface ShopConfig {
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
-  target_printer_name?: string | null;
-  photo_printer_name?: string | null; // Phase 2: For Multi-Printer Routing
-  color_printer_name?: string | null; // Phase 2: For Multi-Printer Routing
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
@@ -151,8 +148,8 @@ const KIOSK_TEXTS = {
     useThisCrop: 'Save & Update',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
-    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
-    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
+    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.',
+    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.'
   },
   ml: {
     subtitle: 'സെൽഫ് സർവീസ് പ്രിന്റ് കിയോസ്ക്',
@@ -192,8 +189,8 @@ const KIOSK_TEXTS = {
     useThisCrop: 'ക്രോപ്പ് ഉറപ്പിക്കുക',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
-    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, and PNG files are accepted.',
-    fileTooLargeMsg: 'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
+    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
+    fileTooLargeMsg: 'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
   }
 };
 
@@ -234,7 +231,7 @@ async function rotateImageFilePhysically(sourceFile: File | Blob, deg: number, f
   return new File([blob], fileName, { type: 'image/jpeg' });
 }
 
-// FIXED BINARY-SAFE PDF GENERATOR for 100% Automatic Printing without "Print Pictures" popup
+// FULLY FUNCTIONAL PDF GENERATOR TO PREVENT "PRINT PICTURES" BLANK BUG
 async function convertJpegBlobToA4PdfBlob(
   jpegBlob: Blob,
   imgWidth: number,
@@ -417,7 +414,6 @@ export default function KioskPage() {
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
   const navigate = useNavigate();
 
-  // DEFAULT TO MALAYALAM AS REQUESTED FOR KERALA SHOPS
   const [lang, setLang] = useState<'en' | 'ml'>('ml');
   const t = KIOSK_TEXTS[lang];
 
@@ -433,7 +429,7 @@ export default function KioskPage() {
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // Phase 1: Service Selection Cards
+  // Home Screen Selected Category
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<ServiceCategory>(null);
 
   const [items, setItems] = useState<UploadedItem[]>([]);
@@ -461,7 +457,6 @@ export default function KioskPage() {
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
   
-  // Track if this item is newly uploaded so we can discard it if user hits X without applying
   const isNewItemBeingEdited = useRef<boolean>(false);
 
   const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
@@ -547,7 +542,7 @@ export default function KioskPage() {
     const newPdfItems: UploadedItem[] = [];
     const newImageItems: UploadedItem[] = [];
 
-    // Process all files in a loop to fix multiple upload bug!
+    // Loop through all selected files to ensure multiple selection works
     for (let i = 0; i < selectedFiles.length; i++) {
       const rawFile = selectedFiles[i];
 
@@ -813,7 +808,7 @@ export default function KioskPage() {
 
       if (!frontFile) {
         ctx.fillStyle = '#94a3b8'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText('No Image Selected — Tap "+ Add Image" below', canvas.width / 2, canvas.height / 2); return;
+        ctx.fillText('No Image Selected — Tap "+ Add" below', canvas.width / 2, canvas.height / 2); return;
       }
 
       try {
@@ -1014,7 +1009,7 @@ export default function KioskPage() {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
     try {
-      const { data: latestShop } = await supabase.from('shops').select('auto_print_enabled, require_payment, split_payment_enabled, target_printer_name, color_printer_name, photo_printer_name').eq('id', shop.id).maybeSingle();
+      const { data: latestShop } = await supabase.from('shops').select('auto_print_enabled, require_payment, split_payment_enabled').eq('id', shop.id).maybeSingle();
       const isAutoPilot = latestShop ? Boolean(latestShop.auto_print_enabled) : Boolean(shop.auto_print_enabled);
       const isCashMode = !(latestShop ? latestShop.require_payment : shop.require_payment);
       const isGatewayVerified = Boolean(verifiedGatewayPaymentId);
@@ -1026,7 +1021,7 @@ export default function KioskPage() {
         const item = items[idx];
         let fileToUpload = item.file;
         
-        // FORCES 100% PDF OUTPUT FOR ANY IMAGE UPLOADED TO AVOID "PRINT PICTURES" BLANK DIALOG
+        // 100% PDF OUTPUT FOR ANY IMAGE UPLOADED TO AVOID "PRINT PICTURES" BLANK DIALOG
         if (item.fileKind === 'image' && !fileToUpload.name.toLowerCase().endsWith('.pdf')) {
           const fImg = await loadImageElement(item.croppedFrontBlob || item.originalFile);
           const c = document.createElement('canvas'); c.width = 1240; c.height = 1754;
@@ -1066,28 +1061,7 @@ export default function KioskPage() {
         const itemTotal = Number(calculateItemPrice(item).toFixed(2));
         const displayDocName = item.fileKind === 'image' && item.layoutMode === 'id_card' ? `[ID-2in1] ${item.name}` : item.fileKind === 'image' && item.layoutMode === 'grid_4' ? `[4-Per-Page] ${item.name}` : item.pageRangeText ? `[Pages ${item.pageRangeText}] ${item.name}` : item.name;
 
-        // Dynamic Multi-Printer Routing Logic
-        let routedPrinter = shop.target_printer_name;
-        if (latestShop) {
-          if (item.serviceCategory === 'photo' && latestShop.photo_printer_name) routedPrinter = latestShop.photo_printer_name;
-          else if (item.isColor && latestShop.color_printer_name) routedPrinter = latestShop.color_printer_name;
-        }
-
-        const { error: orderError } = await supabase.from('print_orders').insert([{ 
-          shop_id: shop.id, 
-          order_number: orderNumber, 
-          file_name: displayDocName, 
-          file_url: storagePath, 
-          page_count: calculateSheetsForItem(item), 
-          copies: item.copies, 
-          is_color: item.isColor, 
-          is_double_sided: item.isDoubleSided, 
-          paper_size: item.paperSize, 
-          total_amount: itemTotal, 
-          status: targetStatus, 
-          payment_ref: finalPaymentRef,
-          target_printer_name: routedPrinter
-        }]);
+        const { error: orderError } = await supabase.from('print_orders').insert([{ shop_id: shop.id, order_number: orderNumber, file_name: displayDocName, file_url: storagePath, page_count: calculateSheetsForItem(item), copies: item.copies, is_color: item.isColor, is_double_sided: item.isDoubleSided, paper_size: item.paperSize, total_amount: itemTotal, status: targetStatus, payment_ref: finalPaymentRef }]);
         if (orderError) throw orderError;
       }
       try { await supabase.from('shop_transactions').insert([{ shop_id: shop.id, order_number: orderNumber, amount: Number(formattedAmount), payment_mode: isGatewayVerified ? activeGatewayProvider.toUpperCase() : isCashMode ? 'CASH' : 'UPI', collection_type: shop.split_payment_enabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP', payment_ref: finalPaymentRef, status: targetStatus }]); } catch {}
@@ -1167,7 +1141,6 @@ export default function KioskPage() {
         </header>
 
         <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
-          {/* ALWAYS VISIBLE FILE INPUT */}
           <input type="file" multiple ref={fileInputRef} onChange={handleFileSelect} accept={selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo' ? '.png,.jpg,.jpeg' : '.pdf,.png,.jpg,.jpeg'} className="hidden" />
 
           {shop.counter_notice && (
@@ -1247,7 +1220,7 @@ export default function KioskPage() {
                       </div>
                     </button>
 
-                    <button onClick={() => handleCategoryClick('scanner')} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px] opacity-90">
+                    <button onClick={() => handleCategoryClick('scanner')} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
                       <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
                         <UploadCloud className="w-7 h-7" />
                       </div>
@@ -1355,7 +1328,8 @@ export default function KioskPage() {
                               <button type="button" onClick={() => updateItem(item.id, { isColor: true })} className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Color</button>
                             </div>
 
-                            {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
+                            {/* Single-Sided vs Double-Sided Toggle */}
+                            {(item.pages > 1 || item.fileKind === 'pdf') && (
                               <div className="flex items-center gap-1">
                                 <button type="button" onClick={() => updateItem(item.id, { isDoubleSided: false })} className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${!item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.singleSided}</button>
                                 <button type="button" onClick={() => updateItem(item.id, { isDoubleSided: true })} className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.doubleSided}</button>
@@ -1487,8 +1461,8 @@ export default function KioskPage() {
               {cropperSourceUrl && (
                 <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1">
                   <div className="flex items-center gap-1">
-                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(-90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5 text-emerald-400" /><span>Rotate Left</span></button>
-                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCw className="w-3.5 h-3.5 text-emerald-400" /><span>Rotate Right</span></button>
+                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(-90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5 text-emerald-400" /></button>
+                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCw className="w-3.5 h-3.5 text-emerald-400" /></button>
                     <button type="button" onClick={handleResetCropper} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs">{t.resetCrop}</button>
                   </div>
                   <button type="button" onClick={handleUseThisCrop} className="min-h-[42px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs shadow flex items-center gap-1"><Check className="w-3.5 h-3.5" /><span>{t.useThisCrop}</span></button>

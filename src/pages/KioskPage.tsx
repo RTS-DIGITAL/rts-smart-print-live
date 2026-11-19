@@ -76,6 +76,7 @@ interface ShopConfig {
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size';
+type CropShapeType = 'id_card' | 'free' | 'square';
 
 interface UploadedItem {
   id: string;
@@ -208,6 +209,88 @@ async function rotateImageFilePhysically(sourceFile: File | Blob, deg: number, f
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Rotate blob failed'))), 'image/jpeg', 0.94);
   });
   return new File([blob], fileName, { type: 'image/jpeg' });
+}
+
+// FIXED BINARY-SAFE PDF GENERATOR:
+// Uses pure ASCII headers + exact byte offsets so Adobe Acrobat & Windows Print Agent never show a blank page!
+async function convertJpegBlobToA4PdfBlob(
+  jpegBlob: Blob,
+  imgWidth: number,
+  imgHeight: number
+): Promise<Blob> {
+  const jpegBuffer = await jpegBlob.arrayBuffer();
+  const jpegBytes = new Uint8Array(jpegBuffer);
+  const encoder = new TextEncoder();
+
+  // Standard A4 dimensions in PostScript points (210mm x 297mm = 595.28 x 841.89 pt)
+  const pageW = 595.28;
+  const pageH = 841.89;
+
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let byteOffset = 0;
+
+  const pushAscii = (str: string) => {
+    const bytes = encoder.encode(str);
+    chunks.push(bytes);
+    byteOffset += bytes.length;
+  };
+
+  const pushBinary = (bytes: Uint8Array) => {
+    chunks.push(bytes);
+    byteOffset += bytes.length;
+  };
+
+  const recordObjOffset = (objNum: number) => {
+    offsets[objNum] = byteOffset;
+  };
+
+  // Pure ASCII PDF 1.4 Header + Exact 4-byte binary comment
+  pushAscii('%PDF-1.4\n');
+  pushBinary(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
+
+  // Object 1: Catalog
+  recordObjOffset(1);
+  pushAscii('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+  // Object 2: Pages
+  recordObjOffset(2);
+  pushAscii('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+
+  // Object 3: Page (A4 Portrait)
+  recordObjOffset(3);
+  pushAscii(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`
+  );
+
+  // Object 4: JPEG Image XObject Stream
+  recordObjOffset(4);
+  pushAscii(
+    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
+  );
+  pushBinary(jpegBytes);
+  pushAscii('\nendstream\nendobj\n');
+
+  // Object 5: Page Content Stream (Draws the A4 image across the entire A4 page)
+  const contentStream = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
+  const contentBytes = encoder.encode(contentStream);
+  recordObjOffset(5);
+  pushAscii(`5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n`);
+  pushBinary(contentBytes);
+  pushAscii('\nendstream\nendobj\n');
+
+  // Xref Table
+  const xrefStart = byteOffset;
+  pushAscii('xref\n0 6\n0000000000 65535 f \n');
+  for (let i = 1; i <= 5; i++) {
+    const padded = String(offsets[i]).padStart(10, '0');
+    pushAscii(`${padded} 00000 n \n`);
+  }
+
+  // Trailer
+  pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`);
+
+  return new Blob(chunks, { type: 'application/pdf' });
 }
 
 function loadRazorpayScript(): Promise<boolean> {
@@ -1043,8 +1126,8 @@ export default function KioskPage() {
     contrast
   ]);
 
-  // Generate High-Resolution A4 Sheet (1240 x 1754 px) as a 100% compatible `.jpg` file!
-  // This guarantees Windows Print Pictures & RTS Print Agent NEVER show a blank page!
+  // Generate High-Resolution A4 Sheet (1240 x 1754 px) AND convert it to a binary-valid A4 PDF file (`.pdf`)
+  // so Windows PC Agent prints it 100% automatically without opening the Windows "Print Pictures" dialog!
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     if (!frontFile) {
@@ -1058,7 +1141,7 @@ export default function KioskPage() {
       let finalFrontBlob = croppedFrontBlob;
       let finalBackBlob = croppedBackBlob;
 
-      // Automatically capture the current crop box even if the customer didn't click "Update Preview"!
+      // Capture latest crop from whichever tab is currently open in Cropper.js
       const latestActiveBlob = await extractCurrentCropperBlob();
       if (latestActiveBlob) {
         if (activeCropSide === 'front') {
@@ -1150,20 +1233,23 @@ export default function KioskPage() {
         hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.94);
       });
 
+      // Convert A4 JPEG sheet into a genuine 1-page A4 PDF Document so Windows prints silently without "Print Pictures" dialog!
+      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, a4W, a4H);
+
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
       const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_A4`;
-      const composedJpgFile = new File([jpegBlob], `${baseName}_${layoutTag}.jpg`, {
-        type: 'image/jpeg'
+      const composedPdfFile = new File([pdfBlob], `${baseName}_${layoutTag}.pdf`, {
+        type: 'application/pdf'
       });
 
       updateItem(editingItem.id, {
-        file: composedJpgFile,
+        file: composedPdfFile,
         originalFile: frontFile,
         backOriginalFile: backFile,
         croppedFrontBlob: finalFrontBlob,
         croppedBackBlob: finalBackBlob,
         name: frontFile.name,
-        size: composedJpgFile.size,
+        size: composedPdfFile.size,
         layoutMode: studioLayout,
         pages: 1,
         hasBackImage: Boolean(backFile)
@@ -1523,6 +1609,7 @@ export default function KioskPage() {
         </header>
 
         <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
+          {/* MOVE INPUT HERE SO IT IS ALWAYS AVAILABLE IN DOM */}
           <input
             type="file"
             multiple

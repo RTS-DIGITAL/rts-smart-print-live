@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
-import { 
-  UploadCloud, 
-  FileText, 
-  Image as ImageIcon, 
-  Trash2, 
-  Plus, 
-  Minus, 
-  Printer, 
-  Banknote, 
-  Smartphone, 
+import {
+  UploadCloud,
+  FileText,
+  Image as ImageIcon,
+  Trash2,
+  Plus,
+  Minus,
+  Printer,
+  Banknote,
+  Smartphone,
   AlertCircle,
   Copy,
   Check,
@@ -22,7 +22,6 @@ import {
   EyeOff,
   Clock,
   Download,
-  CreditCard,
   Zap,
   Scissors,
   RotateCw,
@@ -31,25 +30,19 @@ import {
   Layers,
   X,
   CheckCircle2,
-  RefreshCw,
   Languages,
-  Crop,
-  ZoomIn,
-  ZoomOut,
   UserSquare,
   Camera,
   ArrowLeft
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Pinned cdnjs worker for PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-// Pinned cdnjs URLs for Cropper.js v1.6.2 & pdf-lib v1.17.1
 const CROPPER_CSS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css';
 const CROPPER_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js';
 const PDFLIB_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB limit
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 interface ShopConfig {
   id: string;
@@ -70,14 +63,12 @@ interface ShopConfig {
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
   split_payment_enabled?: boolean;
-  // Duplex, Expiry & ID Card 2-in-1 Pricing Fields
   duplex_supported?: boolean;
   id_card_bw_price?: number | null;
   id_card_color_price?: number | null;
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
-  // Feature Controls for Shop Admin & Super Admin Plans
   id_card_enabled?: boolean;
   passport_enabled?: boolean;
   scan_pdf_enabled?: boolean;
@@ -102,7 +93,6 @@ interface UploadedItem {
   isColor: boolean;
   isDoubleSided: boolean;
   paperSize: string;
-  // Image Layout & PDF Page Range Options
   layoutMode: ImageLayoutType;
   pageRangeText: string;
   hasBackImage?: boolean;
@@ -138,8 +128,9 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'Camera Scan / PDF Upload',
     uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
     uploadReading: 'Reading & Verifying Files...',
-    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Auto-Converts Images to A4 PDF',
-    aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your ID number before uploading. Files are auto-deleted on schedule.',
+    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Images Convert to A4 PDF',
+    aadhaarSafetyNote:
+      '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your ID number before uploading. Files are auto-deleted on schedule.',
     uploadedFiles: 'Uploaded Files',
     addMoreBtn: 'Add More PDF / Image',
     copies: 'Copies:',
@@ -155,8 +146,10 @@ const KIOSK_TEXTS = {
     useThisCrop: 'Save & Update',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
-    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
-    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
+    invalidFileMsg:
+      'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
+    fileTooLargeMsg:
+      'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
   },
   ml: {
     backBtn: 'പിന്നിലേക്ക്',
@@ -179,8 +172,9 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'ക്യാമറ സ്കാൻ / ഫയലുകൾ',
     uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
     uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ തനിയെ A4 PDF ആകും',
-    aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
+    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ A4 PDF ആകുന്നു',
+    aadhaarSafetyNote:
+      '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
     addMoreBtn: 'കൂടുതൽ ഫയലുകൾ ചേർക്കുക',
     copies: 'കോപ്പികൾ:',
@@ -196,8 +190,10 @@ const KIOSK_TEXTS = {
     useThisCrop: 'ക്രോപ്പ് ഉറപ്പിക്കുക',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
-    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, PNG files are accepted.',
-    fileTooLargeMsg: 'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
+    invalidFileMsg:
+      'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, and PNG files are accepted.',
+    fileTooLargeMsg:
+      'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
   }
 };
 
@@ -205,7 +201,6 @@ function cleanVpa(input: string | null | undefined): string {
   return (input || '').trim().replace(/\s+/g, '').toLowerCase();
 }
 
-// Proportional scaling helper so ID cards and documents are never stretched or squashed
 function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
   const safeSrcW = Math.max(1, srcW);
   const safeSrcH = Math.max(1, srcH);
@@ -215,68 +210,10 @@ function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
   return { w, h, dx: (boxW - w) / 2, dy: (boxH - h) / 2 };
 }
 
-// Pure-JS A4 PDF fallback builder (used if PDFLib CDN is blocked or offline)
-function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, imgHeight: number): Blob {
-  const encoder = new TextEncoder();
-  const pageW = 595.28;
-  const pageH = 841.89;
-  const chunks: Uint8Array[] = [];
-  const offsets: number[] = [];
-  let byteOffset = 0;
-
-  const pushAscii = (str: string) => {
-    const b = encoder.encode(str);
-    chunks.push(b);
-    byteOffset += b.length;
-  };
-  const pushBinary = (b: Uint8Array) => {
-    chunks.push(b);
-    byteOffset += b.length;
-  };
-  const markObj = (n: number) => {
-    offsets[n] = byteOffset;
-  };
-
-  pushAscii('%PDF-1.4\n');
-  pushBinary(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
-
-  markObj(1);
-  pushAscii('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
-
-  markObj(2);
-  pushAscii('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
-
-  markObj(3);
-  pushAscii(
-    `3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`
-  );
-
-  markObj(4);
-  pushAscii(
-    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
-  );
-  pushBinary(jpegBytes);
-  pushAscii('\nendstream\nendobj\n');
-
-  const streamCmd = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
-  const streamBytes = encoder.encode(streamCmd);
-  markObj(5);
-  pushAscii(`5 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`);
-  pushBinary(streamBytes);
-  pushAscii('\nendstream\nendobj\n');
-
-  const xrefPos = byteOffset;
-  pushAscii('xref\n0 6\n0000000000 65535 f \n');
-  for (let i = 1; i <= 5; i++) {
-    pushAscii(`${String(offsets[i]).padStart(10, '0')} 00000 n \n`);
-  }
-  pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`);
-
-  return new Blob(chunks, { type: 'application/pdf' });
+function isValidPdfBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
 }
 
-// Load pdf-lib dynamically and convert any A4 JPEG canvas blob into a true A4 PDF file
-// so Windows Print Agent automatically prints images/ID cards without blank output!
 function loadPdfLibAsset(): Promise<any> {
   return new Promise((resolve) => {
     if ((window as any).PDFLib) {
@@ -297,38 +234,21 @@ function loadPdfLibAsset(): Promise<any> {
   });
 }
 
-async function convertJpegBlobToA4PdfBlob(
-  jpegBlob: Blob,
-  imgWidth: number = 1240,
-  imgHeight: number = 1754
-): Promise<Blob> {
-  const arrayBuffer = await jpegBlob.arrayBuffer();
+async function convertJpegBlobToA4PdfBlob(jpegBlob: Blob): Promise<Blob> {
   const PDFLib = await loadPdfLibAsset();
-
-  if (PDFLib && PDFLib.PDFDocument) {
-    try {
-      const pdfDoc = await PDFLib.PDFDocument.create();
-      const pageW = 595.28;
-      const pageH = 841.89;
-      const page = pdfDoc.addPage([pageW, pageH]);
-      const jpgImage = await pdfDoc.embedJpg(arrayBuffer);
-      page.drawImage(jpgImage, {
-        x: 0,
-        y: 0,
-        width: pageW,
-        height: pageH
-      });
-      const pdfBytes = await pdfDoc.save();
-      return new Blob([pdfBytes], { type: 'application/pdf' });
-    } catch {
-      // Fallback to pure JS PDF builder if embedJpg fails on a specific browser JPEG stream
-    }
+  if (!PDFLib || !PDFLib.PDFDocument) {
+    throw new Error('PDF library failed to load.');
   }
-
-  return buildA4PdfFromJpegBytesPureJs(new Uint8Array(arrayBuffer), imgWidth, imgHeight);
+  const jpgBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+  const pdf = await PDFLib.PDFDocument.create();
+  const page = pdf.addPage(PDFLib.PageSizes ? PDFLib.PageSizes.A4 : [595.28, 841.89]);
+  const img = await pdf.embedJpg(jpgBytes);
+  const [pw, ph] = page.getSize();
+  page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
+  const pdfBytes = await pdf.save();
+  return new Blob([pdfBytes], { type: 'application/pdf' });
 }
 
-// Physically rotates an image file by +90 or -90 degrees on a clean canvas and returns a new File!
 async function rotateImageFilePhysically(sourceFile: File | Blob, deg: number, fileName: string): Promise<File> {
   const img = await loadImageElement(sourceFile);
   const canvas = document.createElement('canvas');
@@ -367,7 +287,6 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-// Load Cropper.js v1.6.2 CSS & JS from cdnjs.cloudflare.com with clean, easy-to-grab corner handles
 function loadCropperAssets(): Promise<boolean> {
   return new Promise((resolve) => {
     if (!document.querySelector(`link[href="${CROPPER_CSS_URL}"]`)) {
@@ -378,25 +297,10 @@ function loadCropperAssets(): Promise<boolean> {
     }
     const existingStyle = document.getElementById('rts-cropper-touch-styles');
     const cssText = `
-      .cropper-point {
-        width: 12px !important;
-        height: 12px !important;
-        background-color: #38bdf8 !important;
-        opacity: 0.95 !important;
-        border-radius: 50% !important;
-        border: 2px solid #ffffff !important;
-      }
-      .cropper-point.point-se {
-        width: 14px !important;
-        height: 14px !important;
-      }
-      .cropper-line {
-        background-color: #38bdf8 !important;
-        opacity: 0.7 !important;
-      }
-      .cropper-view-box {
-        outline: 2px solid #38bdf8 !important;
-      }
+      .cropper-point { width: 12px !important; height: 12px !important; background-color: #38bdf8 !important; opacity: 0.95 !important; border-radius: 50% !important; border: 2px solid #ffffff !important; }
+      .cropper-point.point-se { width: 14px !important; height: 14px !important; }
+      .cropper-line { background-color: #38bdf8 !important; opacity: 0.7 !important; }
+      .cropper-view-box { outline: 2px solid #38bdf8 !important; }
     `;
     if (!existingStyle) {
       const style = document.createElement('style');
@@ -425,18 +329,11 @@ function loadCropperAssets(): Promise<boolean> {
   });
 }
 
-// Verify real file signature bytes (%PDF = 25 50 44 46, JPEG = FF D8 FF, PNG = 89 50 4E 47)
 async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invalid'> {
   try {
     const buffer = await file.slice(0, 8).arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    if (
-      bytes.length >= 4 &&
-      bytes[0] === 0x25 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x44 &&
-      bytes[3] === 0x46
-    ) {
+    if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
       return 'pdf';
     }
     if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -461,7 +358,6 @@ async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invali
   }
 }
 
-// Compress large mobile camera images in the browser before upload to save mobile data
 async function compressLargeImageInBrowser(file: File): Promise<File> {
   if (file.size <= 1.5 * 1024 * 1024) return file;
   try {
@@ -491,7 +387,6 @@ async function compressLargeImageInBrowser(file: File): Promise<File> {
   }
 }
 
-// Parse custom PDF page range like "1-2" or "1,3,5" and return count of selected pages
 function countSelectedPages(rangeStr: string, maxPages: number): number {
   const cleaned = rangeStr.trim();
   if (!cleaned) return maxPages;
@@ -520,7 +415,6 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
   return pagesSet.size > 0 ? pagesSet.size : maxPages;
 }
 
-// Calculate physical A4 paper sheets needed for an item based on pages, layout (1, 2, 4, id_card) & duplex
 function calculateSheetsForItem(item: UploadedItem): number {
   if (item.fileKind === 'image') {
     return Math.max(1, item.copies);
@@ -584,7 +478,6 @@ export default function KioskPage() {
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [savingQr, setSavingQr] = useState(false);
 
-  // Image Crop (Cropper.js), Rotate & ID Card 2-in-1 A4 Layout Studio Modal States
   const [editingItem, setEditingItem] = useState<UploadedItem | null>(null);
   const [studioLayout, setStudioLayout] = useState<ImageLayoutType>('id_card');
   const [frontFile, setFrontFile] = useState<File | null>(null);
@@ -598,10 +491,8 @@ export default function KioskPage() {
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
 
-  // Track fresh uploads so clicking X without saving removes the unsaved item
   const isFreshUploadRef = useRef<boolean>(false);
 
-  // Interactive Cropper.js State for Front & Back Images (Always Free Edge-to-Edge Crop for Simplicity!)
   const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
   const [cropperSourceUrl, setCropperSourceUrl] = useState<string | null>(null);
   const [croppedFrontBlob, setCroppedFrontBlob] = useState<Blob | null>(null);
@@ -611,7 +502,6 @@ export default function KioskPage() {
   const cropperImageRef = useRef<HTMLImageElement>(null);
   const cropperInstanceRef = useRef<any>(null);
 
-  // Confirmation Popup State after "Apply to 1 A4 Sheet"
   const [showEditConfirmPopup, setShowEditConfirmPopup] = useState<boolean>(false);
   const [lastEditedItemId, setLastEditedItemId] = useState<string | null>(null);
 
@@ -626,14 +516,9 @@ export default function KioskPage() {
     async function init() {
       setLoadingShop(true);
       try {
-        const { data: shopData } = await supabase
-          .from('shops')
-          .select('*')
-          .eq('slug', activeSlug)
-          .single();
+        const { data: shopData } = await supabase.from('shops').select('*').eq('slug', activeSlug).single();
 
         if (shopData) {
-          // Check if Shop Subscription / Free Trial has expired (0 Days Left)
           const approvalDate = shopData.approved_at
             ? new Date(shopData.approved_at).getTime()
             : new Date(shopData.created_at || Date.now()).getTime();
@@ -641,10 +526,7 @@ export default function KioskPage() {
           const remainingDays = Math.max(0, (shopData.subscription_days || 7) - elapsedDays);
 
           if (remainingDays <= 0 && shopData.subscription_status !== 'suspended') {
-            await supabase
-              .from('shops')
-              .update({ is_accepting_orders: false })
-              .eq('id', shopData.id);
+            await supabase.from('shops').update({ is_accepting_orders: false }).eq('id', shopData.id);
             shopData.is_accepting_orders = false;
           }
 
@@ -653,11 +535,7 @@ export default function KioskPage() {
             setIsUnlocked(true);
           }
 
-          const { data: pricingData } = await supabase
-            .from('pricing_rules')
-            .select('*')
-            .eq('shop_id', shopData.id);
-
+          const { data: pricingData } = await supabase.from('pricing_rules').select('*').eq('shop_id', shopData.id);
           if (pricingData) setPricingRules(pricingData);
         }
       } catch (err) {
@@ -699,7 +577,6 @@ export default function KioskPage() {
     }, 60);
   };
 
-  // Supports simultaneous upload of PDFs and Images; pairs Front + Back on ID cards without duplicating orders!
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -712,14 +589,12 @@ export default function KioskPage() {
     for (let i = 0; i < selectedFiles.length; i++) {
       const rawFile = selectedFiles[i];
 
-      // 1. Check 10 MB file size limit
       if (rawFile.size > MAX_FILE_SIZE_BYTES) {
         setUploadErrorBanner(`"${rawFile.name}": ${t.fileTooLargeMsg}`);
         alert(`"${rawFile.name}"\n\n${t.fileTooLargeMsg}`);
         continue;
       }
 
-      // 2. Verify actual file byte signature (PDF, JPEG, PNG)
       const fileKind = await detectTrueFileKind(rawFile);
       if (fileKind === 'invalid') {
         setUploadErrorBanner(`"${rawFile.name}": ${t.invalidFileMsg}`);
@@ -727,7 +602,6 @@ export default function KioskPage() {
         continue;
       }
 
-      // 3. Compress large mobile photos in browser before upload
       const file = fileKind === 'image' ? await compressLargeImageInBrowser(rawFile) : rawFile;
       const pages = fileKind === 'pdf' ? await getPageCount(file) : 1;
 
@@ -766,7 +640,6 @@ export default function KioskPage() {
       }
     }
 
-    // If user uploaded 2 images together in ID Card mode, combine them into ONE single Front+Back item (prevents duplicate 4-card orders)
     if (newImageItems.length >= 2 && selectedServiceCategory === 'id_card') {
       const primaryImageItem: UploadedItem = {
         ...newImageItems[0],
@@ -779,7 +652,6 @@ export default function KioskPage() {
       isFreshUploadRef.current = true;
       openImageStudio(primaryImageItem, newImageItems[1].originalFile);
     } else if (newImageItems.length > 0) {
-      // If 2 images are uploaded in general document mode, pair them as 2-per-page (half_a4) if user wants 2 in 1
       if (newImageItems.length === 2 && selectedServiceCategory === 'document') {
         const pairedHalfA4: UploadedItem = {
           ...newImageItems[0],
@@ -820,7 +692,6 @@ export default function KioskPage() {
     setContrast(110);
   };
 
-  // Manage Cropper.js active image URL for Front or Back side
   useEffect(() => {
     if (!editingItem) {
       if (cropperInstanceRef.current) {
@@ -844,7 +715,6 @@ export default function KioskPage() {
     };
   }, [editingItem, activeCropSide, frontFile, backFile]);
 
-  // Initialize Cropper.js instance: ALWAYS FREE CROP (aspectRatio: NaN) & PHOTO LOCKED STEADY
   useEffect(() => {
     let mounted = true;
     async function initCropper() {
@@ -862,13 +732,13 @@ export default function KioskPage() {
       if (!CropperClass) return;
 
       cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
-        aspectRatio: NaN, // Always Free Crop (Edge-to-Edge like Paint)
-        viewMode: 1, // Restrict crop box to never exceed the photo boundaries
-        dragMode: 'none', // Locks photo steady so dragging fingers only moves the crop box
+        aspectRatio: NaN,
+        viewMode: 1,
+        dragMode: 'none',
         movable: false,
         zoomOnTouch: false,
         zoomOnWheel: false,
-        autoCropArea: 0.96, // Starts covering the full photo edge-to-edge
+        autoCropArea: 0.96,
         responsive: true,
         restore: false,
         checkOrientation: true,
@@ -897,7 +767,6 @@ export default function KioskPage() {
     };
   }, [cropperSourceUrl]);
 
-  // Helper to get a clean cropped Blob from current active Cropper.js instance
   const extractCurrentCropperBlob = async (): Promise<Blob | null> => {
     if (!cropperInstanceRef.current || !isCropperReady) return null;
     const croppedCanvas = cropperInstanceRef.current.getCroppedCanvas({
@@ -915,7 +784,6 @@ export default function KioskPage() {
     return blob;
   };
 
-  // "Update Preview" button handler — saves current side's crop and updates Live A4 Preview immediately
   const handleUseThisCrop = async () => {
     const blob = await extractCurrentCropperBlob();
     if (!blob) return;
@@ -941,7 +809,6 @@ export default function KioskPage() {
     setTimeout(() => setCropAppliedToast(null), 2200);
   };
 
-  // "Reset" button handler in Cropper.js
   const handleResetCropper = () => {
     if (cropperInstanceRef.current && isCropperReady) {
       cropperInstanceRef.current.reset();
@@ -957,7 +824,6 @@ export default function KioskPage() {
     }
   };
 
-  // TRUE PHYSICAL CANVAS ROTATION (-90° / +90°):
   const handleRotateCropper = async (deg: number) => {
     if (isRotatingFile) return;
     const targetFile = activeCropSide === 'front' ? frontFile : backFile;
@@ -982,7 +848,6 @@ export default function KioskPage() {
     }
   };
 
-  // Switch between Front & Back tabs safely (Auto-saves current crop before switching!)
   const handleSwitchCropSideTab = async (targetSide: 'front' | 'back') => {
     if (targetSide === activeCropSide) return;
     const currentBlob = await extractCurrentCropperBlob();
@@ -999,7 +864,6 @@ export default function KioskPage() {
     setActiveCropSide(targetSide);
   };
 
-  // Remove Front Image inside Studio
   const handleRemoveFrontInStudio = () => {
     if (backFile) {
       setFrontFile(backFile);
@@ -1019,7 +883,6 @@ export default function KioskPage() {
     }
   };
 
-  // Close Studio via X — discards item if it was a fresh upload not yet saved
   const handleCloseStudio = () => {
     if (isFreshUploadRef.current && editingItem) {
       removeItem(editingItem.id);
@@ -1028,7 +891,6 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Remove Entire Item from Queue via Studio Delete Button
   const handleDeleteItemFromStudio = () => {
     if (!editingItem) return;
     removeItem(editingItem.id);
@@ -1036,7 +898,6 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Draws rotated, trimmed, and proportionally fitted image onto an A4 canvas region without squashing.
   const drawProcessedImage = (
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,
@@ -1080,12 +941,10 @@ export default function KioskPage() {
       offCtx.drawImage(img, trimX, trimY, srcW, srcH, -srcW / 2, -srcH / 2, srcW, srcH);
     }
 
-    // Fill target box background with clean white
     ctx.save();
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(targetX, targetY, targetW, targetH);
 
-    // Scale proportionally inside target box using fitInside so ID cards/documents are never stretched
     const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
     ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX + dx, targetY + dy, w, h);
 
@@ -1098,7 +957,6 @@ export default function KioskPage() {
     ctx.restore();
   };
 
-  // Render Live A4 Sheet Preview inside the Studio Modal
   useEffect(() => {
     let active = true;
     async function renderPreview() {
@@ -1238,8 +1096,6 @@ export default function KioskPage() {
     contrast
   ]);
 
-  // Generate High-Resolution A4 Sheet (1240 x 1754 px) AND convert to a genuine A4 PDF (`.pdf`)
-  // so Windows Print Agent automatically prints images/ID cards without blank output!
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     if (!frontFile) {
@@ -1366,7 +1222,7 @@ export default function KioskPage() {
         hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.94);
       });
 
-      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, a4W, a4H);
+      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob);
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
       const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_A4`;
       const composedPdfFile = new File([pdfBlob], `${baseName}_${layoutTag}.pdf`, {
@@ -1407,7 +1263,6 @@ export default function KioskPage() {
     );
   };
 
-  // Price Calculation: Priced by actual sheets + Shopkeeper's Custom "ID Card 2-in-1 / Cropping" Rate
   const calculateItemPrice = (item: UploadedItem): number => {
     const rule = pricingRules.find(
       (r) =>
@@ -1438,9 +1293,10 @@ export default function KioskPage() {
   const totalSheetsNeeded = items.reduce((sum, item) => sum + calculateSheetsForItem(item), 0);
 
   const cleanUpiId = cleanVpa(shop?.upi_id);
-  const payeeName = (shop?.upi_name && shop.upi_name.trim() !== '')
-    ? shop.upi_name.trim()
-    : (shop?.name || 'RTS Smart Print').trim();
+  const payeeName =
+    shop?.upi_name && shop.upi_name.trim() !== ''
+      ? shop.upi_name.trim()
+      : (shop?.name || 'RTS Smart Print').trim();
   const formattedAmount = Number(totalAmount || 0).toFixed(2);
 
   const hasActiveShopGateway = Boolean(
@@ -1505,9 +1361,8 @@ export default function KioskPage() {
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
 
-        // Force 100% A4 PDF conversion on any unedited image so Windows never shows a blank Print Pictures dialog!
         let fileToUpload = item.file;
-        if (item.fileKind === 'image' && !fileToUpload.name.toLowerCase().endsWith('.pdf')) {
+        if (item.fileKind === 'image' || fileToUpload.type !== 'application/pdf') {
           const fImg = await loadImageElement(item.croppedFrontBlob || item.originalFile);
           const c = document.createElement('canvas');
           c.width = 1240;
@@ -1536,7 +1391,18 @@ export default function KioskPage() {
               const startY = 120;
               for (let row = 0; row < 2; row++) {
                 for (let col = 0; col < 4; col++) {
-                  drawProcessedImage(cCtx, fImg, 0, 0, startX + col * (pW + spacingX), startY + row * (pH + spacingY), pW, pH, true, false);
+                  drawProcessedImage(
+                    cCtx,
+                    fImg,
+                    0,
+                    0,
+                    startX + col * (pW + spacingX),
+                    startY + row * (pH + spacingY),
+                    pW,
+                    pH,
+                    true,
+                    false
+                  );
                 }
               }
             } else if (item.layoutMode === 'half_a4') {
@@ -1550,11 +1416,12 @@ export default function KioskPage() {
             } else {
               drawProcessedImage(cCtx, fImg, 0, 0, 60, 60, 1120, 1634, false);
             }
+
             const jBlob: Blob | null = await new Promise((res) =>
               c.toBlob((b) => res(b), 'image/jpeg', 0.94)
             );
             if (jBlob) {
-              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, c.width, c.height);
+              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob);
               fileToUpload = new File(
                 [pBlob],
                 `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
@@ -1564,13 +1431,17 @@ export default function KioskPage() {
           }
         }
 
-        const fileExt = fileToUpload.name.split('.').pop() || 'pdf';
-        const storagePath = `${shop.id}/${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}.${fileExt}`;
+        const pdfCheckBytes = new Uint8Array(await fileToUpload.slice(0, 4).arrayBuffer());
+        if (!isValidPdfBytes(pdfCheckBytes)) {
+          throw new Error('Generated file is not a valid PDF. Please try again.');
+        }
+
+        const storagePath = `${shop.id}/${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}.pdf`;
 
         const { error: uploadError } = await supabase.storage
           .from('print-files')
           .upload(storagePath, fileToUpload, {
-            contentType: fileToUpload.type || 'application/pdf',
+            contentType: 'application/pdf',
             upsert: false
           });
 
@@ -1688,7 +1559,6 @@ export default function KioskPage() {
     );
   }
 
-  // Real-Time Shop Subscription Expiry Calculation (Blocks Kiosk when 0 Days Left)
   const shopApprovalTimestamp = shop?.approved_at
     ? new Date(shop.approved_at).getTime()
     : new Date(shop?.created_at || Date.now()).getTime();
@@ -1749,7 +1619,6 @@ export default function KioskPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* English / Malayalam Language Switcher */}
             <button
               type="button"
               onClick={() => setLang(lang === 'en' ? 'ml' : 'en')}
@@ -1780,13 +1649,16 @@ export default function KioskPage() {
         </header>
 
         <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
-          {/* Global File Input */}
           <input
             type="file"
             multiple
             ref={fileInputRef}
             onChange={handleFileSelect}
-            accept={selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo' ? '.png,.jpg,.jpeg' : '.pdf,.png,.jpg,.jpeg'}
+            accept={
+              selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo'
+                ? '.png,.jpg,.jpeg'
+                : '.pdf,.png,.jpg,.jpeg'
+            }
             className="hidden"
           />
 
@@ -2043,7 +1915,6 @@ export default function KioskPage() {
                             </div>
                           </div>
 
-                          {/* PDF Page Selection & Layout Selector Row */}
                           {isPdf && (
                             <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                               {item.totalPdfPages > 1 && (
@@ -2081,7 +1952,6 @@ export default function KioskPage() {
                             </div>
                           )}
 
-                          {/* Copies, Paper Size, B&W / Color, Single / Double-Sided Controls */}
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] text-slate-500">{t.copies}</span>
@@ -2135,7 +2005,6 @@ export default function KioskPage() {
                               </button>
                             </div>
 
-                            {/* Single-Sided vs Double-Sided (Duplex) Toggle */}
                             {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
                               <div className="flex items-center gap-1">
                                 <button
@@ -2168,7 +2037,6 @@ export default function KioskPage() {
                     })}
                   </div>
 
-                  {/* Summary Bill & Real Paper Sheet Count Card */}
                   <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
                     <div className="flex justify-between items-center text-xs text-slate-400">
                       <span>{t.totalDocPages}</span>
@@ -2330,7 +2198,6 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* Layout Mode Buttons */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
@@ -2385,7 +2252,6 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* LARGE, FREE-HAND CROPPER BOX (NO CONFUSING RATIO DROPDOWN!) */}
             <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
@@ -2506,7 +2372,6 @@ export default function KioskPage() {
               )}
             </div>
 
-            {/* Live A4 Sheet Preview Box */}
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
                 Live 1-Sheet A4 Paper Preview (Auto-Converts to A4 PDF)
@@ -2517,7 +2382,6 @@ export default function KioskPage() {
               />
             </div>
 
-            {/* Hidden File Inputs for Add / Change Gallery Images inside Studio */}
             <input
               type="file"
               ref={studioFrontInputRef}
@@ -2553,7 +2417,6 @@ export default function KioskPage() {
               className="hidden"
             />
 
-            {/* Front & Back Image Quick Change / Remove / Clarity Controls */}
             <div className="space-y-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-xs">
               <div className="flex items-center justify-between gap-1">
                 <span className="font-extrabold text-slate-800 truncate max-w-[160px]">
@@ -2662,7 +2525,6 @@ export default function KioskPage() {
         </div>
       )}
 
-      {/* CONFIRMATION POPUP AFTER APPLYING EDITS */}
       {showEditConfirmPopup && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl border border-emerald-100">
@@ -2673,7 +2535,7 @@ export default function KioskPage() {
             <div className="space-y-1">
               <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet!</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your document has been converted into a <strong>1-Page A4 PDF</strong> for automatic printing. Proceed or add more files.
+                Your document has been converted into a <strong>1-Page A4 PDF</strong>. Proceed to print or add more files.
               </p>
             </div>
 
@@ -2703,7 +2565,6 @@ export default function KioskPage() {
         </div>
       )}
 
-      {/* ONLINE PAYMENT MODAL */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">

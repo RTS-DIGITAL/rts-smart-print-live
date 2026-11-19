@@ -214,6 +214,66 @@ function isValidPdfBytes(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
 }
 
+// Guaranteed Pure-JS A4 PDF Builder (Zero external dependency risk, never throws Symbol.iterator)
+function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, imgHeight: number): Blob {
+  const encoder = new TextEncoder();
+  const pageW = 595.28;
+  const pageH = 841.89;
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let byteOffset = 0;
+
+  const pushAscii = (str: string) => {
+    const b = encoder.encode(str);
+    chunks.push(b);
+    byteOffset += b.length;
+  };
+  const pushBinary = (b: Uint8Array) => {
+    chunks.push(b);
+    byteOffset += b.length;
+  };
+  const markObj = (n: number) => {
+    offsets[n] = byteOffset;
+  };
+
+  pushAscii('%PDF-1.4\n');
+  pushBinary(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
+
+  markObj(1);
+  pushAscii('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+  markObj(2);
+  pushAscii('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+
+  markObj(3);
+  pushAscii(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`
+  );
+
+  markObj(4);
+  pushAscii(
+    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
+  );
+  pushBinary(jpegBytes);
+  pushAscii('\nendstream\nendobj\n');
+
+  const streamCmd = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
+  const streamBytes = encoder.encode(streamCmd);
+  markObj(5);
+  pushAscii(`5 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`);
+  pushBinary(streamBytes);
+  pushAscii('\nendstream\nendobj\n');
+
+  const xrefPos = byteOffset;
+  pushAscii('xref\n0 6\n0000000000 65535 f \n');
+  for (let i = 1; i <= 5; i++) {
+    pushAscii(`${String(offsets[i] || 0).padStart(10, '0')} 00000 n \n`);
+  }
+  pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`);
+
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
 function loadPdfLibAsset(): Promise<any> {
   return new Promise((resolve) => {
     if ((window as any).PDFLib) {
@@ -234,19 +294,38 @@ function loadPdfLibAsset(): Promise<any> {
   });
 }
 
-async function convertJpegBlobToA4PdfBlob(jpegBlob: Blob): Promise<Blob> {
+async function convertJpegBlobToA4PdfBlob(
+  jpegBlob: Blob,
+  imgWidth: number = 1240,
+  imgHeight: number = 1754
+): Promise<Blob> {
+  const arrayBuffer = await jpegBlob.arrayBuffer();
+  const rawBytes = new Uint8Array(arrayBuffer);
   const PDFLib = await loadPdfLibAsset();
-  if (!PDFLib || !PDFLib.PDFDocument) {
-    throw new Error('PDF library failed to load.');
+
+  if (PDFLib && PDFLib.PDFDocument) {
+    try {
+      const pdfDoc = await PDFLib.PDFDocument.create();
+      const pageW = 595.28;
+      const pageH = 841.89;
+      const page = pdfDoc.addPage([pageW, pageH]);
+      const jpgImage = await pdfDoc.embedJpg(rawBytes);
+      page.drawImage(jpgImage, {
+        x: 0,
+        y: 0,
+        width: pageW,
+        height: pageH
+      });
+      const pdfBytes = await pdfDoc.save();
+      if (pdfBytes && typeof pdfBytes[Symbol.iterator] === 'function') {
+        return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
+      }
+    } catch {
+      // Fall back safely to pure-JS PDF builder
+    }
   }
-  const jpgBytes = new Uint8Array(await jpegBlob.arrayBuffer());
-  const pdf = await PDFLib.PDFDocument.create();
-  const page = pdf.addPage(PDFLib.PageSizes ? PDFLib.PageSizes.A4 : [595.28, 841.89]);
-  const img = await pdf.embedJpg(jpgBytes);
-  const [pw, ph] = page.getSize();
-  page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
-  const pdfBytes = await pdf.save();
-  return new Blob([pdfBytes], { type: 'application/pdf' });
+
+  return buildA4PdfFromJpegBytesPureJs(rawBytes, imgWidth, imgHeight);
 }
 
 async function rotateImageFilePhysically(sourceFile: File | Blob, deg: number, fileName: string): Promise<File> {
@@ -1219,10 +1298,10 @@ export default function KioskPage() {
       }
 
       const jpegBlob: Blob = await new Promise((resolve, reject) => {
-        hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.94);
+        hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.92);
       });
 
-      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob);
+      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, a4W, a4H);
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
       const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_A4`;
       const composedPdfFile = new File([pdfBlob], `${baseName}_${layoutTag}.pdf`, {
@@ -1247,7 +1326,7 @@ export default function KioskPage() {
       setEditingItem(null);
       setShowEditConfirmPopup(true);
     } catch (err: any) {
-      alert('Failed to apply layout: ' + err.message);
+      alert('Failed to apply layout: ' + (err?.message || String(err)));
     } finally {
       setApplyingStudio(false);
     }
@@ -1418,10 +1497,10 @@ export default function KioskPage() {
             }
 
             const jBlob: Blob | null = await new Promise((res) =>
-              c.toBlob((b) => res(b), 'image/jpeg', 0.94)
+              c.toBlob((b) => res(b), 'image/jpeg', 0.92)
             );
             if (jBlob) {
-              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob);
+              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, c.width, c.height);
               fileToUpload = new File(
                 [pBlob],
                 `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
@@ -1501,7 +1580,7 @@ export default function KioskPage() {
 
       navigate(`/shop/${shop.slug}/order/${orderNumber}`);
     } catch (err: any) {
-      alert('Error creating print job: ' + (err.message || 'Please check with counter staff'));
+      alert('Error creating print job: ' + (err?.message || 'Please check with counter staff'));
     } finally {
       setSubmittingOrder(false);
     }
@@ -2163,9 +2242,7 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* SIMPLE, COMMON-MAN FRIENDLY CROP & A4 LAYOUT STUDIO MODAL                 */}
-      {/* ========================================================================= */}
+      {/* STUDIO MODAL */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
@@ -2525,6 +2602,7 @@ export default function KioskPage() {
         </div>
       )}
 
+      {/* CONFIRMATION POPUP */}
       {showEditConfirmPopup && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl border border-emerald-100">
@@ -2535,7 +2613,7 @@ export default function KioskPage() {
             <div className="space-y-1">
               <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet!</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your document has been converted into a <strong>1-Page A4 PDF</strong>. Proceed to print or add more files.
+                Your document has been converted into a <strong>1-Page A4 PDF</strong>. Proceed or add more files.
               </p>
             </div>
 
@@ -2565,6 +2643,7 @@ export default function KioskPage() {
         </div>
       )}
 
+      {/* PAYMENT MODAL */}
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">

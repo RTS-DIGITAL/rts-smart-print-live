@@ -84,7 +84,6 @@ interface ShopConfig {
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
-type CropShapeType = 'id_card' | 'free' | 'square' | 'passport';
 type ServiceCategory = 'document' | 'id_card' | 'photo' | 'scanner' | null;
 
 interface UploadedItem {
@@ -294,7 +293,7 @@ function loadPdfLibAsset(): Promise<any> {
     script.src = PDFLIB_JS_URL;
     script.onload = () => resolve((window as any).PDFLib);
     script.onerror = () => resolve(null);
-    document.head.appendChild(script);
+    document.body.appendChild(script);
   });
 }
 
@@ -696,7 +695,7 @@ export default function KioskPage() {
     }, 60);
   };
 
-  // Supports simultaneous upload of PDFs and Images; opens Image Studio directly when any image is uploaded!
+  // Supports simultaneous upload of PDFs and Images; pairs Front + Back on ID cards without duplicating orders!
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -763,7 +762,7 @@ export default function KioskPage() {
       }
     }
 
-    // If user uploaded 2 images together (e.g. Front & Back of ID card), pair them into 1 item and open Studio directly!
+    // If user uploaded 2 images together in ID Card mode, combine them into ONE single Front+Back item (prevents duplicate 4-card orders)
     if (newImageItems.length >= 2 && selectedServiceCategory === 'id_card') {
       const primaryImageItem: UploadedItem = {
         ...newImageItems[0],
@@ -771,14 +770,27 @@ export default function KioskPage() {
         hasBackImage: true,
         layoutMode: 'id_card'
       };
-      const remainingImages = newImageItems.slice(2);
-      setItems((prev) => [...prev, ...newPdfItems, primaryImageItem, ...remainingImages]);
+      const extraImages = newImageItems.slice(2);
+      setItems((prev) => [...prev, ...newPdfItems, primaryImageItem, ...extraImages]);
       isFreshUploadRef.current = true;
       openImageStudio(primaryImageItem, newImageItems[1].originalFile);
     } else if (newImageItems.length > 0) {
-      setItems((prev) => [...prev, ...newPdfItems, ...newImageItems]);
-      isFreshUploadRef.current = true;
-      openImageStudio(newImageItems[0]);
+      // If 2 images are uploaded in general document mode, pair them as 2-per-page (half_a4) if user wants 2 in 1
+      if (newImageItems.length === 2 && selectedServiceCategory === 'document') {
+        const pairedHalfA4: UploadedItem = {
+          ...newImageItems[0],
+          backOriginalFile: newImageItems[1].originalFile,
+          hasBackImage: true,
+          layoutMode: 'half_a4'
+        };
+        setItems((prev) => [...prev, ...newPdfItems, pairedHalfA4]);
+        isFreshUploadRef.current = true;
+        openImageStudio(pairedHalfA4, newImageItems[1].originalFile);
+      } else {
+        setItems((prev) => [...prev, ...newPdfItems, ...newImageItems]);
+        isFreshUploadRef.current = true;
+        openImageStudio(newImageItems[0]);
+      }
     } else if (newPdfItems.length > 0) {
       setItems((prev) => [...prev, ...newPdfItems]);
     }
@@ -1003,7 +1015,7 @@ export default function KioskPage() {
     }
   };
 
-  // Close Studio via X — discards newly uploaded item if not applied
+  // Close Studio via X — discards item if it was a fresh upload not yet saved
   const handleCloseStudio = () => {
     if (isFreshUploadRef.current && editingItem) {
       removeItem(editingItem.id);
@@ -1012,7 +1024,7 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Remove Entire Item from Queue via Studio
+  // Remove Entire Item from Queue via Studio Delete Button
   const handleDeleteItemFromStudio = () => {
     if (!editingItem) return;
     removeItem(editingItem.id);
@@ -1021,7 +1033,6 @@ export default function KioskPage() {
   };
 
   // Draws rotated, trimmed, and proportionally fitted image onto an A4 canvas region without squashing.
-  // Also auto-rotates vertical ID card crops to landscape when autoLandscapeForIdCard = true!
   const drawProcessedImage = (
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,
@@ -1159,6 +1170,7 @@ export default function KioskPage() {
             }
           }
         } else if (studioLayout === 'half_a4') {
+          // Equal full-width half-A4 top & bottom slots
           const boxW = 360;
           const boxH = 250;
           drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
@@ -1490,7 +1502,7 @@ export default function KioskPage() {
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
 
-        // Always convert unedited images to A4 PDF so Windows Print Agent prints automatically without blank pages
+        // Force 100% A4 PDF conversion on any unedited image so Windows never shows a blank Print Pictures dialog!
         let fileToUpload = item.file;
         if (item.fileKind === 'image' && !fileToUpload.name.toLowerCase().endsWith('.pdf')) {
           const fImg = await loadImageElement(item.croppedFrontBlob || item.originalFile);
@@ -1917,7 +1929,10 @@ export default function KioskPage() {
                   <div className="flex justify-between items-center px-1 gap-2">
                     <button
                       type="button"
-                      onClick={() => setItems([])}
+                      onClick={() => {
+                        setItems([]);
+                        setSelectedServiceCategory(null);
+                      }}
                       className="min-h-[38px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
@@ -1930,7 +1945,10 @@ export default function KioskPage() {
 
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => {
+                        setSelectedServiceCategory(null);
+                        fileInputRef.current?.click();
+                      }}
                       className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -2052,7 +2070,7 @@ export default function KioskPage() {
                             </div>
                           )}
 
-                          {/* Copies, B&W / Color, Single / Double-Sided Controls */}
+                          {/* Copies, Paper Size, B&W / Color, Single / Double-Sided Controls */}
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] text-slate-500">{t.copies}</span>
@@ -2074,6 +2092,16 @@ export default function KioskPage() {
                                 </button>
                               </div>
                             </div>
+
+                            <select
+                              value={item.paperSize}
+                              onChange={(e) => updateItem(item.id, { paperSize: e.target.value })}
+                              className="min-h-[36px] px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-xl text-[11px] font-extrabold text-slate-800 outline-none"
+                            >
+                              <option value="A4">A4</option>
+                              <option value="A5">A5</option>
+                              <option value="Legal">Legal</option>
+                            </select>
 
                             <div className="flex items-center gap-1">
                               <button
@@ -2634,7 +2662,7 @@ export default function KioskPage() {
             <div className="space-y-1">
               <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet!</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your document has been converted into a <strong>1-Page A4 PDF</strong> for automatic printing. Proceed or add more files.
+                Your document has been converted into a <strong>1-Page A4 PDF</strong> for automatic printing. Proceed to print or add more files.
               </p>
             </div>
 

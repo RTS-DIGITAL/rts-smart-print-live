@@ -145,7 +145,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Pay & Print Now',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Send to Counter',
-    cropGuidance: 'Drag blue corners to frame cleanly, then tap Save Crop.',
+    cropGuidance: 'Drag any corner freely to crop, then tap Save Crop.',
     useThisCrop: 'Save Crop',
     resetCrop: 'Reset',
     manualVerifyNote: 'Counter staff will verify payment before releasing your print.',
@@ -189,7 +189,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക',
-    cropGuidance: 'നീല മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം സെലക്ട് ചെയ്ത് Save Crop അമർത്തുക.',
+    cropGuidance: 'ഏത് ഭാഗവും സ്വതന്ത്രമായി വലിച്ച് ക്രോപ്പ് ചെയ്ത് Save Crop അമർത്തുക.',
     useThisCrop: 'Save Crop',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'കൗണ്ടറിൽ പേയ്‌മെന്റ് പരിശോധിച്ച് പ്രിന്റ് നൽകുന്നതാണ്.',
@@ -215,21 +215,6 @@ function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
 
 function isValidPdfBytes(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
-}
-
-function getCropAspectRatioForLayout(layout: ImageLayoutType): number {
-  switch (layout) {
-    case 'id_card':
-      return LAYOUTS.id_card_pair.cropAspectRatio; // 85.6 / 54 (1.5852)
-    case 'half_a4':
-      return LAYOUTS.half_page_pair.cropAspectRatio; // 190 / 133 (1.4286)
-    case 'passport_4':
-      return LAYOUTS.passport_4.cropAspectRatio; // 35 / 45 (0.7778)
-    case 'passport_8':
-      return LAYOUTS.passport_8.cropAspectRatio; // 35 / 45 (0.7778)
-    default:
-      return NaN;
-  }
 }
 
 function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, imgHeight: number): Blob {
@@ -794,12 +779,9 @@ export default function KioskPage() {
 
   const handleSelectStudioLayout = (newLayout: ImageLayoutType) => {
     setStudioLayout(newLayout);
-    if (getCropAspectRatioForLayout(newLayout) !== getCropAspectRatioForLayout(studioLayout)) {
-      setCroppedFrontBlob(null);
-      setCroppedBackBlob(null);
-    }
     if (cropperInstanceRef.current && isCropperReady) {
-      cropperInstanceRef.current.setAspectRatio(getCropAspectRatioForLayout(newLayout));
+      // Keep cropping flexible (NaN) so any custom document/photo shape can be cropped freely
+      cropperInstanceRef.current.setAspectRatio(NaN);
     }
   };
 
@@ -826,6 +808,7 @@ export default function KioskPage() {
     };
   }, [editingItem, activeCropSide, frontFile, backFile]);
 
+  // Flexible Cropper (aspectRatio: NaN) so customers can crop any uploaded size freely
   useEffect(() => {
     let mounted = true;
     async function initCropper() {
@@ -843,7 +826,7 @@ export default function KioskPage() {
       if (!CropperClass) return;
 
       cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
-        aspectRatio: getCropAspectRatioForLayout(studioLayout),
+        aspectRatio: NaN,
         viewMode: 1,
         dragMode: 'none',
         movable: false,
@@ -903,7 +886,7 @@ export default function KioskPage() {
       setCroppedFrontBlob(blob);
       setFrontRotation(0);
       setCropAppliedToast(
-        lang === 'en' ? '✅ Front crop saved!' : '✅ മുൻവശം ക്രോപ്പ് സേവ് ചെയ്തു!'
+        lang === 'en' ? '✅ Crop saved!' : '✅ ക്രോപ്പ് സേവ് ചെയ്തു!'
       );
       if ((studioLayout === 'id_card' || studioLayout === 'half_a4') && backFile && !croppedBackBlob) {
         setTimeout(() => setActiveCropSide('back'), 350);
@@ -912,7 +895,7 @@ export default function KioskPage() {
       setCroppedBackBlob(blob);
       setBackRotation(0);
       setCropAppliedToast(
-        lang === 'en' ? '✅ Second side crop saved!' : '✅ രണ്ടാമത്തെ ഭാഗം ക്രോപ്പ് സേവ് ചെയ്തു!'
+        lang === 'en' ? '✅ Second photo crop saved!' : '✅ രണ്ടാമത്തെ ഫോട്ടോ ക്രോപ്പ് സേവ് ചെയ്തു!'
       );
     }
     setTimeout(() => setCropAppliedToast(null), 2000);
@@ -1002,14 +985,14 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
+  // Fits any free-cropped image cleanly into its A4 slot without distortion or extra waste
   const drawSlotMm = (
     ctx: CanvasRenderingContext2D,
     canvasW: number,
     img: HTMLImageElement,
     slot: { x: number; y: number; w: number; h: number },
     rotationDeg: number,
-    drawCutBorder: boolean,
-    fillSlotExactly: boolean
+    drawCutBorder: boolean
   ) => {
     const scaleFromMm = canvasW / A4_MM.w;
     const targetX = Math.round(slot.x * scaleFromMm);
@@ -1041,18 +1024,15 @@ export default function KioskPage() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(targetX, targetY, targetW, targetH);
 
-    if (fillSlotExactly) {
-      ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX, targetY, targetW, targetH);
-    } else {
-      const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
-      ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX + dx, targetY + dy, w, h);
-    }
+    // Proportional fitInside ensures any free-cropped size fits cleanly inside A4 with zero clipping/distortion
+    const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
+    ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX + dx, targetY + dy, w, h);
 
     if (drawCutBorder) {
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = Math.max(1, Math.round(0.3 * scaleFromMm));
       ctx.setLineDash([Math.round(1.5 * scaleFromMm), Math.round(1.2 * scaleFromMm)]);
-      ctx.strokeRect(targetX, targetY, targetW, targetH);
+      ctx.strokeRect(targetX + dx, targetY + dy, w, h);
     }
     ctx.restore();
   };
@@ -1078,27 +1058,26 @@ export default function KioskPage() {
 
     if (layout === 'id_card') {
       if (backImg) {
-        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_pair.slots[0], isFrontCropped ? 0 : fRot, true, isFrontCropped);
-        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.id_card_pair.slots[1], isBackCropped ? 0 : bRot, true, isBackCropped);
+        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_pair.slots[0], isFrontCropped ? 0 : fRot, true);
+        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.id_card_pair.slots[1], isBackCropped ? 0 : bRot, true);
       } else {
-        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_single.slots[0], isFrontCropped ? 0 : fRot, true, isFrontCropped);
+        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_single.slots[0], isFrontCropped ? 0 : fRot, true);
       }
     } else if (layout === 'passport_4') {
       for (const slot of LAYOUTS.passport_4.slots) {
-        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true, isFrontCropped);
+        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true);
       }
     } else if (layout === 'passport_8') {
       for (const slot of LAYOUTS.passport_8.slots) {
-        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true, isFrontCropped);
+        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true);
       }
     } else if (layout === 'half_a4') {
-      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.half_page_pair.slots[0], isFrontCropped ? 0 : fRot, false, isFrontCropped);
+      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.half_page_pair.slots[0], isFrontCropped ? 0 : fRot, false);
       if (backImg) {
-        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.half_page_pair.slots[1], isBackCropped ? 0 : bRot, false, isBackCropped);
+        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.half_page_pair.slots[1], isBackCropped ? 0 : bRot, false);
       }
     } else {
-      // Full A4 page (190 x 277 mm with 10 mm safe border) — zero paper waste
-      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.fit_a4.slots[0], isFrontCropped ? 0 : fRot, false, false);
+      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.fit_a4.slots[0], isFrontCropped ? 0 : fRot, false);
     }
   };
 
@@ -2140,7 +2119,7 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* EASY MOBILE & KIOSK STUDIO MODAL */}
+      {/* FLEXIBLE CROP & ZERO-WASTAGE A4 STUDIO MODAL */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
@@ -2160,7 +2139,7 @@ export default function KioskPage() {
                     <span>{activeLayoutSpec.label}</span>
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    {activeLayoutSpec.sizeMm} • {t.cropGuidance}
+                    {t.cropGuidance}
                   </p>
                 </div>
               </div>
@@ -2184,7 +2163,7 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">📄 Full A4 Sheet</span>
-                <span className="text-[10px] opacity-85 block">Zero Paper Waste</span>
+                <span className="text-[10px] opacity-85 block">No Paper Waste</span>
               </button>
 
               <button
@@ -2273,7 +2252,7 @@ export default function KioskPage() {
                 </div>
 
                 <span className="text-[11px] text-emerald-400 font-bold">
-                  {activeLayoutSpec.sizeMm}
+                  Free Crop • {activeLayoutSpec.sizeMm}
                 </span>
               </div>
 

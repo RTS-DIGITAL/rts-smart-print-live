@@ -33,10 +33,12 @@ import {
   CheckCircle2,
   RefreshCw,
   Languages,
+  Crop,
   ZoomIn,
   ZoomOut,
   UserSquare,
-  Camera
+  Camera,
+  ArrowLeft
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -82,6 +84,7 @@ interface ShopConfig {
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
+type CropShapeType = 'id_card' | 'free' | 'square' | 'passport';
 type ServiceCategory = 'document' | 'id_card' | 'photo' | 'scanner' | null;
 
 interface UploadedItem {
@@ -116,6 +119,7 @@ interface PricingRule {
 
 const KIOSK_TEXTS = {
   en: {
+    backBtn: 'Back',
     subtitle: 'Self-Service Document Print Kiosk',
     paymentMode: 'Payment Mode',
     onlineUpi: 'Online UPI',
@@ -135,7 +139,7 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'Camera Scan / PDF Upload',
     uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
     uploadReading: 'Reading & Verifying Files...',
-    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Zero Paper Waste A4 Fitting',
+    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Auto-Converts Images to A4 PDF',
     aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your ID number before uploading. Files are auto-deleted on schedule.',
     uploadedFiles: 'Uploaded Files',
     addMoreBtn: 'Add More PDF / Image',
@@ -148,14 +152,15 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Proceed to Pay & Print',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Submit to Counter (Staff Will Release)',
-    cropGuidance: '📌 Drag the blue corners to trim extra edges, or tap "Apply to 1 A4 Sheet" directly!',
-    useThisCrop: 'Update Preview',
+    cropGuidance: '📌 Photo is locked steady! Drag the blue corners to crop your document.',
+    useThisCrop: 'Save & Update',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
     invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
     fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
   },
   ml: {
+    backBtn: 'പിന്നിലേക്ക്',
     subtitle: 'സെൽഫ് സർവീസ് പ്രിന്റ് കിയോസ്ക്',
     paymentMode: 'പേയ്‌മെന്റ് രീതി',
     onlineUpi: 'ഓൺലൈൻ UPI',
@@ -175,7 +180,7 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'ക്യാമറ സ്കാൻ / ഫയലുകൾ',
     uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
     uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • പേപ്പർ നഷ്ടമില്ലാതെ 1 A4 ഷീറ്റിൽ പ്രിന്റ്',
+    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ തനിയെ A4 PDF ആകും',
     aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
     addMoreBtn: 'കൂടുതൽ ഫയലുകൾ ചേർക്കുക',
@@ -188,7 +193,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക (സ്റ്റാഫ് പ്രിന്റ് നൽകും)',
-    cropGuidance: '📌 നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ക്രോപ്പ് ചെയ്യാം, അല്ലെങ്കിൽ നേരിട്ട് താഴെയുള്ള "Apply to 1 A4 Sheet" അമർത്താം!',
+    cropGuidance: '📌 ഫോട്ടോ തെന്നിമാറില്ല! നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം മാത്രം സെലക്ട് ചെയ്യുക.',
     useThisCrop: 'ക്രോപ്പ് ഉറപ്പിക്കുക',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
@@ -211,8 +216,68 @@ function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
   return { w, h, dx: (boxW - w) / 2, dy: (boxH - h) / 2 };
 }
 
+// Pure-JS A4 PDF fallback builder (used if PDFLib CDN is blocked or offline)
+function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, imgHeight: number): Blob {
+  const encoder = new TextEncoder();
+  const pageW = 595.28;
+  const pageH = 841.89;
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let byteOffset = 0;
+
+  const pushAscii = (str: string) => {
+    const b = encoder.encode(str);
+    chunks.push(b);
+    byteOffset += b.length;
+  };
+  const pushBinary = (b: Uint8Array) => {
+    chunks.push(b);
+    byteOffset += b.length;
+  };
+  const markObj = (n: number) => {
+    offsets[n] = byteOffset;
+  };
+
+  pushAscii('%PDF-1.4\n');
+  pushBinary(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
+
+  markObj(1);
+  pushAscii('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+  markObj(2);
+  pushAscii('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+
+  markObj(3);
+  pushAscii(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`
+  );
+
+  markObj(4);
+  pushAscii(
+    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`
+  );
+  pushBinary(jpegBytes);
+  pushAscii('\nendstream\nendobj\n');
+
+  const streamCmd = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
+  const streamBytes = encoder.encode(streamCmd);
+  markObj(5);
+  pushAscii(`5 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`);
+  pushBinary(streamBytes);
+  pushAscii('\nendstream\nendobj\n');
+
+  const xrefPos = byteOffset;
+  pushAscii('xref\n0 6\n0000000000 65535 f \n');
+  for (let i = 1; i <= 5; i++) {
+    pushAscii(`${String(offsets[i]).padStart(10, '0')} 00000 n \n`);
+  }
+  pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`);
+
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
 // Load pdf-lib dynamically and convert any A4 JPEG canvas blob into a true A4 PDF file
-// so Windows Print Agent prints silently without opening the blank "Print Pictures" dialog!
+// so Windows Print Agent automatically prints images/ID cards just like PDFs!
 function loadPdfLibAsset(): Promise<any> {
   return new Promise((resolve) => {
     if ((window as any).PDFLib) {
@@ -229,32 +294,35 @@ function loadPdfLibAsset(): Promise<any> {
     script.src = PDFLIB_JS_URL;
     script.onload = () => resolve((window as any).PDFLib);
     script.onerror = () => resolve(null);
-    document.body.appendChild(script);
+    document.head.appendChild(script);
   });
 }
 
-async function convertJpegBlobToA4PdfBlob(jpegBlob: Blob): Promise<Blob> {
-  const PDFLib = await loadPdfLibAsset();
-  if (!PDFLib) {
-    throw new Error('PDF library failed to load. Please check your internet connection.');
-  }
-  const pdfDoc = await PDFLib.PDFDocument.create();
-  const pageW = 595.28; // A4 width in points
-  const pageH = 841.89; // A4 height in points
-  const page = pdfDoc.addPage([pageW, pageH]);
-
+async function convertJpegBlobToA4PdfBlob(
+  jpegBlob: Blob,
+  imgWidth: number = 1240,
+  imgHeight: number = 1754
+): Promise<Blob> {
   const arrayBuffer = await jpegBlob.arrayBuffer();
-  const jpgImage = await pdfDoc.embedJpg(arrayBuffer);
+  const PDFLib = await loadPdfLibAsset();
 
-  page.drawImage(jpgImage, {
-    x: 0,
-    y: 0,
-    width: pageW,
-    height: pageH
-  });
+  if (PDFLib && PDFLib.PDFDocument) {
+    const pdfDoc = await PDFLib.PDFDocument.create();
+    const pageW = 595.28;
+    const pageH = 841.89;
+    const page = pdfDoc.addPage([pageW, pageH]);
+    const jpgImage = await pdfDoc.embedJpg(arrayBuffer);
+    page.drawImage(jpgImage, {
+      x: 0,
+      y: 0,
+      width: pageW,
+      height: pageH
+    });
+    const pdfBytes = await pdfDoc.save();
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  }
 
-  const pdfBytes = await pdfDoc.save();
-  return new Blob([pdfBytes], { type: 'application/pdf' });
+  return buildA4PdfFromJpegBytesPureJs(new Uint8Array(arrayBuffer), imgWidth, imgHeight);
 }
 
 // Physically rotates an image file by +90 or -90 degrees on a clean canvas and returns a new File!
@@ -527,7 +595,7 @@ export default function KioskPage() {
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
 
-  // Track whether the studio was opened automatically on fresh upload so 'X' discards it cleanly
+  // Track fresh uploads so clicking X without saving removes the unsaved item
   const isFreshUploadRef = useRef<boolean>(false);
 
   // Interactive Cropper.js State for Front & Back Images (Always Free Edge-to-Edge Crop for Simplicity!)
@@ -628,7 +696,7 @@ export default function KioskPage() {
     }, 60);
   };
 
-  // Supports simultaneous upload of multiple PDFs and Images
+  // Supports simultaneous upload of PDFs and Images; opens Image Studio directly when any image is uploaded!
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -695,7 +763,7 @@ export default function KioskPage() {
       }
     }
 
-    // If user uploaded 2 images together in ID Card mode, pair them into 1 item and open Studio directly!
+    // If user uploaded 2 images together (e.g. Front & Back of ID card), pair them into 1 item and open Studio directly!
     if (newImageItems.length >= 2 && selectedServiceCategory === 'id_card') {
       const primaryImageItem: UploadedItem = {
         ...newImageItems[0],
@@ -708,12 +776,10 @@ export default function KioskPage() {
       isFreshUploadRef.current = true;
       openImageStudio(primaryImageItem, newImageItems[1].originalFile);
     } else if (newImageItems.length > 0) {
-      // One or more images uploaded -> add all to list & open Studio for the first image!
       setItems((prev) => [...prev, ...newPdfItems, ...newImageItems]);
       isFreshUploadRef.current = true;
       openImageStudio(newImageItems[0]);
     } else if (newPdfItems.length > 0) {
-      // Only PDFs uploaded
       setItems((prev) => [...prev, ...newPdfItems]);
     }
 
@@ -937,8 +1003,8 @@ export default function KioskPage() {
     }
   };
 
-  // Close Studio via X or Cancel — discards item if it was a fresh upload that wasn't saved!
-  const handleCloseStudioWithoutSaving = () => {
+  // Close Studio via X — discards newly uploaded item if not applied
+  const handleCloseStudio = () => {
     if (isFreshUploadRef.current && editingItem) {
       removeItem(editingItem.id);
     }
@@ -946,7 +1012,7 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Remove Entire Item from Queue via Studio Delete Button
+  // Remove Entire Item from Queue via Studio
   const handleDeleteItemFromStudio = () => {
     if (!editingItem) return;
     removeItem(editingItem.id);
@@ -955,6 +1021,7 @@ export default function KioskPage() {
   };
 
   // Draws rotated, trimmed, and proportionally fitted image onto an A4 canvas region without squashing.
+  // Also auto-rotates vertical ID card crops to landscape when autoLandscapeForIdCard = true!
   const drawProcessedImage = (
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,
@@ -1156,8 +1223,8 @@ export default function KioskPage() {
     contrast
   ]);
 
-  // Generate High-Resolution A4 Sheet (1240 x 1754 px) AND convert to a valid A4 PDF via pdf-lib
-  // so Windows Print Agent prints silently without opening the blank "Print Pictures" dialog!
+  // Generate High-Resolution A4 Sheet (1240 x 1754 px) AND convert to a genuine A4 PDF (`.pdf`)
+  // so Windows Print Agent automatically prints images/ID cards without blank output!
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     if (!frontFile) {
@@ -1284,7 +1351,7 @@ export default function KioskPage() {
         hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.94);
       });
 
-      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob);
+      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, a4W, a4H);
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
       const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_A4`;
       const composedPdfFile = new File([pdfBlob], `${baseName}_${layoutTag}.pdf`, {
@@ -1423,7 +1490,7 @@ export default function KioskPage() {
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
 
-        // Force 100% A4 PDF conversion on any unedited image so Windows never shows a blank Print Pictures dialog!
+        // Always convert unedited images to A4 PDF so Windows Print Agent prints automatically without blank pages
         let fileToUpload = item.file;
         if (item.fileKind === 'image' && !fileToUpload.name.toLowerCase().endsWith('.pdf')) {
           const fImg = await loadImageElement(item.croppedFrontBlob || item.originalFile);
@@ -1464,7 +1531,7 @@ export default function KioskPage() {
               c.toBlob((b) => res(b), 'image/jpeg', 0.94)
             );
             if (jBlob) {
-              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob);
+              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, c.width, c.height);
               fileToUpload = new File(
                 [pBlob],
                 `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
@@ -1634,12 +1701,28 @@ export default function KioskPage() {
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between relative overflow-x-hidden">
       <div>
         <header className="bg-white border-b border-slate-200 py-3.5 px-4 sm:px-6 sticky top-0 z-40 shadow-sm flex justify-between items-center gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <h1 className="font-black text-slate-900 text-sm sm:text-base">{shop.name}</h1>
+          <div className="flex items-center gap-2">
+            {(items.length > 0 || selectedServiceCategory !== null) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setItems([]);
+                  setSelectedServiceCategory(null);
+                  setShowCheckout(false);
+                }}
+                className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-extrabold text-slate-700 flex items-center gap-1 transition"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>{t.backBtn}</span>
+              </button>
+            )}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h1 className="font-black text-slate-900 text-sm sm:text-base">{shop.name}</h1>
+              </div>
+              <p className="text-[11px] text-slate-400">{t.subtitle}</p>
             </div>
-            <p className="text-[11px] text-slate-400">{t.subtitle}</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1674,7 +1757,7 @@ export default function KioskPage() {
         </header>
 
         <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
-          {/* Global File Input: Always mounted in DOM so "Add More Files" works every time */}
+          {/* Global File Input */}
           <input
             type="file"
             multiple
@@ -1817,22 +1900,37 @@ export default function KioskPage() {
                     )}
                   </div>
 
-                  <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed text-center">
-                    {t.aadhaarSafetyNote}
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-5 rounded-3xl text-center cursor-pointer transition space-y-2"
+                  >
+                    <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                      {isProcessingFiles ? t.uploadReading : t.uploadTitle}
+                    </h3>
+                    <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed max-w-md mx-auto">
+                      {t.aadhaarSafetyNote}
+                    </div>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center px-1 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setItems([])}
+                      className="min-h-[38px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>{t.backBtn}</span>
+                    </button>
+
                     <span className="text-xs font-bold text-slate-700">
                       {t.uploadedFiles} ({items.length})
                     </span>
+
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedServiceCategory(null);
-                        fileInputRef.current?.click();
-                      }}
+                      onClick={() => fileInputRef.current?.click()}
                       className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -1867,7 +1965,7 @@ export default function KioskPage() {
                                       isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
                                     }`}
                                   >
-                                    {isPdf ? 'PDF' : 'A4 IMAGE'}
+                                    {isPdf ? 'PDF' : 'A4 PDF READY'}
                                   </span>
                                   <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
                                 </div>
@@ -2165,18 +2263,28 @@ export default function KioskPage() {
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <div>
-                <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
-                  <Scissors className="w-4 h-4 text-indigo-600" />
-                  <span>Easy A4 Print & ID Card 2-in-1 Studio</span>
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Drag blue corners to crop, or tap "Apply to 1 A4 Sheet" directly
-                </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCloseStudio}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 text-xs font-bold"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>{t.backBtn}</span>
+                </button>
+                <div>
+                  <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
+                    <Scissors className="w-4 h-4 text-indigo-600" />
+                    <span>Easy A4 Print & ID Card 2-in-1 Studio</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Drag blue corners to crop, or tap "Apply to 1 A4 Sheet" directly
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={handleCloseStudioWithoutSaving}
+                onClick={handleCloseStudio}
                 className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"
               >
                 <X className="w-4 h-4" />
@@ -2238,7 +2346,7 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* LARGE, FREE-HAND CROPPER BOX */}
+            {/* LARGE, FREE-HAND CROPPER BOX (NO CONFUSING RATIO DROPDOWN!) */}
             <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
@@ -2362,7 +2470,7 @@ export default function KioskPage() {
             {/* Live A4 Sheet Preview Box */}
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                Live 1-Sheet A4 Paper Preview (No Paper Waste)
+                Live 1-Sheet A4 Paper Preview (Auto-Converts to A4 PDF)
               </span>
               <canvas
                 ref={previewCanvasRef}
@@ -2485,7 +2593,6 @@ export default function KioskPage() {
               </div>
             </div>
 
-            {/* Mobile-Responsive Footer Buttons (No Overflow / Clipping) */}
             <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 pt-1">
               <button
                 type="button"
@@ -2497,10 +2604,10 @@ export default function KioskPage() {
               </button>
               <button
                 type="button"
-                onClick={handleCloseStudioWithoutSaving}
+                onClick={handleCloseStudio}
                 className="min-h-[44px] px-3 py-2 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-xs text-slate-700"
               >
-                Cancel
+                {t.backBtn}
               </button>
               <button
                 type="button"
@@ -2527,7 +2634,7 @@ export default function KioskPage() {
             <div className="space-y-1">
               <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet!</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your document has been fitted onto <strong>1 A4 Sheet</strong> without wasting paper. Proceed to print or add more files.
+                Your document has been converted into a <strong>1-Page A4 PDF</strong> for automatic printing. Proceed or add more files.
               </p>
             </div>
 
@@ -2561,11 +2668,22 @@ export default function KioskPage() {
       {showCheckout && shop.require_payment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowCheckout(false)}
+                className="min-h-[36px] px-2.5 py-1 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600 flex items-center gap-1"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>{t.backBtn}</span>
+              </button>
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-0.5">
+                Banking Name: {payeeName}
+              </span>
+            </div>
+
             <div>
               <h3 className="font-extrabold text-slate-900 text-base">Payment for {shop.name}</h3>
-              <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-0.5 inline-block mt-1">
-                Banking Name: {payeeName}
-              </p>
             </div>
 
             {hasActiveShopGateway ? (
@@ -2597,7 +2715,7 @@ export default function KioskPage() {
                   onClick={() => setShowCheckout(false)}
                   className="w-full min-h-[44px] py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
                 >
-                  Cancel & Go Back
+                  {t.backBtn}
                 </button>
               </div>
             ) : (
@@ -2687,7 +2805,7 @@ export default function KioskPage() {
                     onClick={() => setShowCheckout(false)}
                     className="w-1/2 min-h-[44px] py-2.5 border border-slate-200 hover:bg-slate-50 font-bold rounded-xl text-xs text-slate-600"
                   >
-                    Back
+                    {t.backBtn}
                   </button>
                   <button
                     type="button"

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
-import { A4_MM, A4_300DPI_PX, LAYOUTS } from '@/lib/printLayouts';
+import { A4_MM, A4_300DPI_PX, LAYOUTS, Slot } from '@/lib/printLayouts';
 import {
   UploadCloud,
   FileText,
@@ -43,7 +43,23 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 const CROPPER_CSS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css';
 const CROPPER_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js';
 const PDFLIB_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+const HEIC2ANY_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js';
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MM_TO_PT = 72 / 25.4;
+
+const DOC_SLOTS: Record<1 | 2 | 4, Slot[]> = {
+  1: [{ x: 10, y: 10, w: 190, h: 277 }],
+  2: [
+    { x: 10, y: 10, w: 190, h: 133 },
+    { x: 10, y: 153, w: 190, h: 133 },
+  ],
+  4: [
+    { x: 10, y: 10, w: 93, h: 133 },
+    { x: 107, y: 10, w: 93, h: 133 },
+    { x: 10, y: 153, w: 93, h: 133 },
+    { x: 107, y: 153, w: 93, h: 133 },
+  ],
+};
 
 interface ShopConfig {
   id: string;
@@ -131,7 +147,7 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'Camera Photo / PDF File',
     uploadTitle: 'Tap Here to Pick File (PDF or Photos)',
     uploadReading: 'Preparing your file...',
-    uploadSub: 'PDF, JPG, PNG (Up to 10 MB) • Fits A4 with Zero Paper Waste',
+    uploadSub: 'PDF, JPG, PNG, HEIC (Up to 10 MB) • 300 DPI Exact A4 Scale',
     aadhaarSafetyNote:
       '🔒 Safe & Private: Upload only the page/ID you need. You can mask the first 8 digits of your ID number before uploading. Files are auto-deleted after printing.',
     uploadedFiles: 'Selected Files',
@@ -145,12 +161,12 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Pay & Print Now',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Send to Counter',
-    cropGuidance: 'Drag any corner freely to crop, then tap Save Crop.',
+    cropGuidance: 'Drag blue corners to frame cleanly, then tap Save Crop.',
     useThisCrop: 'Save Crop',
     resetCrop: 'Reset',
     manualVerifyNote: 'Counter staff will verify payment before releasing your print.',
     invalidFileMsg:
-      'Please choose a valid PDF, JPG, or PNG file.\n\nദയവായി PDF, JPG അല്ലെങ്കിൽ PNG ഫയൽ തിരഞ്ഞെടുക്കുക.',
+      'Please choose a valid PDF, JPG, PNG, or HEIC file.\n\nദയവായി PDF, JPG, PNG അല്ലെങ്കിൽ HEIC ഫയൽ തിരഞ്ഞെടുക്കുക.',
     fileTooLargeMsg:
       'File size is above 10 MB. Please choose a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്. ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
   },
@@ -175,7 +191,7 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'ക്യാമറ ഫോട്ടോ / PDF ഫയൽ',
     uploadTitle: 'ഫയൽ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോ)',
     uploadReading: 'ഫയൽ തയ്യാറാക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG (10 MB വരെ) • പേപ്പർ വേസ്റ്റ് ഇല്ലാതെ A4-ൽ കൃത്യമായി പ്രിന്റ്',
+    uploadSub: 'PDF, JPG, PNG, HEIC (10 MB വരെ) • 300 DPI കൃത്യമായ A4 അളവ്',
     aadhaarSafetyNote:
       '🔒 സുരക്ഷിതം: ആവശ്യമുള്ള ഫയൽ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
@@ -189,12 +205,12 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക',
-    cropGuidance: 'ഏത് ഭാഗവും സ്വതന്ത്രമായി വലിച്ച് ക്രോപ്പ് ചെയ്ത് Save Crop അമർത്തുക.',
+    cropGuidance: 'നീല മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം സെലക്ട് ചെയ്ത് Save Crop അമർത്തുക.',
     useThisCrop: 'Save Crop',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'കൗണ്ടറിൽ പേയ്‌മെന്റ് പരിശോധിച്ച് പ്രിന്റ് നൽകുന്നതാണ്.',
     invalidFileMsg:
-      'ശരിയായ PDF, JPG, PNG ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nPlease choose a valid PDF, JPG, or PNG file.',
+      'ശരിയായ PDF, JPG, PNG, HEIC ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nPlease choose a valid PDF, JPG, PNG, or HEIC file.',
     fileTooLargeMsg:
       'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
   }
@@ -215,6 +231,159 @@ function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
 
 function isValidPdfBytes(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
+
+async function isFilePdfByBytes(file: File): Promise<boolean> {
+  try {
+    const bytes = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    return isValidPdfBytes(bytes);
+  } catch {
+    return false;
+  }
+}
+
+// "1-2,5" -> [0, 1, 4] (0-based). Empty range = all pages.
+export function parsePageRange(range: string, max: number): number[] {
+  const set = new Set<number>();
+  for (const part of range.split(',').map((p) => p.trim()).filter(Boolean)) {
+    const [a, b] = part.split('-').map((n) => parseInt(n, 10));
+    const end = part.includes('-') ? b : a;
+    if (!isNaN(a) && !isNaN(end)) {
+      for (let p = Math.max(1, a); p <= Math.min(max, end); p++) {
+        set.add(p - 1);
+      }
+    }
+  }
+  return set.size ? [...set].sort((x, y) => x - y) : Array.from({ length: max }, (_, i) => i);
+}
+
+function countSelectedPages(rangeStr: string, maxPages: number): number {
+  return parsePageRange(rangeStr, maxPages).length;
+}
+
+function slotSpec(layout: ImageLayoutType, hasBack: boolean) {
+  if (layout === 'id_card') return hasBack ? LAYOUTS.id_card_pair : LAYOUTS.id_card_single;
+  if (layout === 'half_a4') return LAYOUTS.half_page_pair;
+  if (layout === 'grid_4') return LAYOUTS.grid_4;
+  if (layout === 'passport_4') return LAYOUTS.passport_4;
+  if (layout === 'passport_8') return LAYOUTS.passport_8;
+  return null; // fit_a4 stays free
+}
+
+// iOS Safari safe pixel brightness/contrast adjustment
+function applyPixelBrightnessContrast(ctx: CanvasRenderingContext2D, w: number, h: number, brightnessPct: number, contrastPct: number) {
+  if (brightnessPct === 100 && contrastPct === 100) return;
+  try {
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+    const bFactor = brightnessPct / 100;
+    const cFactor = contrastPct / 100;
+    const intercept = 128 * (1 - cFactor);
+
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i] * bFactor * cFactor + intercept;
+      let g = data[i + 1] * bFactor * cFactor + intercept;
+      let b = data[i + 2] * bFactor * cFactor + intercept;
+      data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
+      data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+      data[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+    }
+    ctx.putImageData(imgData, 0, 0);
+  } catch {
+    // Ignore cross-origin or memory edge cases
+  }
+}
+
+function loadPdfLibAsset(): Promise<any> {
+  return new Promise((resolve) => {
+    if ((window as any).PDFLib) {
+      resolve((window as any).PDFLib);
+      return;
+    }
+    const existingScript = document.querySelector(`script[src="${PDFLIB_JS_URL}"]`) as HTMLScriptElement | null;
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve((window as any).PDFLib));
+      existingScript.addEventListener('error', () => resolve(null));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = PDFLIB_JS_URL;
+    script.onload = () => resolve((window as any).PDFLib);
+    script.onerror = () => resolve(null);
+    document.body.appendChild(script);
+  });
+}
+
+function loadHeic2AnyAsset(): Promise<any> {
+  return new Promise((resolve) => {
+    if ((window as any).heic2any) {
+      resolve((window as any).heic2any);
+      return;
+    }
+    const existingScript = document.querySelector(`script[src="${HEIC2ANY_JS_URL}"]`) as HTMLScriptElement | null;
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve((window as any).heic2any));
+      existingScript.addEventListener('error', () => resolve(null));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = HEIC2ANY_JS_URL;
+    script.onload = () => resolve((window as any).heic2any);
+    script.onerror = () => resolve(null);
+    document.body.appendChild(script);
+  });
+}
+
+// Builds 1-up, 2-up, or 4-up A4 PDF with exact page ranges at order submission time
+export async function buildDocumentPdf(
+  srcBytes: ArrayBuffer,
+  pageIndexes: number[],
+  perSheet: 1 | 2 | 4
+): Promise<Uint8Array> {
+  const PDFLib = await loadPdfLibAsset();
+  if (!PDFLib || !PDFLib.PDFDocument) {
+    throw new Error('PDF layout engine failed to load. Please check your internet connection.');
+  }
+  const { PDFDocument, PageSizes } = PDFLib;
+
+  let src: any;
+  try {
+    src = await PDFDocument.load(srcBytes);
+  } catch (err: any) {
+    const msg = String(err?.message || err).toLowerCase();
+    if (msg.includes('encrypt') || msg.includes('password')) {
+      throw new Error('This PDF is password-protected / encrypted. Please unlock it first before uploading.');
+    }
+    throw new Error('Could not read PDF structure: ' + (err?.message || 'Invalid PDF'));
+  }
+
+  const out = await PDFDocument.create();
+  const validIndexes = pageIndexes.filter((idx) => idx >= 0 && idx < src.getPageCount());
+  if (validIndexes.length === 0) {
+    throw new Error('Selected page range is out of bounds for this PDF.');
+  }
+
+  const embedded = await out.embedPages(validIndexes.map((i) => src.getPage(i)));
+  const slots = DOC_SLOTS[perSheet];
+  const pageH = PageSizes.A4[1];
+
+  for (let start = 0; start < embedded.length; start += perSheet) {
+    const sheet = out.addPage(PageSizes.A4);
+    for (let k = 0; k < perSheet && start + k < embedded.length; k++) {
+      const ep = embedded[start + k];
+      const slot = slots[k];
+      const { width, height } = ep.scale(1);
+      const boxW = slot.w * MM_TO_PT;
+      const boxH = slot.h * MM_TO_PT;
+      const s = Math.min(boxW / Math.max(1, width), boxH / Math.max(1, height));
+      const w = width * s;
+      const h = height * s;
+      const x = slot.x * MM_TO_PT + (boxW - w) / 2;
+      const yTop = slot.y * MM_TO_PT + (boxH - h) / 2;
+      sheet.drawPage(ep, { x, y: pageH - yTop - h, width: w, height: h });
+    }
+  }
+  return out.save();
 }
 
 function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, imgHeight: number): Blob {
@@ -274,26 +443,6 @@ function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, 
   pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`);
 
   return new Blob(chunks, { type: 'application/pdf' });
-}
-
-function loadPdfLibAsset(): Promise<any> {
-  return new Promise((resolve) => {
-    if ((window as any).PDFLib) {
-      resolve((window as any).PDFLib);
-      return;
-    }
-    const existingScript = document.querySelector(`script[src="${PDFLIB_JS_URL}"]`) as HTMLScriptElement | null;
-    if (existingScript) {
-      existingScript.addEventListener('load', () => resolve((window as any).PDFLib));
-      existingScript.addEventListener('error', () => resolve(null));
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = PDFLIB_JS_URL;
-    script.onload = () => resolve((window as any).PDFLib);
-    script.onerror = () => resolve(null);
-    document.body.appendChild(script);
-  });
 }
 
 async function convertJpegBlobToA4PdfBlob(
@@ -410,9 +559,9 @@ function loadCropperAssets(): Promise<boolean> {
   });
 }
 
-async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invalid'> {
+async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'heic' | 'invalid'> {
   try {
-    const buffer = await file.slice(0, 8).arrayBuffer();
+    const buffer = await file.slice(0, 16).arrayBuffer();
     const bytes = new Uint8Array(buffer);
     if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
       return 'pdf';
@@ -433,10 +582,57 @@ async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invali
     ) {
       return 'image';
     }
+    // Check ISO Base Media File Format 'ftyp' box for HEIC/HEIF (bytes 4..7 == 'ftyp')
+    if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+      const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
+      if (['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'].includes(brand)) {
+        return 'heic';
+      }
+    }
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.heic') || lowerName.endsWith('.heif')) {
+      return 'heic';
+    }
     return 'invalid';
   } catch {
     return 'invalid';
   }
+}
+
+async function convertHeicToJpegFile(file: File): Promise<File> {
+  const jpgName = file.name.replace(/\.[^/.]+$/, '.jpg');
+  // 1. Try native browser createImageBitmap (works natively on Safari/iOS and modern macOS/Windows with HEVC)
+  try {
+    if (typeof createImageBitmap === 'function') {
+      const bmp = await createImageBitmap(file);
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bmp, 0, 0);
+        const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.92));
+        if (blob) return new File([blob], jpgName, { type: 'image/jpeg' });
+      }
+    }
+  } catch {
+    // Fall back to heic2any decoder
+  }
+
+  // 2. Fallback to heic2any library for Chrome/Android/Windows
+  const heic2any = await loadHeic2AnyAsset();
+  if (!heic2any) {
+    throw new Error('Could not load HEIC converter. Please convert the iPhone photo to JPG and try again.');
+  }
+  const converted = await heic2any({
+    blob: file,
+    toType: 'image/jpeg',
+    quality: 0.92,
+  });
+  const resultBlob = Array.isArray(converted) ? converted[0] : converted;
+  return new File([resultBlob], jpgName, { type: 'image/jpeg' });
 }
 
 async function compressLargeImageInBrowser(file: File): Promise<File> {
@@ -466,34 +662,6 @@ async function compressLargeImageInBrowser(file: File): Promise<File> {
   } catch {
     return file;
   }
-}
-
-function countSelectedPages(rangeStr: string, maxPages: number): number {
-  const cleaned = rangeStr.trim();
-  if (!cleaned) return maxPages;
-  const pagesSet = new Set<number>();
-  const parts = cleaned.split(',');
-
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    if (trimmed.includes('-')) {
-      const [startStr, endStr] = trimmed.split('-');
-      const start = parseInt(startStr, 10);
-      const end = parseInt(endStr, 10);
-      if (!isNaN(start) && !isNaN(end) && start <= end) {
-        for (let p = Math.max(1, start); p <= Math.min(maxPages, end); p++) {
-          pagesSet.add(p);
-        }
-      }
-    } else {
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= maxPages) {
-        pagesSet.add(num);
-      }
-    }
-  }
-  return pagesSet.size > 0 ? pagesSet.size : maxPages;
 }
 
 function calculateSheetsForItem(item: UploadedItem): number {
@@ -591,6 +759,7 @@ export default function KioskPage() {
     loadPdfLibAsset();
   }, []);
 
+  // Read-only shop config fetch (no anonymous DB writes from customer browser)
   useEffect(() => {
     async function init() {
       setLoadingShop(true);
@@ -598,17 +767,6 @@ export default function KioskPage() {
         const { data: shopData } = await supabase.from('shops').select('*').eq('slug', activeSlug).single();
 
         if (shopData) {
-          const approvalDate = shopData.approved_at
-            ? new Date(shopData.approved_at).getTime()
-            : new Date(shopData.created_at || Date.now()).getTime();
-          const elapsedDays = Math.floor((Date.now() - approvalDate) / (1000 * 60 * 60 * 24));
-          const remainingDays = Math.max(0, (shopData.subscription_days || 7) - elapsedDays);
-
-          if (remainingDays <= 0 && shopData.subscription_status !== 'suspended') {
-            await supabase.from('shops').update({ is_accepting_orders: false }).eq('id', shopData.id);
-            shopData.is_accepting_orders = false;
-          }
-
           setShop(shopData);
           if (!shopData.is_pin_protected) {
             setIsUnlocked(true);
@@ -674,14 +832,26 @@ export default function KioskPage() {
         continue;
       }
 
-      const fileKind = await detectTrueFileKind(rawFile);
-      if (fileKind === 'invalid') {
+      const detectedKind = await detectTrueFileKind(rawFile);
+      if (detectedKind === 'invalid') {
         setUploadErrorBanner(`"${rawFile.name}": ${t.invalidFileMsg}`);
         alert(`"${rawFile.name}"\n\n${t.invalidFileMsg}`);
         continue;
       }
 
-      const file = fileKind === 'image' ? await compressLargeImageInBrowser(rawFile) : rawFile;
+      let processedFile = rawFile;
+      let fileKind: 'pdf' | 'image' = detectedKind === 'pdf' ? 'pdf' : 'image';
+
+      if (detectedKind === 'heic') {
+        try {
+          processedFile = await convertHeicToJpegFile(rawFile);
+        } catch (heicErr: any) {
+          setUploadErrorBanner(`"${rawFile.name}": ${heicErr?.message || 'HEIC conversion failed'}`);
+          continue;
+        }
+      }
+
+      const file = fileKind === 'image' ? await compressLargeImageInBrowser(processedFile) : processedFile;
       const pages = fileKind === 'pdf' ? await getPageCount(file) : 1;
 
       let initialLayout: ImageLayoutType = 'fit_a4';
@@ -755,6 +925,12 @@ export default function KioskPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const activeSlot = (): Slot | null => {
+    const spec = slotSpec(studioLayout, Boolean(backFile));
+    if (!spec) return null;
+    return spec.slots[activeCropSide === 'back' ? Math.min(1, spec.slots.length - 1) : 0];
+  };
+
   const openImageStudio = (item: UploadedItem, preloadedBackFile?: File | null) => {
     setEditingItem(item);
     setFrontFile(item.originalFile);
@@ -777,11 +953,16 @@ export default function KioskPage() {
     setContrast(110);
   };
 
-  const handleSelectStudioLayout = (newLayout: ImageLayoutType) => {
-    setStudioLayout(newLayout);
+  // Locks cropper to exact slot ratio (ID card, Passport, Half A4) and leaves Full A4 free
+  const handleSelectStudioLayout = (layout: ImageLayoutType) => {
+    setStudioLayout(layout);
+    setCroppedFrontBlob(null);
+    setCroppedBackBlob(null);
+    const spec = slotSpec(layout, Boolean(backFile));
+    const slot = spec?.slots[0];
     if (cropperInstanceRef.current && isCropperReady) {
-      // Keep cropping flexible (NaN) so any custom document/photo shape can be cropped freely
-      cropperInstanceRef.current.setAspectRatio(NaN);
+      cropperInstanceRef.current.setAspectRatio(slot ? slot.w / slot.h : NaN);
+      cropperInstanceRef.current.reset();
     }
   };
 
@@ -808,7 +989,6 @@ export default function KioskPage() {
     };
   }, [editingItem, activeCropSide, frontFile, backFile]);
 
-  // Flexible Cropper (aspectRatio: NaN) so customers can crop any uploaded size freely
   useEffect(() => {
     let mounted = true;
     async function initCropper() {
@@ -825,8 +1005,11 @@ export default function KioskPage() {
       const CropperClass = (window as any).Cropper;
       if (!CropperClass) return;
 
+      const initialSpec = slotSpec(studioLayout, Boolean(backFile));
+      const initialSlot = initialSpec?.slots[activeCropSide === 'back' ? Math.min(1, initialSpec.slots.length - 1) : 0];
+
       cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
-        aspectRatio: NaN,
+        aspectRatio: initialSlot ? initialSlot.w / initialSlot.h : NaN,
         viewMode: 1,
         dragMode: 'none',
         movable: false,
@@ -861,14 +1044,25 @@ export default function KioskPage() {
     };
   }, [cropperSourceUrl]);
 
+  // Exports at the slot's exact 300 DPI pixel size so there are zero white bars
   const extractCurrentCropperBlob = async (): Promise<Blob | null> => {
     if (!cropperInstanceRef.current || !isCropperReady) return null;
+    const slot = activeSlot();
+    const px = (mm: number, full: number, ref: number) => Math.round((mm * full) / ref);
+
     const croppedCanvas = cropperInstanceRef.current.getCroppedCanvas({
-      maxWidth: 2500,
-      maxHeight: 2500,
+      ...(slot
+        ? {
+            width: px(slot.w, A4_300DPI_PX.w, A4_MM.w),
+            height: px(slot.h, A4_300DPI_PX.h, A4_MM.h),
+          }
+        : {
+            maxWidth: A4_300DPI_PX.w,
+            maxHeight: A4_300DPI_PX.h,
+          }),
       fillColor: '#ffffff',
       imageSmoothingEnabled: true,
-      imageSmoothingQuality: 'high'
+      imageSmoothingQuality: 'high',
     });
     if (!croppedCanvas || croppedCanvas.width === 0 || croppedCanvas.height === 0) return null;
 
@@ -985,14 +1179,14 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  // Fits any free-cropped image cleanly into its A4 slot without distortion or extra waste
   const drawSlotMm = (
     ctx: CanvasRenderingContext2D,
     canvasW: number,
     img: HTMLImageElement,
-    slot: { x: number; y: number; w: number; h: number },
+    slot: Slot,
     rotationDeg: number,
-    drawCutBorder: boolean
+    drawCutBorder: boolean,
+    isCroppedToSlot: boolean
   ) => {
     const scaleFromMm = canvasW / A4_MM.w;
     const targetX = Math.round(slot.x * scaleFromMm);
@@ -1014,7 +1208,6 @@ export default function KioskPage() {
     if (offCtx) {
       offCtx.fillStyle = '#ffffff';
       offCtx.fillRect(0, 0, outW, outH);
-      offCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
       offCtx.translate(outW / 2, outH / 2);
       offCtx.rotate(rad);
       offCtx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
@@ -1024,15 +1217,29 @@ export default function KioskPage() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(targetX, targetY, targetW, targetH);
 
-    // Proportional fitInside ensures any free-cropped size fits cleanly inside A4 with zero clipping/distortion
-    const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
-    ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX + dx, targetY + dy, w, h);
+    // Draw into slot-sized temporary canvas so pixel brightness works on iOS Safari too
+    const slotCanvas = document.createElement('canvas');
+    slotCanvas.width = Math.max(1, targetW);
+    slotCanvas.height = Math.max(1, targetH);
+    const slotCtx = slotCanvas.getContext('2d');
+    if (slotCtx) {
+      slotCtx.fillStyle = '#ffffff';
+      slotCtx.fillRect(0, 0, targetW, targetH);
+      if (isCroppedToSlot) {
+        slotCtx.drawImage(offCanvas, 0, 0, outW, outH, 0, 0, targetW, targetH);
+      } else {
+        const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
+        slotCtx.drawImage(offCanvas, 0, 0, outW, outH, dx, dy, w, h);
+      }
+      applyPixelBrightnessContrast(slotCtx, targetW, targetH, brightness, contrast);
+      ctx.drawImage(slotCanvas, targetX, targetY);
+    }
 
     if (drawCutBorder) {
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = Math.max(1, Math.round(0.3 * scaleFromMm));
       ctx.setLineDash([Math.round(1.5 * scaleFromMm), Math.round(1.2 * scaleFromMm)]);
-      ctx.strokeRect(targetX + dx, targetY + dy, w, h);
+      ctx.strokeRect(targetX, targetY, targetW, targetH);
     }
     ctx.restore();
   };
@@ -1058,26 +1265,26 @@ export default function KioskPage() {
 
     if (layout === 'id_card') {
       if (backImg) {
-        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_pair.slots[0], isFrontCropped ? 0 : fRot, true);
-        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.id_card_pair.slots[1], isBackCropped ? 0 : bRot, true);
+        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_pair.slots[0], isFrontCropped ? 0 : fRot, true, isFrontCropped);
+        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.id_card_pair.slots[1], isBackCropped ? 0 : bRot, true, isBackCropped);
       } else {
-        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_single.slots[0], isFrontCropped ? 0 : fRot, true);
+        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_single.slots[0], isFrontCropped ? 0 : fRot, true, isFrontCropped);
       }
     } else if (layout === 'passport_4') {
       for (const slot of LAYOUTS.passport_4.slots) {
-        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true);
+        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true, isFrontCropped);
       }
     } else if (layout === 'passport_8') {
       for (const slot of LAYOUTS.passport_8.slots) {
-        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true);
+        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true, isFrontCropped);
       }
     } else if (layout === 'half_a4') {
-      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.half_page_pair.slots[0], isFrontCropped ? 0 : fRot, false);
+      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.half_page_pair.slots[0], isFrontCropped ? 0 : fRot, false, isFrontCropped);
       if (backImg) {
-        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.half_page_pair.slots[1], isBackCropped ? 0 : bRot, false);
+        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.half_page_pair.slots[1], isBackCropped ? 0 : bRot, false, isBackCropped);
       }
     } else {
-      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.fit_a4.slots[0], isFrontCropped ? 0 : fRot, false);
+      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.fit_a4.slots[0], isFrontCropped ? 0 : fRot, false, false);
     }
   };
 
@@ -1330,39 +1537,57 @@ export default function KioskPage() {
 
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
-
         let fileToUpload = item.file;
-        if (item.fileKind === 'image' || fileToUpload.type !== 'application/pdf') {
-          const c = document.createElement('canvas');
-          c.width = A4_300DPI_PX.w;
-          c.height = A4_300DPI_PX.h;
-          await composeA4SheetOnCanvas(
-            c,
-            item.layoutMode,
-            item.croppedFrontBlob || item.originalFile,
-            item.backOriginalFile ? item.croppedBackBlob || item.backOriginalFile : null,
-            Boolean(item.croppedFrontBlob),
-            Boolean(item.croppedBackBlob),
-            0,
-            0
-          );
 
-          const jBlob: Blob | null = await new Promise((res) =>
-            c.toBlob((b) => res(b), 'image/jpeg', 0.93)
-          );
-          if (jBlob) {
-            const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, A4_300DPI_PX.w, A4_300DPI_PX.h);
+        if (item.fileKind === 'pdf') {
+          // Apply 2-up / 4-up layout and page range if selected; normal full-page PDF uploads unchanged
+          if (item.layoutMode !== 'fit_a4' || item.pageRangeText.trim() !== '') {
+            const pages = parsePageRange(item.pageRangeText, item.totalPdfPages);
+            const perSheet: 1 | 2 | 4 =
+              item.layoutMode === 'grid_4' ? 4 : item.layoutMode === 'half_a4' ? 2 : 1;
+            const bytes = await item.file.arrayBuffer();
+            const outBytes = await buildDocumentPdf(bytes, pages, perSheet);
             fileToUpload = new File(
-              [pBlob],
-              `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
+              [outBytes],
+              `${item.name.replace(/\.[^/.]+$/, '')}_print.pdf`,
               { type: 'application/pdf' }
             );
           }
+        } else {
+          // Single source of truth: use the exact A4 PDF already built by "Done • Apply"
+          if (await isFilePdfByBytes(item.file)) {
+            fileToUpload = item.file;
+          } else {
+            // Fallback only if user never opened/applied the studio
+            const c = document.createElement('canvas');
+            c.width = A4_300DPI_PX.w;
+            c.height = A4_300DPI_PX.h;
+            await composeA4SheetOnCanvas(
+              c,
+              item.layoutMode,
+              item.croppedFrontBlob || item.originalFile,
+              item.backOriginalFile ? item.croppedBackBlob || item.backOriginalFile : null,
+              Boolean(item.croppedFrontBlob),
+              Boolean(item.croppedBackBlob),
+              0,
+              0
+            );
+            const jBlob: Blob | null = await new Promise((res) =>
+              c.toBlob((b) => res(b), 'image/jpeg', 0.93)
+            );
+            if (jBlob) {
+              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, A4_300DPI_PX.w, A4_300DPI_PX.h);
+              fileToUpload = new File(
+                [pBlob],
+                `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
+                { type: 'application/pdf' }
+              );
+            }
+          }
         }
 
-        const pdfCheckBytes = new Uint8Array(await fileToUpload.slice(0, 4).arrayBuffer());
-        if (!isValidPdfBytes(pdfCheckBytes)) {
-          throw new Error('Generated file is not a valid PDF. Please try again.');
+        if (!(await isFilePdfByBytes(fileToUpload))) {
+          throw new Error(`"${item.name}" is not a valid PDF file. Please try again.`);
         }
 
         const storagePath = `${shop.id}/${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}.pdf`;
@@ -1386,7 +1611,7 @@ export default function KioskPage() {
             ? `[Passport-8] ${item.name}`
             : item.fileKind === 'image' && item.layoutMode === 'half_a4'
             ? `[Half-A4-2in1] ${item.name}`
-            : item.fileKind === 'image' && item.layoutMode === 'grid_4'
+            : item.layoutMode === 'grid_4'
             ? `[4-Per-Page] ${item.name}`
             : item.pageRangeText
             ? `[Pages ${item.pageRangeText}] ${item.name}`
@@ -1602,8 +1827,8 @@ export default function KioskPage() {
             onChange={handleFileSelect}
             accept={
               selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo'
-                ? '.png,.jpg,.jpeg'
-                : '.pdf,.png,.jpg,.jpeg'
+                ? '.png,.jpg,.jpeg,.heic,.heif'
+                : '.pdf,.png,.jpg,.jpeg,.heic,.heif'
             }
             className="hidden"
           />
@@ -2119,7 +2344,7 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* FLEXIBLE CROP & ZERO-WASTAGE A4 STUDIO MODAL */}
+      {/* SLOT-LOCKED CROP & 300 DPI STUDIO MODAL */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
@@ -2163,7 +2388,7 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">📄 Full A4 Sheet</span>
-                <span className="text-[10px] opacity-85 block">No Paper Waste</span>
+                <span className="text-[10px] opacity-85 block">Free Crop • Fits A4</span>
               </button>
 
               <button
@@ -2176,7 +2401,7 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">🖼️ 2 Photos on 1 A4</span>
-                <span className="text-[10px] opacity-85 block">Top & Bottom (½ Page)</span>
+                <span className="text-[10px] opacity-85 block">190×133mm Top & Bottom</span>
               </button>
 
               <button
@@ -2189,7 +2414,7 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">🪪 ID Card (2-in-1)</span>
-                <span className="text-[10px] opacity-85 block">Front + Back (Cut & Give)</span>
+                <span className="text-[10px] opacity-85 block">85.6×54mm Front + Back</span>
               </button>
 
               <div className="grid grid-cols-2 gap-1.5">
@@ -2252,7 +2477,7 @@ export default function KioskPage() {
                 </div>
 
                 <span className="text-[11px] text-emerald-400 font-bold">
-                  Free Crop • {activeLayoutSpec.sizeMm}
+                  {studioLayout === 'fit_a4' ? 'Free Crop' : `Locked • ${activeLayoutSpec.sizeMm}`}
                 </span>
               </div>
 
@@ -2355,10 +2580,14 @@ export default function KioskPage() {
             <input
               type="file"
               ref={studioFrontInputRef}
-              accept=".png,.jpg,.jpeg"
+              accept=".png,.jpg,.jpeg,.heic,.heif"
               onChange={async (e) => {
                 if (e.target.files && e.target.files[0]) {
-                  const f = await compressLargeImageInBrowser(e.target.files[0]);
+                  let raw = e.target.files[0];
+                  if ((await detectTrueFileKind(raw)) === 'heic') {
+                    raw = await convertHeicToJpegFile(raw);
+                  }
+                  const f = await compressLargeImageInBrowser(raw);
                   setFrontFile(f);
                   setCroppedFrontBlob(null);
                   setFrontRotation(0);
@@ -2371,10 +2600,14 @@ export default function KioskPage() {
             <input
               type="file"
               ref={studioBackInputRef}
-              accept=".png,.jpg,.jpeg"
+              accept=".png,.jpg,.jpeg,.heic,.heif"
               onChange={async (e) => {
                 if (e.target.files && e.target.files[0]) {
-                  const f = await compressLargeImageInBrowser(e.target.files[0]);
+                  let raw = e.target.files[0];
+                  if ((await detectTrueFileKind(raw)) === 'heic') {
+                    raw = await convertHeicToJpegFile(raw);
+                  }
+                  const f = await compressLargeImageInBrowser(raw);
                   setBackFile(f);
                   setCroppedBackBlob(null);
                   setBackRotation(0);

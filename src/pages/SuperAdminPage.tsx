@@ -44,7 +44,10 @@ import {
   ThumbsUp,
   ThumbsDown,
   Eye,
-  EyeOff
+  EyeOff,
+  UserSquare,
+  Camera,
+  UploadCloud
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -56,6 +59,7 @@ interface ShopTenant {
   upi_id: string | null;
   upi_name?: string | null;
   target_printer_name: string | null;
+  photo_printer_name?: string | null;
   counter_notice: string | null;
   subscription_status: string;
   selected_plan: string;
@@ -82,6 +86,10 @@ interface ShopTenant {
   bank_account_number?: string | null;
   bank_ifsc?: string | null;
   daily_statement_enabled?: boolean;
+  // Plan-Based Feature Controls
+  plan_id_card_allowed?: boolean;
+  plan_passport_allowed?: boolean;
+  plan_scan_pdf_allowed?: boolean;
 }
 
 interface PlatformPlan {
@@ -494,15 +502,28 @@ export const SuperAdminPage: React.FC = () => {
     const savedPrinter = shop.target_printer_name || 'Microsoft Print to PDF';
     setIsCustomPrinterModal(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
     setEditingShop({
-      ...shop, upi_name: shop.upi_name ?? '', target_printer_name: savedPrinter,
-      download_count: shop.download_count ?? 0, max_downloads: shop.max_downloads ?? 3,
-      download_allowed: shop.download_allowed ?? true, download_requested: shop.download_requested ?? false,
-      admin_message: shop.admin_message ?? '', targeted_message: shop.targeted_message ?? '',
-      gateway_enabled: shop.gateway_enabled ?? false, gateway_provider: shop.gateway_provider ?? 'razorpay',
-      gateway_key_id: shop.gateway_key_id ?? '', gateway_key_secret: shop.gateway_key_secret ?? '',
-      split_payment_enabled: shop.split_payment_enabled ?? false, bank_account_name: shop.bank_account_name ?? '',
-      bank_account_number: shop.bank_account_number ?? '', bank_ifsc: shop.bank_ifsc ?? '',
-      daily_statement_enabled: shop.daily_statement_enabled ?? true
+      ...shop,
+      upi_name: shop.upi_name ?? '',
+      target_printer_name: savedPrinter,
+      photo_printer_name: shop.photo_printer_name ?? '',
+      download_count: shop.download_count ?? 0,
+      max_downloads: shop.max_downloads ?? 3,
+      download_allowed: shop.download_allowed ?? true,
+      download_requested: shop.download_requested ?? false,
+      admin_message: shop.admin_message ?? '',
+      targeted_message: shop.targeted_message ?? '',
+      gateway_enabled: shop.gateway_enabled ?? false,
+      gateway_provider: shop.gateway_provider ?? 'razorpay',
+      gateway_key_id: shop.gateway_key_id ?? '',
+      gateway_key_secret: shop.gateway_key_secret ?? '',
+      split_payment_enabled: shop.split_payment_enabled ?? false,
+      bank_account_name: shop.bank_account_name ?? '',
+      bank_account_number: shop.bank_account_number ?? '',
+      bank_ifsc: shop.bank_ifsc ?? '',
+      daily_statement_enabled: shop.daily_statement_enabled ?? true,
+      plan_id_card_allowed: shop.plan_id_card_allowed ?? true,
+      plan_passport_allowed: shop.plan_passport_allowed ?? true,
+      plan_scan_pdf_allowed: shop.plan_scan_pdf_allowed ?? true
     });
   };
 
@@ -694,7 +715,6 @@ export const SuperAdminPage: React.FC = () => {
         target_printer_name: (editingShop.target_printer_name || '').trim() || 'Microsoft Print to PDF',
         counter_notice: editingShop.counter_notice, subscription_status: editingShop.subscription_status,
         selected_plan: editingShop.selected_plan, subscription_days: Number(editingShop.subscription_days || 7),
-        // Reset approved_at to today when reactivating or extending so countdown starts fresh!
         approved_at: isNowActive ? new Date().toISOString() : editingShop.approved_at,
         auto_delete_hours: Number(editingShop.auto_delete_hours || 24), is_accepting_orders: isNowActive,
         download_count: Number(editingShop.download_count ?? 0), max_downloads: Number(editingShop.max_downloads ?? 3),
@@ -706,6 +726,18 @@ export const SuperAdminPage: React.FC = () => {
         bank_account_number: editingShop.bank_account_number?.trim() || null, bank_ifsc: editingShop.bank_ifsc?.toUpperCase().trim() || null,
         daily_statement_enabled: Boolean(editingShop.daily_statement_enabled ?? true)
       }).eq('id', editingShop.id);
+
+      // Optional plan feature columns & photo printer saved safely
+      try {
+        await supabase.from('shops').update({
+          plan_id_card_allowed: Boolean(editingShop.plan_id_card_allowed ?? true),
+          plan_passport_allowed: Boolean(editingShop.plan_passport_allowed ?? true),
+          plan_scan_pdf_allowed: Boolean(editingShop.plan_scan_pdf_allowed ?? true),
+          photo_printer_name: editingShop.photo_printer_name?.trim() || null
+        }).eq('id', editingShop.id);
+      } catch {
+        // Ignore if optional columns not added via SQL yet
+      }
 
       if (cleanPairingCode) {
         await supabase.from('shop_connector_keys').update({ pairing_code: cleanPairingCode }).eq('shop_id', editingShop.id);
@@ -859,7 +891,6 @@ export const SuperAdminPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Live Customer Chat Pill Button */}
           <button
             type="button"
             onClick={() => setShowLiveChatInbox(!showLiveChatInbox)}
@@ -913,7 +944,6 @@ export const SuperAdminPage: React.FC = () => {
               <span>Statements & Split</span>
             </button>
             
-            {/* Reviews & Likes Moderation Tab */}
             <button
               onClick={() => setActiveTab('reviews')}
               className={`px-4 py-1.5 rounded-xl font-bold transition flex items-center gap-1 ${
@@ -941,7 +971,6 @@ export const SuperAdminPage: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* LIVE CUSTOMER SUPPORT CHAT INBOX */}
         {showLiveChatInbox && (
           <div className="bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
             <div className="bg-gradient-to-r from-[#1a1c4b] via-[#0f3443] to-[#0b3b42] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
@@ -1166,7 +1195,6 @@ export const SuperAdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* PUBLIC REVIEWS & LIKES MODERATION DASHBOARD */}
         {activeTab === 'reviews' && (
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-amber-950/70 via-slate-900 to-amber-950/70 border-2 border-amber-500/40 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
@@ -2184,7 +2212,7 @@ export const SuperAdminPage: React.FC = () => {
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div>
                 <h3 className="text-base font-black text-white">Remote Shop Manager: {editingShop.name}</h3>
-                <p className="text-[11px] text-slate-400">Configure credentials, downloads, gateway keys, bank & notices</p>
+                <p className="text-[11px] text-slate-400">Configure credentials, plan features, downloads, gateway keys & notices</p>
               </div>
               <button
                 type="button"
@@ -2237,6 +2265,57 @@ export const SuperAdminPage: React.FC = () => {
                     onChange={(e) => setEditingShop({ ...editingShop, pairing_code: e.target.value })}
                     className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-white font-mono text-center text-xs font-bold outline-none focus:border-amber-400"
                   />
+                </div>
+              </div>
+
+              {/* PLAN-BASED KIOSK FEATURE CONTROLS */}
+              <div className="p-3 bg-purple-950/20 border border-purple-800/40 rounded-2xl space-y-2">
+                <span className="text-[11px] font-extrabold text-purple-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  Plan-Based Kiosk Feature Access (Super Admin Control)
+                </span>
+                <div className="grid grid-cols-3 gap-2 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({ ...editingShop, plan_id_card_allowed: !(editingShop.plan_id_card_allowed ?? true) })}
+                    className={`p-2 rounded-xl border font-bold flex flex-col items-center gap-1 transition ${
+                      (editingShop.plan_id_card_allowed ?? true)
+                        ? 'bg-indigo-600/30 border-indigo-400 text-indigo-200'
+                        : 'bg-slate-950 border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <UserSquare className="w-3.5 h-3.5" />
+                    <span>ID Card 2-in-1</span>
+                    <span className="uppercase">{(editingShop.plan_id_card_allowed ?? true) ? 'ALLOWED' : 'LOCKED'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({ ...editingShop, plan_passport_allowed: !(editingShop.plan_passport_allowed ?? true) })}
+                    className={`p-2 rounded-xl border font-bold flex flex-col items-center gap-1 transition ${
+                      (editingShop.plan_passport_allowed ?? true)
+                        ? 'bg-pink-600/30 border-pink-400 text-pink-200'
+                        : 'bg-slate-950 border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Passport 8 Pics</span>
+                    <span className="uppercase">{(editingShop.plan_passport_allowed ?? true) ? 'ALLOWED' : 'LOCKED'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({ ...editingShop, plan_scan_pdf_allowed: !(editingShop.plan_scan_pdf_allowed ?? true) })}
+                    className={`p-2 rounded-xl border font-bold flex flex-col items-center gap-1 transition ${
+                      (editingShop.plan_scan_pdf_allowed ?? true)
+                        ? 'bg-amber-600/30 border-amber-400 text-amber-200'
+                        : 'bg-slate-950 border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>Scan & PDF</span>
+                    <span className="uppercase">{(editingShop.plan_scan_pdf_allowed ?? true) ? 'ALLOWED' : 'LOCKED'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -2371,7 +2450,6 @@ export const SuperAdminPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Shop Self Gateway & Split Bank Account Details in Super Admin Modal */}
               <div className="p-3 bg-indigo-950/20 border border-indigo-800/40 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-extrabold text-indigo-300 flex items-center gap-1.5">
@@ -2479,7 +2557,6 @@ export const SuperAdminPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* UPDATED: Direct Valid Days Input + Reduce 7 Days + Extend 7 Days */}
                 <div className="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-emerald-800/30">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] text-slate-400">Valid Days:</span>
@@ -2570,6 +2647,17 @@ export const SuperAdminPage: React.FC = () => {
                     <option value={24}>Auto-delete after 24 Hours</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Separate Photo Printer (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Optional photo printer name..."
+                  value={editingShop.photo_printer_name || ''}
+                  onChange={(e) => setEditingShop({ ...editingShop, photo_printer_name: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none text-xs"
+                />
               </div>
 
               <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-2xl space-y-1.5">

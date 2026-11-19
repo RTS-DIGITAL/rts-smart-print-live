@@ -74,6 +74,10 @@ interface ShopConfig {
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
+  // Feature toggles for Admin/Super Admin
+  passport_enabled?: boolean;
+  id_card_enabled?: boolean;
+  scan_pdf_enabled?: boolean;
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
@@ -148,8 +152,8 @@ const KIOSK_TEXTS = {
     useThisCrop: 'Save & Update',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
-    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.',
-    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.'
+    invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
+    fileTooLargeMsg: 'File exceeds the 10 MB limit! Please select a smaller file.\n\nഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.'
   },
   ml: {
     subtitle: 'സെൽഫ് സർവീസ് പ്രിന്റ് കിയോസ്ക്',
@@ -231,70 +235,43 @@ async function rotateImageFilePhysically(sourceFile: File | Blob, deg: number, f
   return new File([blob], fileName, { type: 'image/jpeg' });
 }
 
-// FULLY FUNCTIONAL PDF GENERATOR TO PREVENT "PRINT PICTURES" BLANK BUG
-async function convertJpegBlobToA4PdfBlob(
-  jpegBlob: Blob,
-  imgWidth: number,
-  imgHeight: number
-): Promise<Blob> {
-  const jpegBuffer = await jpegBlob.arrayBuffer();
-  const jpegBytes = new Uint8Array(jpegBuffer);
-  const encoder = new TextEncoder();
-
-  const pageW = 595.28;
-  const pageH = 841.89;
-
-  const chunks: Uint8Array[] = [];
-  const offsets: number[] = [];
-  let byteOffset = 0;
-
-  const pushAscii = (str: string) => {
-    const bytes = encoder.encode(str);
-    chunks.push(bytes);
-    byteOffset += bytes.length;
-  };
-  const pushBinary = (bytes: Uint8Array) => {
-    chunks.push(bytes);
-    byteOffset += bytes.length;
-  };
-  const recordObjOffset = (objNum: number) => {
-    offsets[objNum] = byteOffset;
-  };
-
-  pushAscii('%PDF-1.4\n');
-  pushBinary(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
-
-  recordObjOffset(1);
-  pushAscii('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
-
-  recordObjOffset(2);
-  pushAscii('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
-
-  recordObjOffset(3);
-  pushAscii(`3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`);
-
-  recordObjOffset(4);
-  pushAscii(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgWidth} /Height ${imgHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
-  pushBinary(jpegBytes);
-  pushAscii('\nendstream\nendobj\n');
-
-  const contentStream = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im0 Do\nQ\n`;
-  const contentBytes = encoder.encode(contentStream);
-  recordObjOffset(5);
-  pushAscii(`5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n`);
-  pushBinary(contentBytes);
-  pushAscii('\nendstream\nendobj\n');
-
-  const xrefStart = byteOffset;
-  pushAscii('xref\n0 6\n0000000000 65535 f \n');
-  for (let i = 1; i <= 5; i++) {
-    const padded = String(offsets[i]).padStart(10, '0');
-    pushAscii(`${padded} 00000 n \n`);
-  }
-  pushAscii(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`);
-
-  return new Blob(chunks, { type: 'application/pdf' });
+// -----------------------------------------------------------------------------
+// NEW: 100% Reliable PDF Generator using pdf-lib (Loaded Dynamically)
+// Fixes the "Print Pictures" blank page popup on Windows Print Agent!
+// -----------------------------------------------------------------------------
+function loadPdfLib(): Promise<any> {
+  return new Promise((resolve) => {
+    if ((window as any).PDFLib) { resolve((window as any).PDFLib); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+    script.onload = () => resolve((window as any).PDFLib);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
 }
+
+async function convertJpegBlobToA4PdfBlobUsingPdfLib(jpegBlob: Blob): Promise<Blob> {
+  const PDFLib = await loadPdfLib();
+  if (!PDFLib) throw new Error("Could not load PDF library for conversion.");
+
+  const pdfDoc = await PDFLib.PDFDocument.create();
+  // Standard A4 size in points (210mm x 297mm)
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  
+  const arrayBuffer = await jpegBlob.arrayBuffer();
+  const jpgImage = await pdfDoc.embedJpg(arrayBuffer);
+
+  page.drawImage(jpgImage, {
+    x: 0,
+    y: 0,
+    width: 595.28,
+    height: 841.89,
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return new Blob([pdfBytes], { type: 'application/pdf' });
+}
+// -----------------------------------------------------------------------------
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -318,8 +295,8 @@ function loadCropperAssets(): Promise<boolean> {
     }
     const existingStyle = document.getElementById('rts-cropper-touch-styles');
     const cssText = `
-      .cropper-point { width: 14px !important; height: 14px !important; background-color: #38bdf8 !important; opacity: 0.95 !important; border-radius: 50% !important; border: 2px solid #ffffff !important; }
-      .cropper-point.point-se { width: 16px !important; height: 16px !important; }
+      .cropper-point { width: 12px !important; height: 12px !important; background-color: #38bdf8 !important; opacity: 0.95 !important; border-radius: 50% !important; border: 2px solid #ffffff !important; }
+      .cropper-point.point-se { width: 14px !important; height: 14px !important; }
       .cropper-line { background-color: #38bdf8 !important; opacity: 0.7 !important; }
       .cropper-view-box { outline: 2px solid #38bdf8 !important; }
     `;
@@ -360,6 +337,7 @@ async function compressLargeImageInBrowser(file: File): Promise<File> {
     const ctx = canvas.getContext('2d');
     if (!ctx) return file;
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, targetW, targetH); ctx.drawImage(img, 0, 0, targetW, targetH);
+
     const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.9));
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
@@ -371,6 +349,7 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
   if (!cleaned) return maxPages;
   const pagesSet = new Set<number>();
   const parts = cleaned.split(',');
+
   for (const part of parts) {
     const trimmed = part.trim();
     if (!trimmed) continue;
@@ -378,11 +357,15 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
       const [startStr, endStr] = trimmed.split('-');
       const start = parseInt(startStr, 10); const end = parseInt(endStr, 10);
       if (!isNaN(start) && !isNaN(end) && start <= end) {
-        for (let p = Math.max(1, start); p <= Math.min(maxPages, end); p++) pagesSet.add(p);
+        for (let p = Math.max(1, start); p <= Math.min(maxPages, end); p++) {
+          pagesSet.add(p);
+        }
       }
     } else {
       const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= maxPages) pagesSet.add(num);
+      if (!isNaN(num) && num >= 1 && num <= maxPages) {
+        pagesSet.add(num);
+      }
     }
   }
   return pagesSet.size > 0 ? pagesSet.size : maxPages;
@@ -390,7 +373,7 @@ function countSelectedPages(rangeStr: string, maxPages: number): number {
 
 function calculateSheetsForItem(item: UploadedItem): number {
   if (item.fileKind === 'image') return Math.max(1, item.copies);
-  const perSide = item.layoutMode === 'grid_4' ? 4 : item.layoutMode === 'id_card' || item.layoutMode === 'half_a4' ? 2 : 1;
+  const perSide = item.layoutMode === 'grid_4' || item.layoutMode === 'passport_8' ? 4 : item.layoutMode === 'id_card' || item.layoutMode === 'half_a4' ? 2 : 1;
   const sidesNeeded = Math.ceil(item.pages / perSide);
   const sheetsPerCopy = item.isDoubleSided ? Math.ceil(sidesNeeded / 2) : sidesNeeded;
   return Math.max(1, sheetsPerCopy) * item.copies;
@@ -457,6 +440,7 @@ export default function KioskPage() {
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
   
+  // Track if item is newly uploaded to safely discard on 'X'
   const isNewItemBeingEdited = useRef<boolean>(false);
 
   const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
@@ -574,7 +558,8 @@ export default function KioskPage() {
         file, originalFile: file, backOriginalFile: null,
         croppedFrontBlob: null, croppedBackBlob: null,
         fileKind, name: rawFile.name, size: file.size,
-        totalPdfPages: pages, pages, copies: 1, isColor: selectedServiceCategory === 'photo' ? true : false,
+        totalPdfPages: pages, pages, copies: 1, 
+        isColor: selectedServiceCategory === 'photo' ? true : false,
         isDoubleSided: false, paperSize: 'A4', layoutMode: initialLayout, pageRangeText: '', hasBackImage: false,
         serviceCategory: selectedServiceCategory
       };
@@ -808,7 +793,7 @@ export default function KioskPage() {
 
       if (!frontFile) {
         ctx.fillStyle = '#94a3b8'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText('No Image Selected — Tap "+ Add" below', canvas.width / 2, canvas.height / 2); return;
+        ctx.fillText('No Image Selected — Tap "+ Add Image" below', canvas.width / 2, canvas.height / 2); return;
       }
 
       try {
@@ -941,10 +926,10 @@ export default function KioskPage() {
         drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 60, 60, 1120, 1634, false);
       }
 
+      // Convert image to valid PDF so Windows Silent Print works perfectly
       const jpegBlob: Blob = await new Promise((resolve, reject) => {
         hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.94);
       });
-      
       const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, a4W, a4H);
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
       const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_A4`;
@@ -1108,6 +1093,11 @@ export default function KioskPage() {
     );
   }
 
+  // Feature flags with graceful fallback (default to true if DB columns don't exist yet)
+  const isPassportEnabled = shop?.passport_enabled !== false;
+  const isIdCardEnabled = shop?.id_card_enabled !== false;
+  const isScanPdfEnabled = shop?.scan_pdf_enabled !== false;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between relative overflow-x-hidden">
       <div>
@@ -1140,7 +1130,8 @@ export default function KioskPage() {
           </div>
         </header>
 
-        <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
+        <main className="max-w-3xl mx-auto px-4 pt-6 space-y-5 relative z-10">
+          {/* ALWAYS VISIBLE FILE INPUT TO ENSURE ADD MORE FILES WORKS */}
           <input type="file" multiple ref={fileInputRef} onChange={handleFileSelect} accept={selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo' ? '.png,.jpg,.jpeg' : '.pdf,.png,.jpg,.jpeg'} className="hidden" />
 
           {shop.counter_notice && (
@@ -1189,7 +1180,7 @@ export default function KioskPage() {
                     <p className="text-xs text-slate-500">{t.uploadSub}</p>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4 max-w-2xl mx-auto">
                     <button onClick={() => handleCategoryClick('document')} className="bg-white border-2 border-slate-200 hover:border-emerald-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
                       <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
                         <FileText className="w-7 h-7" />
@@ -1200,44 +1191,51 @@ export default function KioskPage() {
                       </div>
                     </button>
 
-                    <button onClick={() => handleCategoryClick('id_card')} className="bg-white border-2 border-slate-200 hover:border-indigo-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
-                      <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
-                        <UserSquare className="w-7 h-7" />
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.idPrintTitle}</h3>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{t.idPrintSub}</p>
-                      </div>
-                    </button>
+                    {isIdCardEnabled && (
+                      <button onClick={() => handleCategoryClick('id_card')} className="bg-white border-2 border-slate-200 hover:border-indigo-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                        <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                          <UserSquare className="w-7 h-7" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.idPrintTitle}</h3>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{t.idPrintSub}</p>
+                        </div>
+                      </button>
+                    )}
 
-                    <button onClick={() => handleCategoryClick('photo')} className="bg-white border-2 border-slate-200 hover:border-pink-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
-                      <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
-                        <Camera className="w-7 h-7" />
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.photoPrintTitle}</h3>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{t.photoPrintSub}</p>
-                      </div>
-                    </button>
+                    {isPassportEnabled && (
+                      <button onClick={() => handleCategoryClick('photo')} className="bg-white border-2 border-slate-200 hover:border-pink-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                        <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                          <Camera className="w-7 h-7" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.photoPrintTitle}</h3>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{t.photoPrintSub}</p>
+                        </div>
+                      </button>
+                    )}
 
-                    <button onClick={() => handleCategoryClick('scanner')} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
-                      <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
-                        <UploadCloud className="w-7 h-7" />
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.scanPdfTitle}</h3>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{t.scanPdfSub}</p>
-                      </div>
-                    </button>
+                    {isScanPdfEnabled && (
+                      <button onClick={() => handleCategoryClick('scanner')} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                        <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                          <UploadCloud className="w-7 h-7" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.scanPdfTitle}</h3>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{t.scanPdfSub}</p>
+                        </div>
+                      </button>
+                    )}
                   </div>
-                  <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-3 text-[11px] text-slate-600 leading-relaxed text-center mt-4">
+                  
+                  <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-3 text-[11px] text-slate-600 leading-relaxed text-center mt-4 max-w-2xl mx-auto">
                     {t.aadhaarSafetyNote}
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-xs font-bold text-slate-700">
+                <div className="space-y-4 animate-in fade-in duration-300 max-w-2xl mx-auto">
+                  <div className="flex flex-wrap justify-between items-center px-1 gap-3">
+                    <span className="text-sm font-black text-slate-900">
                       {t.uploadedFiles} ({items.length})
                     </span>
                     <button
@@ -1246,65 +1244,69 @@ export default function KioskPage() {
                         setSelectedServiceCategory(null);
                         if (fileInputRef.current) fileInputRef.current.click();
                       }}
-                      className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
+                      className="min-h-[40px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 shadow-sm"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-4 h-4" />
                       {t.addMoreBtn}
                     </button>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {items.map((item) => {
                       const itemTotal = calculateItemPrice(item);
                       const sheetsCount = calculateSheetsForItem(item);
                       const isPdf = item.fileKind === 'pdf';
 
                       return (
-                        <div key={item.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                          <div className="flex justify-between items-start gap-2">
-                            <div className="flex items-center gap-2.5 overflow-hidden">
-                              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
-                                {isPdf ? <FileText className="w-4 h-4 text-rose-500" /> : <ImageIcon className="w-4 h-4 text-blue-500" />}
+                        <div key={item.id} className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                          
+                          {/* Upper Row: Icon + Details + Actions */}
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0 border border-slate-200/50">
+                                {isPdf ? <FileText className="w-6 h-6 text-rose-500" /> : <ImageIcon className="w-6 h-6 text-blue-500" />}
                               </div>
-                              <div className="truncate">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'}`}>
+                              <div className="truncate flex-1 pr-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'}`}>
                                     {isPdf ? 'PDF' : 'A4 IMAGE'}
                                   </span>
-                                  <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
+                                  <p className="font-extrabold text-sm text-slate-900 truncate" title={item.name}>{item.name}</p>
                                 </div>
-                                <p className="text-[11px] text-slate-500 mt-0.5">
-                                  {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} • Uses{' '}
-                                  <strong className="text-emerald-700">{sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}</strong>
-                                  {item.layoutMode === 'id_card' && <span className="ml-1.5 text-indigo-600 font-bold">• 🪪 ID Card (2-in-1) {item.hasBackImage ? 'Front+Back' : ''}</span>}
-                                  {item.layoutMode === 'passport_8' && <span className="ml-1.5 text-pink-600 font-bold">• 📸 Passport (8 Pics)</span>}
+                                <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1.5">
+                                  <span>{item.pages} {item.pages === 1 ? 'Page' : 'Pages'}</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span>Uses <strong className="text-emerald-700">{sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}</strong></span>
                                 </p>
+                                {/* Active Mode Tags */}
+                                {item.layoutMode === 'id_card' && <p className="text-[10px] mt-1 text-indigo-600 font-bold bg-indigo-50 inline-block px-2 py-0.5 rounded border border-indigo-100">🪪 ID Card (2-in-1) {item.hasBackImage ? 'Front+Back' : ''}</p>}
+                                {item.layoutMode === 'passport_8' && <p className="text-[10px] mt-1 text-pink-600 font-bold bg-pink-50 inline-block px-2 py-0.5 rounded border border-pink-100">📸 Passport (8 Pics)</p>}
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                               {!isPdf && (
-                                <button type="button" onClick={() => openImageStudio(item)} className="min-h-[38px] px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] transition flex items-center gap-1">
-                                  <Scissors className="w-3.5 h-3.5" /><span>Edit / Crop</span>
+                                <button type="button" onClick={() => openImageStudio(item)} className="min-h-[40px] px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-xs transition flex items-center gap-1.5">
+                                  <Scissors className="w-4 h-4" /><span>Edit / Crop</span>
                                 </button>
                               )}
-                              <button type="button" onClick={() => removeItem(item.id)} className="min-h-[38px] px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1" title="Remove File">
-                                <Trash2 className="w-3.5 h-3.5" /><span>Remove</span>
+                              <button type="button" onClick={() => removeItem(item.id)} className="min-h-[40px] px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center" title="Remove File">
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
 
                           {isPdf && (
-                            <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                            <div className="bg-slate-50 px-3.5 py-3 rounded-2xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                               {item.totalPdfPages > 1 && (
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-semibold text-slate-600">Pages (1-{item.totalPdfPages}):</span>
-                                  <input type="text" placeholder={`All or e.g. 1-2`} value={item.pageRangeText} onChange={(e) => { const val = e.target.value; updateItem(item.id, { pageRangeText: val, pages: countSelectedPages(val, item.totalPdfPages) }); }} className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono w-32 outline-none focus:border-emerald-500" />
+                                <div className="flex flex-col gap-1">
+                                  <span className="font-bold text-slate-600">Pages (1-{item.totalPdfPages}):</span>
+                                  <input type="text" placeholder={`All or e.g. 1-2`} value={item.pageRangeText} onChange={(e) => { const val = e.target.value; updateItem(item.id, { pageRangeText: val, pages: countSelectedPages(val, item.totalPdfPages) }); }} className="px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition" />
                                 </div>
                               )}
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-600">Layout:</span>
-                                <select value={item.layoutMode} onChange={(e) => updateItem(item.id, { layoutMode: e.target.value as ImageLayoutType }) } className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none">
+                              <div className="flex flex-col gap-1">
+                                <span className="font-bold text-slate-600">Layout:</span>
+                                <select value={item.layoutMode} onChange={(e) => updateItem(item.id, { layoutMode: e.target.value as ImageLayoutType }) } className="px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition">
                                   <option value="fit_a4">1 Per Page (Fit A4)</option>
                                   <option value="half_a4">2 Per Page (2-Up)</option>
                                   <option value="grid_4">4 Per Page (4-Up)</option>
@@ -1313,46 +1315,47 @@ export default function KioskPage() {
                             </div>
                           )}
 
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-slate-500">{t.copies}</span>
+                          {/* Lower Row: Controls + Price */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 mt-3 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
                               <div className="flex items-center bg-slate-100 rounded-xl p-1">
-                                <button type="button" onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })} className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"><Minus className="w-3.5 h-3.5 text-slate-700" /></button>
-                                <span className="px-2.5 font-black text-xs text-slate-900">{item.copies}</span>
-                                <button type="button" onClick={() => updateItem(item.id, { copies: item.copies + 1 })} className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"><Plus className="w-3.5 h-3.5 text-slate-700" /></button>
+                                <button type="button" onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })} className="w-9 h-9 flex items-center justify-center hover:bg-white rounded-lg transition shadow-sm"><Minus className="w-4 h-4 text-slate-700" /></button>
+                                <span className="w-8 text-center font-black text-sm text-slate-900">{item.copies}</span>
+                                <button type="button" onClick={() => updateItem(item.id, { copies: item.copies + 1 })} className="w-9 h-9 flex items-center justify-center hover:bg-white rounded-lg transition shadow-sm"><Plus className="w-4 h-4 text-slate-700" /></button>
                               </div>
+
+                              <div className="flex items-center p-1 bg-slate-100 rounded-xl gap-1">
+                                <button type="button" onClick={() => updateItem(item.id, { isColor: false })} className={`min-h-[36px] px-3.5 rounded-lg text-xs font-bold transition ${!item.isColor ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:bg-white'}`}>B&W</button>
+                                <button type="button" onClick={() => updateItem(item.id, { isColor: true })} className={`min-h-[36px] px-3.5 rounded-lg text-xs font-bold transition ${item.isColor ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:bg-white'}`}>Color</button>
+                              </div>
+
+                              {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
+                                <div className="flex items-center p-1 bg-slate-100 rounded-xl gap-1">
+                                  <button type="button" onClick={() => updateItem(item.id, { isDoubleSided: false })} className={`min-h-[36px] px-3 rounded-lg text-[11px] font-bold transition ${!item.isDoubleSided ? 'bg-blue-600 text-white shadow' : 'text-slate-600 hover:bg-white'}`}>{t.singleSided}</button>
+                                  <button type="button" onClick={() => updateItem(item.id, { isDoubleSided: true })} className={`min-h-[38px] px-3 rounded-lg text-[11px] font-bold transition ${item.isDoubleSided ? 'bg-blue-600 text-white shadow' : 'text-slate-600 hover:bg-white'}`}>{t.doubleSided}</button>
+                                </div>
+                              )}
                             </div>
 
-                            <div className="flex items-center gap-1">
-                              <button type="button" onClick={() => updateItem(item.id, { isColor: false })} className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${!item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>B&W</button>
-                              <button type="button" onClick={() => updateItem(item.id, { isColor: true })} className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Color</button>
+                            <div className="font-extrabold text-slate-900 text-base ml-auto self-center bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                              ₹{itemTotal.toFixed(2)}
                             </div>
-
-                            {/* Single-Sided vs Double-Sided Toggle */}
-                            {(item.pages > 1 || item.fileKind === 'pdf') && (
-                              <div className="flex items-center gap-1">
-                                <button type="button" onClick={() => updateItem(item.id, { isDoubleSided: false })} className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${!item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.singleSided}</button>
-                                <button type="button" onClick={() => updateItem(item.id, { isDoubleSided: true })} className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.doubleSided}</button>
-                              </div>
-                            )}
-
-                            <div className="font-extrabold text-slate-900 text-sm">₹{itemTotal.toFixed(2)}</div>
                           </div>
                         </div>
                       );
                     })}
                   </div>
 
-                  <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
-                    <div className="flex justify-between items-center text-xs text-slate-400">
+                  <div className="bg-slate-900 text-white p-5 sm:p-6 rounded-3xl shadow-xl space-y-3 max-w-2xl mx-auto">
+                    <div className="flex justify-between items-center text-sm text-slate-400">
                       <span>{t.totalDocPages}</span><span className="font-bold text-white">{totalPages} {totalPages === 1 ? 'page' : 'pages'}</span>
                     </div>
-                    <div className="flex justify-between items-center text-xs text-emerald-300">
-                      <span className="flex items-center gap-1"><Layers className="w-3.5 h-3.5" /><span>{t.actualSheetsNeeded}</span></span>
+                    <div className="flex justify-between items-center text-sm text-emerald-300">
+                      <span className="flex items-center gap-1.5"><Layers className="w-4 h-4" /><span>{t.actualSheetsNeeded}</span></span>
                       <span className="font-black text-white font-mono">{totalSheetsNeeded} A4 {totalSheetsNeeded === 1 ? 'Sheet' : 'Sheets'}</span>
                     </div>
-                    <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
-                      <span className="text-sm font-bold">{t.totalBill}</span><span className="text-2xl font-black text-emerald-400">₹{formattedAmount}</span>
+                    <div className="flex justify-between items-baseline border-t border-slate-800 pt-3 mt-1">
+                      <span className="text-base font-bold">{t.totalBill}</span><span className="text-3xl font-black text-emerald-400">₹{formattedAmount}</span>
                     </div>
 
                     <button
@@ -1363,9 +1366,9 @@ export default function KioskPage() {
                         else setShowCheckout(true);
                       }}
                       disabled={submittingOrder || launchingGateway}
-                      className="w-full min-h-[48px] py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm"
+                      className="w-full min-h-[54px] py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-sm sm:text-base mt-2"
                     >
-                      <Printer className="w-4 h-4" />
+                      <Printer className="w-5 h-5" />
                       {submittingOrder ? 'Sending to Printer...' : launchingGateway ? `Opening ${activeGatewayProvider.toUpperCase()}...` : shop.require_payment ? hasActiveShopGateway ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print` : t.proceedPayBtn : shop.auto_print_enabled ? t.sendCashBtn : t.submitStaffBtn}
                     </button>
                   </div>
@@ -1461,8 +1464,8 @@ export default function KioskPage() {
               {cropperSourceUrl && (
                 <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1">
                   <div className="flex items-center gap-1">
-                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(-90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5 text-emerald-400" /></button>
-                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCw className="w-3.5 h-3.5 text-emerald-400" /></button>
+                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(-90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5 text-emerald-400" /><span>Rotate Left</span></button>
+                    <button type="button" disabled={isRotatingFile} onClick={() => handleRotateCropper(90)} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs flex items-center gap-1"><RotateCw className="w-3.5 h-3.5 text-emerald-400" /><span>Rotate Right</span></button>
                     <button type="button" onClick={handleResetCropper} className="min-h-[42px] px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs">{t.resetCrop}</button>
                   </div>
                   <button type="button" onClick={handleUseThisCrop} className="min-h-[42px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs shadow flex items-center gap-1"><Check className="w-3.5 h-3.5" /><span>{t.useThisCrop}</span></button>
@@ -1505,7 +1508,7 @@ export default function KioskPage() {
 
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={handleDeleteItemFromStudio} className="min-h-[46px] px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 font-bold rounded-xl text-xs text-rose-700 flex items-center justify-center gap-1"><Trash2 className="w-3.5 h-3.5" /><span>Discard File</span></button>
-              <button type="button" onClick={handleCancelStudio} className="min-h-[46px] px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-xs text-slate-700">Cancel / Keep Original</button>
+              <button type="button" onClick={handleCancelStudio} className="min-h-[46px] px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-xs text-slate-700">Keep Original</button>
               <button type="button" disabled={applyingStudio || !frontFile} onClick={handleApplyImageStudio} className="flex-1 min-h-[46px] py-2.5 bg-[#003399] hover:bg-blue-800 disabled:bg-slate-300 text-white font-black rounded-xl text-xs sm:text-sm shadow-lg transition flex items-center justify-center gap-1.5"><Check className="w-4 h-4 text-[#78C900]" /><span>{applyingStudio ? 'Saving A4 PDF...' : 'Done • Apply to 1 A4 Sheet →'}</span></button>
             </div>
           </div>

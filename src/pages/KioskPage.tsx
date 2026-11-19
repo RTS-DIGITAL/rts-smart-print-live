@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_SHOP_SLUG } from '@/lib/pricing';
+import { A4_MM, A4_300DPI_PX, DPI_300_SCALE, LAYOUTS } from '@/lib/printLayouts';
 import {
   UploadCloud,
   FileText,
@@ -66,6 +67,8 @@ interface ShopConfig {
   duplex_supported?: boolean;
   id_card_bw_price?: number | null;
   id_card_color_price?: number | null;
+  passport_bw_price?: number | null;
+  passport_color_price?: number | null;
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
@@ -74,7 +77,7 @@ interface ShopConfig {
   scan_pdf_enabled?: boolean;
 }
 
-type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
+type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_4' | 'passport_8';
 type ServiceCategory = 'document' | 'id_card' | 'photo' | 'scanner' | null;
 
 interface UploadedItem {
@@ -123,12 +126,12 @@ const KIOSK_TEXTS = {
     idPrintTitle: 'ID Card Print',
     idPrintSub: 'Aadhaar / PAN / Voter ID',
     photoPrintTitle: 'Passport Photo',
-    photoPrintSub: '8 Photos on 1 A4 Sheet',
+    photoPrintSub: '4 or 8 Photos on 1 A4 Sheet',
     scanPdfTitle: 'Scan & PDF Tools',
     scanPdfSub: 'Camera Scan / PDF Upload',
     uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
     uploadReading: 'Reading & Verifying Files...',
-    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Images Convert to A4 PDF',
+    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • 300 DPI Exact A4 PDF',
     aadhaarSafetyNote:
       '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your ID number before uploading. Files are auto-deleted on schedule.',
     uploadedFiles: 'Uploaded Files',
@@ -142,7 +145,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Proceed to Pay & Print',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Submit to Counter (Staff Will Release)',
-    cropGuidance: '📌 Photo is locked steady! Drag the blue corners to crop your document.',
+    cropGuidance: '📌 Frame is locked to exact print dimensions! Drag corners to crop cleanly.',
     useThisCrop: 'Save & Update',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
@@ -167,12 +170,12 @@ const KIOSK_TEXTS = {
     idPrintTitle: 'ഐഡി കാർഡ് പ്രിന്റ്',
     idPrintSub: 'ആധാർ / പാൻ / വോട്ടർ ഐഡി',
     photoPrintTitle: 'പാസ്‌പോർട്ട് ഫോട്ടോ',
-    photoPrintSub: '8 ഫോട്ടോകൾ 1 A4 ഷീറ്റിൽ',
+    photoPrintSub: '4 അല്ലെങ്കിൽ 8 ഫോട്ടോകൾ 1 A4 ഷീറ്റിൽ',
     scanPdfTitle: 'സ്കാൻ & PDF ടൂളുകൾ',
     scanPdfSub: 'ക്യാമറ സ്കാൻ / ഫയലുകൾ',
     uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
     uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • ഫോട്ടോകൾ A4 PDF ആകുന്നു',
+    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • 300 DPI കൃത്യമായ A4 PDF',
     aadhaarSafetyNote:
       '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
@@ -186,7 +189,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക (സ്റ്റാഫ് പ്രിന്റ് നൽകും)',
-    cropGuidance: '📌 ഫോട്ടോ തെന്നിമാറില്ല! നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം മാത്രം സെലക്ട് ചെയ്യുക.',
+    cropGuidance: '📌 കൃത്യമായ പ്രിന്റ് അളവിലേക്ക് ബോക്സ് ലോക്ക് ചെയ്തിരിക്കുന്നു! മൂലകൾ വലിച്ച് ക്രോപ്പ് ചെയ്യുക.',
     useThisCrop: 'ക്രോപ്പ് ഉറപ്പിക്കുക',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
@@ -212,6 +215,22 @@ function fitInside(srcW: number, srcH: number, boxW: number, boxH: number) {
 
 function isValidPdfBytes(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
+
+// Returns the exact Cropper aspect ratio matching src/lib/printLayouts.ts
+function getCropAspectRatioForLayout(layout: ImageLayoutType): number {
+  switch (layout) {
+    case 'id_card':
+      return LAYOUTS.id_card_pair.cropAspectRatio; // 85.6 / 54 (1.5852)
+    case 'half_a4':
+      return LAYOUTS.half_page_pair.cropAspectRatio; // 190 / 133 (1.4286)
+    case 'passport_4':
+      return LAYOUTS.passport_4.cropAspectRatio; // 35 / 45 (0.7778)
+    case 'passport_8':
+      return LAYOUTS.passport_8.cropAspectRatio; // 35 / 45 (0.7778)
+    default:
+      return NaN; // Free crop for full A4 / custom
+  }
 }
 
 // Guaranteed Pure-JS A4 PDF Builder (Zero external dependency risk, never throws Symbol.iterator)
@@ -296,8 +315,8 @@ function loadPdfLibAsset(): Promise<any> {
 
 async function convertJpegBlobToA4PdfBlob(
   jpegBlob: Blob,
-  imgWidth: number = 1240,
-  imgHeight: number = 1754
+  imgWidth: number = A4_300DPI_PX.w,
+  imgHeight: number = A4_300DPI_PX.h
 ): Promise<Blob> {
   const arrayBuffer = await jpegBlob.arrayBuffer();
   const rawBytes = new Uint8Array(arrayBuffer);
@@ -438,10 +457,10 @@ async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'invali
 }
 
 async function compressLargeImageInBrowser(file: File): Promise<File> {
-  if (file.size <= 1.5 * 1024 * 1024) return file;
+  if (file.size <= 1.8 * 1024 * 1024) return file;
   try {
     const img = await loadImageElement(file);
-    const maxDim = 2200;
+    const maxDim = 2500;
     let targetW = img.width;
     let targetH = img.height;
     if (targetW > maxDim || targetH > maxDim) {
@@ -458,7 +477,7 @@ async function compressLargeImageInBrowser(file: File): Promise<File> {
     ctx.fillRect(0, 0, targetW, targetH);
     ctx.drawImage(img, 0, 0, targetW, targetH);
 
-    const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.9));
+    const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', 0.92));
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
   } catch {
@@ -499,7 +518,7 @@ function calculateSheetsForItem(item: UploadedItem): number {
     return Math.max(1, item.copies);
   }
   const perSide =
-    item.layoutMode === 'grid_4' || item.layoutMode === 'passport_8'
+    item.layoutMode === 'grid_4' || item.layoutMode === 'passport_4' || item.layoutMode === 'passport_8'
       ? 4
       : item.layoutMode === 'id_card' || item.layoutMode === 'half_a4'
       ? 2
@@ -687,7 +706,7 @@ export default function KioskPage() {
       let initialLayout: ImageLayoutType = 'fit_a4';
       if (fileKind === 'image') {
         if (selectedServiceCategory === 'id_card') initialLayout = 'id_card';
-        if (selectedServiceCategory === 'photo') initialLayout = 'passport_8';
+        if (selectedServiceCategory === 'photo') initialLayout = 'passport_4'; // Default to popular 4-copy passport sheet
       }
 
       const newItem: UploadedItem = {
@@ -757,7 +776,8 @@ export default function KioskPage() {
   const openImageStudio = (item: UploadedItem, preloadedBackFile?: File | null) => {
     setEditingItem(item);
     setFrontFile(item.originalFile);
-    const initialLayout = item.layoutMode === 'fit_a4' && item.serviceCategory === 'id_card' ? 'id_card' : item.layoutMode;
+    const initialLayout =
+      item.layoutMode === 'fit_a4' && item.serviceCategory === 'id_card' ? 'id_card' : item.layoutMode;
     setStudioLayout(initialLayout);
     setActiveCropSide('front');
     setFrontRotation(0);
@@ -769,6 +789,19 @@ export default function KioskPage() {
     setCroppedBackBlob(item.croppedBackBlob || null);
     setBrightness(105);
     setContrast(110);
+  };
+
+  // Update Cropper aspect ratio dynamically whenever the user switches layout mode
+  const handleSelectStudioLayout = (newLayout: ImageLayoutType) => {
+    setStudioLayout(newLayout);
+    // Clear stale cropped blobs if aspect ratio changed so preview reflects new ratio cleanly
+    if (getCropAspectRatioForLayout(newLayout) !== getCropAspectRatioForLayout(studioLayout)) {
+      setCroppedFrontBlob(null);
+      setCroppedBackBlob(null);
+    }
+    if (cropperInstanceRef.current && isCropperReady) {
+      cropperInstanceRef.current.setAspectRatio(getCropAspectRatioForLayout(newLayout));
+    }
   };
 
   useEffect(() => {
@@ -794,6 +827,7 @@ export default function KioskPage() {
     };
   }, [editingItem, activeCropSide, frontFile, backFile]);
 
+  // Initialize Cropper.js locked to the exact slot aspect ratio from printLayouts.ts
   useEffect(() => {
     let mounted = true;
     async function initCropper() {
@@ -811,13 +845,13 @@ export default function KioskPage() {
       if (!CropperClass) return;
 
       cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
-        aspectRatio: NaN,
+        aspectRatio: getCropAspectRatioForLayout(studioLayout),
         viewMode: 1,
         dragMode: 'none',
         movable: false,
         zoomOnTouch: false,
         zoomOnWheel: false,
-        autoCropArea: 0.96,
+        autoCropArea: 0.94,
         responsive: true,
         restore: false,
         checkOrientation: true,
@@ -849,8 +883,8 @@ export default function KioskPage() {
   const extractCurrentCropperBlob = async (): Promise<Blob | null> => {
     if (!cropperInstanceRef.current || !isCropperReady) return null;
     const croppedCanvas = cropperInstanceRef.current.getCroppedCanvas({
-      maxWidth: 2000,
-      maxHeight: 2000,
+      maxWidth: 2500,
+      maxHeight: 2500,
       fillColor: '#ffffff',
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high'
@@ -858,7 +892,7 @@ export default function KioskPage() {
     if (!croppedCanvas || croppedCanvas.width === 0 || croppedCanvas.height === 0) return null;
 
     const blob: Blob | null = await new Promise((res) =>
-      croppedCanvas.toBlob((b: Blob | null) => res(b), 'image/jpeg', 0.92)
+      croppedCanvas.toBlob((b: Blob | null) => res(b), 'image/jpeg', 0.94)
     );
     return blob;
   };
@@ -977,36 +1011,29 @@ export default function KioskPage() {
     setEditingItem(null);
   };
 
-  const drawProcessedImage = (
+  // Renders an image into exact physical millimeter coordinates on any canvas (Preview or 300 DPI Output)
+  const drawSlotMm = (
     ctx: CanvasRenderingContext2D,
+    canvasW: number,
     img: HTMLImageElement,
+    slot: { x: number; y: number; w: number; h: number },
     rotationDeg: number,
-    cropPct: number,
-    targetX: number,
-    targetY: number,
-    targetW: number,
-    targetH: number,
     drawCutBorder: boolean,
-    autoLandscapeForIdCard: boolean = false
+    isCroppedToSlot: boolean
   ) => {
+    const scaleFromMm = canvasW / A4_MM.w;
+    const targetX = Math.round(slot.x * scaleFromMm);
+    const targetY = Math.round(slot.y * scaleFromMm);
+    const targetW = Math.round(slot.w * scaleFromMm);
+    const targetH = Math.round(slot.h * scaleFromMm);
+
     const offCanvas = document.createElement('canvas');
-
-    let effectiveRotation = rotationDeg;
-    if (autoLandscapeForIdCard && img.height > img.width * 1.15 && rotationDeg % 180 === 0) {
-      effectiveRotation = (rotationDeg + 90) % 360;
-    }
-
-    const rad = ((effectiveRotation % 360) * Math.PI) / 180;
+    const rad = ((rotationDeg % 360) * Math.PI) / 180;
     const sin = Math.abs(Math.sin(rad));
     const cos = Math.abs(Math.cos(rad));
 
-    const trimX = (img.width * cropPct) / 200;
-    const trimY = (img.height * cropPct) / 200;
-    const srcW = Math.max(10, img.width - trimX * 2);
-    const srcH = Math.max(10, img.height - trimY * 2);
-
-    const outW = Math.max(1, Math.round(srcW * cos + srcH * sin));
-    const outH = Math.max(1, Math.round(srcW * sin + srcH * cos));
+    const outW = Math.max(1, Math.round(img.width * cos + img.height * sin));
+    const outH = Math.max(1, Math.round(img.width * sin + img.height * cos));
     offCanvas.width = outW;
     offCanvas.height = outH;
 
@@ -1017,39 +1044,96 @@ export default function KioskPage() {
       offCtx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
       offCtx.translate(outW / 2, outH / 2);
       offCtx.rotate(rad);
-      offCtx.drawImage(img, trimX, trimY, srcW, srcH, -srcW / 2, -srcH / 2, srcW, srcH);
+      offCtx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
     }
 
     ctx.save();
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(targetX, targetY, targetW, targetH);
 
-    const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
-    ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX + dx, targetY + dy, w, h);
+    if (isCroppedToSlot) {
+      // Image was cropped to the exact slot aspect ratio -> fills the exact millimeter slot with zero waste!
+      ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX, targetY, targetW, targetH);
+    } else {
+      // Uncropped fallback -> fit proportionally inside the slot without distortion
+      const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
+      ctx.drawImage(offCanvas, 0, 0, outW, outH, targetX + dx, targetY + dy, w, h);
+    }
 
     if (drawCutBorder) {
       ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = Math.max(1, targetW * 0.004);
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(targetX - 4, targetY - 4, targetW + 8, targetH + 8);
+      ctx.lineWidth = Math.max(1, Math.round(0.35 * scaleFromMm));
+      ctx.setLineDash([Math.round(1.5 * scaleFromMm), Math.round(1.2 * scaleFromMm)]);
+      ctx.strokeRect(targetX, targetY, targetW, targetH);
     }
     ctx.restore();
   };
 
+  // Shared A4 sheet compositor used for BOTH Live Preview (420×594) and 300 DPI Final PDF (2480×3508)
+  const composeA4SheetOnCanvas = async (
+    canvas: HTMLCanvasElement,
+    layout: ImageLayoutType,
+    fSource: File | Blob,
+    bSource: File | Blob | null,
+    isFrontCropped: boolean,
+    isBackCropped: boolean,
+    fRot: number,
+    bRot: number
+  ) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const frontImg = await loadImageElement(fSource);
+    const backImg = bSource ? await loadImageElement(bSource) : null;
+
+    if (layout === 'id_card') {
+      if (backImg) {
+        // Side-by-side 85.6 x 54 mm (Front at x:14.4, Back at x:110, y:30 mm)
+        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_pair.slots[0], isFrontCropped ? 0 : fRot, true, isFrontCropped);
+        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.id_card_pair.slots[1], isBackCropped ? 0 : bRot, true, isBackCropped);
+      } else {
+        // Single centered 85.6 x 54 mm (x:62.2, y:30 mm)
+        drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.id_card_single.slots[0], isFrontCropped ? 0 : fRot, true, isFrontCropped);
+      }
+    } else if (layout === 'passport_4') {
+      // 4 Passport Photos (2x2 grid of 35 x 45 mm, 5 mm gap)
+      for (const slot of LAYOUTS.passport_4.slots) {
+        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true, isFrontCropped);
+      }
+    } else if (layout === 'passport_8') {
+      // 8 Passport Photos (4x2 grid of 35 x 45 mm, 5 mm gap)
+      for (const slot of LAYOUTS.passport_8.slots) {
+        drawSlotMm(ctx, canvas.width, frontImg, slot, isFrontCropped ? 0 : fRot, true, isFrontCropped);
+      }
+    } else if (layout === 'half_a4') {
+      // Two equal half-A4 slots (190 x 133 mm each: top y:10, bottom y:153 mm)
+      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.half_page_pair.slots[0], isFrontCropped ? 0 : fRot, false, isFrontCropped);
+      if (backImg) {
+        drawSlotMm(ctx, canvas.width, backImg, LAYOUTS.half_page_pair.slots[1], isBackCropped ? 0 : bRot, false, isBackCropped);
+      }
+    } else {
+      // Full A4 page with 10 mm printer safe margin (190 x 277 mm)
+      drawSlotMm(ctx, canvas.width, frontImg, LAYOUTS.fit_a4.slots[0], isFrontCropped ? 0 : fRot, false, false);
+    }
+  };
+
+  // Render Live A4 Sheet Preview inside the Studio Modal
   useEffect(() => {
     let active = true;
     async function renderPreview() {
       if (!editingItem || !previewCanvasRef.current) return;
       const canvas = previewCanvasRef.current;
+      canvas.width = 420;
+      canvas.height = 594;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      canvas.width = 420;
-      canvas.height = 594;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
       if (!frontFile) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#94a3b8';
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
@@ -1058,100 +1142,17 @@ export default function KioskPage() {
       }
 
       try {
-        const frontSource: File | Blob = croppedFrontBlob || frontFile;
-        const frontImg = await loadImageElement(frontSource);
+        await composeA4SheetOnCanvas(
+          canvas,
+          studioLayout,
+          croppedFrontBlob || frontFile,
+          backFile ? croppedBackBlob || backFile : null,
+          Boolean(croppedFrontBlob),
+          Boolean(croppedBackBlob),
+          frontRotation,
+          backRotation
+        );
         if (!active) return;
-
-        if (studioLayout === 'id_card') {
-          const cardW = 190;
-          const cardH = 120;
-          const topMargin = 32;
-
-          if (backFile) {
-            const backSource: File | Blob = croppedBackBlob || backFile;
-            const backImg = await loadImageElement(backSource);
-            if (!active) return;
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 15, topMargin, cardW, cardH, true, true);
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 215, topMargin, cardW, cardH, true, true);
-          } else {
-            drawProcessedImage(
-              ctx,
-              frontImg,
-              croppedFrontBlob ? 0 : frontRotation,
-              frontCropPct,
-              (canvas.width - cardW) / 2,
-              topMargin,
-              cardW,
-              cardH,
-              true,
-              true
-            );
-          }
-        } else if (studioLayout === 'passport_8') {
-          const pW = 70;
-          const pH = 90;
-          const spacingX = 15;
-          const spacingY = 20;
-          const startX = (canvas.width - (pW * 4 + spacingX * 3)) / 2;
-          const startY = 40;
-          for (let row = 0; row < 2; row++) {
-            for (let col = 0; col < 4; col++) {
-              drawProcessedImage(
-                ctx,
-                frontImg,
-                croppedFrontBlob ? 0 : frontRotation,
-                frontCropPct,
-                startX + col * (pW + spacingX),
-                startY + row * (pH + spacingY),
-                pW,
-                pH,
-                true,
-                false
-              );
-            }
-          }
-        } else if (studioLayout === 'half_a4') {
-          const boxW = 360;
-          const boxH = 250;
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
-          if (backFile) {
-            const backSource: File | Blob = croppedBackBlob || backFile;
-            const backImg = await loadImageElement(backSource);
-            if (!active) return;
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 30, 305, boxW, boxH, false);
-          }
-        } else if (studioLayout === 'grid_4') {
-          const cellW = 175;
-          const cellH = 240;
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 30, cellW, cellH, true);
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 220, 30, cellW, cellH, true);
-          if (backFile) {
-            const backSource: File | Blob = croppedBackBlob || backFile;
-            const backImg = await loadImageElement(backSource);
-            if (!active) return;
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 25, 300, cellW, cellH, true);
-            drawProcessedImage(ctx, backImg, croppedBackBlob ? 0 : backRotation, backCropPct, 220, 300, cellW, cellH, true);
-          } else {
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 25, 300, cellW, cellH, true);
-            drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 220, 300, cellW, cellH, true);
-          }
-        } else if (studioLayout === 'actual_size') {
-          const w = Math.min(360, frontImg.width * 0.35);
-          const h = Math.min(520, frontImg.height * 0.35);
-          drawProcessedImage(
-            ctx,
-            frontImg,
-            croppedFrontBlob ? 0 : frontRotation,
-            frontCropPct,
-            (canvas.width - w) / 2,
-            40,
-            w,
-            h,
-            false
-          );
-        } else {
-          drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 20, 20, 380, 554, false);
-        }
       } catch (err) {
         console.error('Preview render error:', err);
       }
@@ -1175,6 +1176,7 @@ export default function KioskPage() {
     contrast
   ]);
 
+  // Generate True 300 DPI A4 Sheet (2480 x 3508 px) & Convert to A4 PDF
   const handleApplyImageStudio = async () => {
     if (!editingItem) return;
     if (!frontFile) {
@@ -1200,110 +1202,34 @@ export default function KioskPage() {
       }
 
       const hiCanvas = document.createElement('canvas');
-      const a4W = 1240;
-      const a4H = 1754;
-      hiCanvas.width = a4W;
-      hiCanvas.height = a4H;
-      const ctx = hiCanvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas context unavailable');
+      hiCanvas.width = A4_300DPI_PX.w; // 2480 px
+      hiCanvas.height = A4_300DPI_PX.h; // 3508 px
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, a4W, a4H);
-
-      const frontImg = await loadImageElement(finalFrontBlob || frontFile);
-
-      if (studioLayout === 'id_card') {
-        const cardW = 560;
-        const cardH = 354;
-        const topY = 95;
-
-        if (backFile) {
-          const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 45, topY, cardW, cardH, true, true);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 635, topY, cardW, cardH, true, true);
-        } else {
-          drawProcessedImage(
-            ctx,
-            frontImg,
-            finalFrontBlob ? 0 : frontRotation,
-            frontCropPct,
-            (a4W - cardW) / 2,
-            topY,
-            cardW,
-            cardH,
-            true,
-            true
-          );
-        }
-      } else if (studioLayout === 'passport_8') {
-        const pW = 206;
-        const pH = 265;
-        const spacingX = 45;
-        const spacingY = 60;
-        const startX = (a4W - (pW * 4 + spacingX * 3)) / 2;
-        const startY = 120;
-        for (let row = 0; row < 2; row++) {
-          for (let col = 0; col < 4; col++) {
-            drawProcessedImage(
-              ctx,
-              frontImg,
-              finalFrontBlob ? 0 : frontRotation,
-              frontCropPct,
-              startX + col * (pW + spacingX),
-              startY + row * (pH + spacingY),
-              pW,
-              pH,
-              true,
-              false
-            );
-          }
-        }
-      } else if (studioLayout === 'half_a4') {
-        const boxW = 1080;
-        const boxH = 760;
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 80, 70, boxW, boxH, false);
-        if (backFile) {
-          const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 80, 910, boxW, boxH, false);
-        }
-      } else if (studioLayout === 'grid_4') {
-        const cellW = 520;
-        const cellH = 740;
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 75, 90, cellW, cellH, true);
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 645, 90, cellW, cellH, true);
-        if (backFile) {
-          const backImg = await loadImageElement(finalBackBlob || backFile);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 75, 900, cellW, cellH, true);
-          drawProcessedImage(ctx, backImg, finalBackBlob ? 0 : backRotation, backCropPct, 645, 900, cellW, cellH, true);
-        } else {
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 75, 900, cellW, cellH, true);
-          drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 645, 900, cellW, cellH, true);
-        }
-      } else if (studioLayout === 'actual_size') {
-        const w = Math.min(1080, frontImg.width);
-        const h = Math.min(1550, frontImg.height);
-        drawProcessedImage(
-          ctx,
-          frontImg,
-          finalFrontBlob ? 0 : frontRotation,
-          frontCropPct,
-          (a4W - w) / 2,
-          100,
-          w,
-          h,
-          false
-        );
-      } else {
-        drawProcessedImage(ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 60, 60, 1120, 1634, false);
-      }
+      await composeA4SheetOnCanvas(
+        hiCanvas,
+        studioLayout,
+        finalFrontBlob || frontFile,
+        backFile ? finalBackBlob || backFile : null,
+        Boolean(finalFrontBlob),
+        Boolean(finalBackBlob),
+        frontRotation,
+        backRotation
+      );
 
       const jpegBlob: Blob = await new Promise((resolve, reject) => {
-        hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.92);
+        hiCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/jpeg', 0.93);
       });
 
-      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, a4W, a4H);
+      const pdfBlob = await convertJpegBlobToA4PdfBlob(jpegBlob, A4_300DPI_PX.w, A4_300DPI_PX.h);
       const baseName = frontFile.name.replace(/\.[^/.]+$/, '');
-      const layoutTag = studioLayout === 'id_card' ? 'ID_Card_2in1_A4' : `${studioLayout}_A4`;
+      const layoutTag =
+        studioLayout === 'id_card'
+          ? 'ID_Card_2in1_A4'
+          : studioLayout === 'passport_4'
+          ? 'Passport_4_A4'
+          : studioLayout === 'passport_8'
+          ? 'Passport_8_A4'
+          : `${studioLayout}_A4`;
       const composedPdfFile = new File([pdfBlob], `${baseName}_${layoutTag}.pdf`, {
         type: 'application/pdf'
       });
@@ -1361,6 +1287,16 @@ export default function KioskPage() {
         ? Number(shop?.id_card_color_price || standardPerPageRate * 2)
         : Number(shop?.id_card_bw_price || standardPerPageRate * 2);
       return customIdRate * item.copies;
+    }
+
+    if (
+      item.fileKind === 'image' &&
+      (item.layoutMode === 'passport_4' || item.layoutMode === 'passport_8')
+    ) {
+      const customPassportRate = item.isColor
+        ? Number(shop?.passport_color_price || standardPerPageRate)
+        : Number(shop?.passport_bw_price || standardPerPageRate);
+      return customPassportRate * item.copies;
     }
 
     const sheetsUsed = calculateSheetsForItem(item);
@@ -1442,71 +1378,30 @@ export default function KioskPage() {
 
         let fileToUpload = item.file;
         if (item.fileKind === 'image' || fileToUpload.type !== 'application/pdf') {
-          const fImg = await loadImageElement(item.croppedFrontBlob || item.originalFile);
           const c = document.createElement('canvas');
-          c.width = 1240;
-          c.height = 1754;
-          const cCtx = c.getContext('2d');
-          if (cCtx) {
-            cCtx.fillStyle = '#ffffff';
-            cCtx.fillRect(0, 0, c.width, c.height);
-            if (item.layoutMode === 'id_card') {
-              const cardW = 560;
-              const cardH = 354;
-              const topY = 95;
-              if (item.backOriginalFile) {
-                const bImg = await loadImageElement(item.croppedBackBlob || item.backOriginalFile);
-                drawProcessedImage(cCtx, fImg, 0, 0, 45, topY, cardW, cardH, true, true);
-                drawProcessedImage(cCtx, bImg, 0, 0, 635, topY, cardW, cardH, true, true);
-              } else {
-                drawProcessedImage(cCtx, fImg, 0, 0, (c.width - cardW) / 2, topY, cardW, cardH, true, true);
-              }
-            } else if (item.layoutMode === 'passport_8') {
-              const pW = 206;
-              const pH = 265;
-              const spacingX = 45;
-              const spacingY = 60;
-              const startX = (c.width - (pW * 4 + spacingX * 3)) / 2;
-              const startY = 120;
-              for (let row = 0; row < 2; row++) {
-                for (let col = 0; col < 4; col++) {
-                  drawProcessedImage(
-                    cCtx,
-                    fImg,
-                    0,
-                    0,
-                    startX + col * (pW + spacingX),
-                    startY + row * (pH + spacingY),
-                    pW,
-                    pH,
-                    true,
-                    false
-                  );
-                }
-              }
-            } else if (item.layoutMode === 'half_a4') {
-              const boxW = 1080;
-              const boxH = 760;
-              drawProcessedImage(cCtx, fImg, 0, 0, 80, 70, boxW, boxH, false);
-              if (item.backOriginalFile) {
-                const bImg = await loadImageElement(item.croppedBackBlob || item.backOriginalFile);
-                drawProcessedImage(cCtx, bImg, 0, 0, 80, 910, boxW, boxH, false);
-              }
-            } else {
-              drawProcessedImage(cCtx, fImg, 0, 0, 60, 60, 1120, 1634, false);
-            }
+          c.width = A4_300DPI_PX.w;
+          c.height = A4_300DPI_PX.h;
+          await composeA4SheetOnCanvas(
+            c,
+            item.layoutMode,
+            item.croppedFrontBlob || item.originalFile,
+            item.backOriginalFile ? item.croppedBackBlob || item.backOriginalFile : null,
+            Boolean(item.croppedFrontBlob),
+            Boolean(item.croppedBackBlob),
+            0,
+            0
+          );
 
-            const jBlob: Blob | null = await new Promise((res) =>
-              c.toBlob((b) => res(b), 'image/jpeg', 0.92)
+          const jBlob: Blob | null = await new Promise((res) =>
+            c.toBlob((b) => res(b), 'image/jpeg', 0.93)
+          );
+          if (jBlob) {
+            const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, A4_300DPI_PX.w, A4_300DPI_PX.h);
+            fileToUpload = new File(
+              [pBlob],
+              `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
+              { type: 'application/pdf' }
             );
-            if (jBlob) {
-              const pBlob = await convertJpegBlobToA4PdfBlob(jBlob, c.width, c.height);
-              fileToUpload = new File(
-                [pBlob],
-                `${item.name.replace(/\.[^/.]+$/, '')}_A4.pdf`,
-                { type: 'application/pdf' }
-              );
-            }
           }
         }
 
@@ -1530,6 +1425,8 @@ export default function KioskPage() {
         const displayDocName =
           item.fileKind === 'image' && item.layoutMode === 'id_card'
             ? `[ID-2in1] ${item.name}`
+            : item.fileKind === 'image' && item.layoutMode === 'passport_4'
+            ? `[Passport-4] ${item.name}`
             : item.fileKind === 'image' && item.layoutMode === 'passport_8'
             ? `[Passport-8] ${item.name}`
             : item.fileKind === 'image' && item.layoutMode === 'grid_4'
@@ -1668,6 +1565,19 @@ export default function KioskPage() {
   const isIdCardEnabled = shop?.id_card_enabled !== false;
   const isPassportEnabled = shop?.passport_enabled !== false;
   const isScanPdfEnabled = shop?.scan_pdf_enabled !== false;
+
+  const activeLayoutSpec =
+    studioLayout === 'id_card'
+      ? backFile
+        ? LAYOUTS.id_card_pair
+        : LAYOUTS.id_card_single
+      : studioLayout === 'half_a4'
+      ? LAYOUTS.half_page_pair
+      : studioLayout === 'passport_4'
+      ? LAYOUTS.passport_4
+      : studioLayout === 'passport_8'
+      ? LAYOUTS.passport_8
+      : LAYOUTS.fit_a4;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between relative overflow-x-hidden">
@@ -1945,7 +1855,7 @@ export default function KioskPage() {
                                       isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
                                     }`}
                                   >
-                                    {isPdf ? 'PDF' : 'A4 PDF READY'}
+                                    {isPdf ? 'PDF' : '300 DPI A4 PDF'}
                                   </span>
                                   <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
                                 </div>
@@ -1956,12 +1866,22 @@ export default function KioskPage() {
                                   </strong>
                                   {item.layoutMode === 'id_card' && (
                                     <span className="ml-1.5 text-indigo-600 font-bold">
-                                      • 🪪 ID Card (2-in-1) {item.hasBackImage ? 'Front+Back' : ''}
+                                      • 🪪 ID Card (85.6×54mm) {item.hasBackImage ? 'Front+Back' : ''}
+                                    </span>
+                                  )}
+                                  {item.layoutMode === 'passport_4' && (
+                                    <span className="ml-1.5 text-pink-600 font-bold">
+                                      • 📸 Passport 4 Pics (35×45mm)
                                     </span>
                                   )}
                                   {item.layoutMode === 'passport_8' && (
                                     <span className="ml-1.5 text-pink-600 font-bold">
-                                      • 📸 Passport (8 Pics)
+                                      • 📸 Passport 8 Pics (35×45mm)
+                                    </span>
+                                  )}
+                                  {item.layoutMode === 'half_a4' && !isPdf && (
+                                    <span className="ml-1.5 text-blue-600 font-bold">
+                                      • 🖼️ 2-in-1 Half A4 (190×133mm)
                                     </span>
                                   )}
                                 </p>
@@ -2242,7 +2162,7 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* STUDIO MODAL */}
+      {/* STUDIO MODAL (LOCKED TO EXACT STANDARD PRINT SIZES IN MM) */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
@@ -2259,10 +2179,10 @@ export default function KioskPage() {
                 <div>
                   <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
                     <Scissors className="w-4 h-4 text-indigo-600" />
-                    <span>Easy A4 Print & ID Card 2-in-1 Studio</span>
+                    <span>Standard A4 Size Crop & Print Studio</span>
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Drag blue corners to crop, or tap "Apply to 1 A4 Sheet" directly
+                    Slot Size: <strong>{activeLayoutSpec.sizeMm}</strong> • 300 DPI Exact Scale
                   </p>
                 </div>
               </div>
@@ -2275,10 +2195,11 @@ export default function KioskPage() {
               </button>
             </div>
 
+            {/* Standard A4 Layout Selector (Includes 4-Passport & 8-Passport Options) */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => setStudioLayout('id_card')}
+                onClick={() => handleSelectStudioLayout('id_card')}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'id_card'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -2286,12 +2207,38 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">🪪 ID Card (2-in-1)</span>
-                <span className="text-[10px] opacity-85 block">Front + Back on 1 A4 Sheet</span>
+                <span className="text-[10px] opacity-85 block">85.6 × 54 mm Side-by-Side</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('passport_8')}
+                onClick={() => handleSelectStudioLayout('half_a4')}
+                className={`p-2.5 rounded-2xl border text-left transition ${
+                  studioLayout === 'half_a4'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold block text-[11px]">🖼️ 2-in-1 Half A4</span>
+                <span className="text-[10px] opacity-85 block">190 × 133 mm Top & Bottom</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectStudioLayout('passport_4')}
+                className={`p-2.5 rounded-2xl border text-left transition ${
+                  studioLayout === 'passport_4'
+                    ? 'bg-pink-600 text-white border-pink-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="font-extrabold block text-[11px]">📸 Passport (4 Pics)</span>
+                <span className="text-[10px] opacity-85 block">35 × 45 mm (2×2 Grid)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectStudioLayout('passport_8')}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'passport_8'
                     ? 'bg-pink-600 text-white border-pink-600 shadow-sm'
@@ -2299,33 +2246,23 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">📸 Passport (8 Pics)</span>
-                <span className="text-[10px] opacity-85 block">8 Copies on 1 A4 Sheet</span>
+                <span className="text-[10px] opacity-85 block">35 × 45 mm (4×2 Grid)</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('fit_a4')}
-                className={`p-2.5 rounded-2xl border text-left transition ${
+                onClick={() => handleSelectStudioLayout('fit_a4')}
+                className={`col-span-2 p-2.5 rounded-2xl border text-left transition flex items-center justify-between ${
                   studioLayout === 'fit_a4'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span className="font-extrabold block text-[11px]">📄 Full A4 Page</span>
-                <span className="text-[10px] opacity-85 block">Fit document to full A4</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStudioLayout('half_a4')}
-                className={`p-2.5 rounded-2xl border text-left transition ${
-                  studioLayout === 'half_a4'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="font-extrabold block text-[11px]">🖼️ 2 Per Page (Half A4)</span>
-                <span className="text-[10px] opacity-85 block">Top & bottom on 1 A4</span>
+                <div>
+                  <span className="font-extrabold block text-[11px]">📄 Full A4 Document Page</span>
+                  <span className="text-[10px] opacity-85 block">190 × 277 mm (10 mm safe border)</span>
+                </div>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-black/10">1 Sheet</span>
               </button>
             </div>
 
@@ -2341,9 +2278,9 @@ export default function KioskPage() {
                         : 'text-slate-300 hover:text-white'
                     }`}
                   >
-                    1. Front Side {croppedFrontBlob ? '✓' : ''}
+                    1. {studioLayout === 'half_a4' ? 'Top Image' : 'Front Side'} {croppedFrontBlob ? '✓' : ''}
                   </button>
-                  {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
+                  {(studioLayout === 'id_card' || studioLayout === 'half_a4') && (
                     <button
                       type="button"
                       onClick={() => handleSwitchCropSideTab('back')}
@@ -2353,13 +2290,14 @@ export default function KioskPage() {
                           : 'text-slate-300 hover:text-white'
                       }`}
                     >
-                      2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add Back)'}
+                      2. {studioLayout === 'half_a4' ? 'Bottom Image' : 'Back Side'}{' '}
+                      {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add 2nd)'}
                     </button>
                   )}
                 </div>
 
                 <span className="text-[11px] text-emerald-400 font-bold">
-                  ✨ Free Crop (Drag any side)
+                  📐 {activeLayoutSpec.sizeMm}
                 </span>
               </div>
 
@@ -2381,7 +2319,7 @@ export default function KioskPage() {
                 <div className="w-full h-56 bg-slate-950 rounded-xl border border-dashed border-slate-700 flex flex-col items-center justify-center gap-2 p-4 text-center">
                   <p className="text-xs text-slate-400">
                     {activeCropSide === 'back'
-                      ? 'No Back Side image selected yet.'
+                      ? 'No Second / Back Side image selected yet.'
                       : 'No Front Side image selected.'}
                   </p>
                   <button
@@ -2395,7 +2333,7 @@ export default function KioskPage() {
                   >
                     <Plus className="w-4 h-4" />
                     <span>
-                      {activeCropSide === 'back' ? 'Upload Back Side Image' : 'Upload Front Side Image'}
+                      {activeCropSide === 'back' ? 'Upload Second / Back Image' : 'Upload Front Side Image'}
                     </span>
                   </button>
                 </div>
@@ -2451,7 +2389,7 @@ export default function KioskPage() {
 
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                Live 1-Sheet A4 Paper Preview (Auto-Converts to A4 PDF)
+                Live Exact A4 Sheet Preview (210 × 297 mm)
               </span>
               <canvas
                 ref={previewCanvasRef}
@@ -2520,10 +2458,10 @@ export default function KioskPage() {
                 </div>
               </div>
 
-              {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
+              {(studioLayout === 'id_card' || studioLayout === 'half_a4') && (
                 <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-1">
                   <span className="font-extrabold text-indigo-950 truncate max-w-[160px]">
-                    2. Back: {backFile ? backFile.name : 'Optional'}
+                    2. Back / 2nd: {backFile ? backFile.name : 'Optional'}
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
@@ -2538,7 +2476,7 @@ export default function KioskPage() {
                       className="min-h-[34px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1"
                     >
                       <Plus className="w-3 h-3" />
-                      <span>{backFile ? 'Change Back' : 'Add Back Image'}</span>
+                      <span>{backFile ? 'Change 2nd' : 'Add 2nd Image'}</span>
                     </button>
                     {backFile && (
                       <button
@@ -2595,7 +2533,7 @@ export default function KioskPage() {
                 className="col-span-2 sm:flex-1 min-h-[46px] py-2.5 bg-[#003399] hover:bg-blue-800 disabled:bg-slate-300 text-white font-black rounded-xl text-xs sm:text-sm shadow-lg transition flex items-center justify-center gap-1.5"
               >
                 <Check className="w-4 h-4 text-[#78C900]" />
-                <span>{applyingStudio ? 'Saving A4 PDF...' : 'Done • Apply to 1 A4 Sheet →'}</span>
+                <span>{applyingStudio ? 'Building 300 DPI PDF...' : 'Done • Apply to 1 A4 Sheet →'}</span>
               </button>
             </div>
           </div>
@@ -2611,9 +2549,9 @@ export default function KioskPage() {
             </div>
 
             <div className="space-y-1">
-              <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet!</h3>
+              <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet (300 DPI)!</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your document has been converted into a <strong>1-Page A4 PDF</strong>. Proceed or add more files.
+                Your layout has been generated at exact physical millimeter dimensions on <strong>1 A4 PDF</strong>. Proceed to print or add more files.
               </p>
             </div>
 

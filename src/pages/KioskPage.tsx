@@ -35,7 +35,9 @@ import {
   Languages,
   Crop,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  UserSquare,
+  Camera
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -75,8 +77,9 @@ interface ShopConfig {
   subscription_days?: number | null;
 }
 
-type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size';
-type CropShapeType = 'id_card' | 'free' | 'square';
+type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
+type CropShapeType = 'id_card' | 'free' | 'square' | 'passport';
+type ServiceCategory = 'document' | 'id_card' | 'photo' | 'scanner' | null;
 
 interface UploadedItem {
   id: string;
@@ -98,6 +101,7 @@ interface UploadedItem {
   layoutMode: ImageLayoutType;
   pageRangeText: string;
   hasBackImage?: boolean;
+  serviceCategory?: ServiceCategory;
 }
 
 interface PricingRule {
@@ -117,12 +121,22 @@ const KIOSK_TEXTS = {
     pinRequiredDesc: 'Please enter the 4-digit PIN displayed on the counter standee to unlock printing.',
     unlockBtn: 'Unlock Print Station',
     incorrectPin: 'Incorrect PIN. Please check the counter standee.',
-    uploadTitle: 'Tap to Select Files (PDF or ID/Document Photos)',
+    servicesTitle: 'What would you like to print?',
+    docPrintTitle: 'Document Print',
+    docPrintSub: 'PDF / Word / Images',
+    idPrintTitle: 'ID Card Print',
+    idPrintSub: 'Aadhaar / PAN / Voter ID',
+    photoPrintTitle: 'Passport Photo',
+    photoPrintSub: 'Print 8 Photos on 1 A4',
+    scanPdfTitle: 'Scan & PDF Tools',
+    scanPdfSub: 'Camera Scan / Merge / Split',
+    comingSoon: 'Coming Soon',
+    uploadTitle: 'Tap to Select Files',
     uploadReading: 'Reading & Verifying Files...',
-    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB) • Zero Paper Waste A4 Fitting',
+    uploadSub: 'Supports PDF, JPG, PNG (Max 10 MB)',
     aadhaarSafetyNote: '🔒 Privacy Notice: Please upload only the document needed. You may hide the first 8 digits of your ID number before uploading. Files are auto-deleted on schedule.',
     uploadedFiles: 'Uploaded Files',
-    addMoreBtn: 'Add More PDF / Image',
+    addMoreBtn: 'Add More Files',
     copies: 'Copies:',
     singleSided: '1-Sided',
     doubleSided: '2-Sided',
@@ -132,8 +146,8 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Proceed to Pay & Print',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Submit to Counter (Staff Will Release)',
-    cropGuidance: '📌 Drag the blue corners to trim extra edges, or tap "Apply to 1 A4 Sheet" directly!',
-    useThisCrop: 'Update Preview',
+    cropGuidance: '📌 Photo is locked steady! Drag the blue corners to crop your document.',
+    useThisCrop: 'Save & Update',
     resetCrop: 'Reset',
     manualVerifyNote: 'Note: In Manual Mode, the shop verifies your UPI payment before releasing the print.',
     invalidFileMsg: 'Invalid file format! Only authentic PDF, JPEG, and PNG files are accepted.\n\nഅസാധുവായ ഫയൽ! PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.',
@@ -148,9 +162,19 @@ const KIOSK_TEXTS = {
     pinRequiredDesc: 'പ്രിന്റിംഗ് തുടങ്ങാൻ കൗണ്ടറിലെ സ്റ്റാൻഡിയിൽ കാണുന്ന 4-അക്ക PIN നൽകുക.',
     unlockBtn: 'പ്രിന്റ് സ്റ്റേഷൻ തുറക്കുക',
     incorrectPin: 'തെറ്റായ PIN. ദയവായി കൗണ്ടറിൽ പരിശോധിക്കുക.',
-    uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോകൾ)',
+    servicesTitle: 'നിങ്ങൾക്ക് എന്താണ് പ്രിന്റ് ചെയ്യേണ്ടത്?',
+    docPrintTitle: 'ഡോക്യുമെന്റ് പ്രിന്റ്',
+    docPrintSub: 'PDF / ഫോട്ടോകൾ / ഫയലുകൾ',
+    idPrintTitle: 'ഐഡി കാർഡ് പ്രിന്റ്',
+    idPrintSub: 'ആധാർ / പാൻ / വോട്ടർ ഐഡി',
+    photoPrintTitle: 'പാസ്‌പോർട്ട് ഫോട്ടോ',
+    photoPrintSub: '8 ഫോട്ടോകൾ 1 A4 ഷീറ്റിൽ',
+    scanPdfTitle: 'സ്കാൻ & PDF ടൂളുകൾ',
+    scanPdfSub: 'ക്യാമറ സ്കാൻ / PDF എഡിറ്റിംഗ്',
+    comingSoon: 'ഉടൻ വരുന്നു',
+    uploadTitle: 'ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക',
     uploadReading: 'ഫയലുകൾ പരിശോധിക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB) • പേപ്പർ നഷ്ടമില്ലാതെ 1 A4 ഷീറ്റിൽ പ്രിന്റ്',
+    uploadSub: 'PDF, JPG, PNG (പരമാവധി 10 MB)',
     aadhaarSafetyNote: '🔒 സുരക്ഷാ അറിയിപ്പ്: ആവശ്യമുള്ള രേഖകൾ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
     addMoreBtn: 'കൂടുതൽ ഫയലുകൾ ചേർക്കുക',
@@ -163,7 +187,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക (സ്റ്റാഫ് പ്രിന്റ് നൽകും)',
-    cropGuidance: '📌 നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ക്രോപ്പ് ചെയ്യാം, അല്ലെങ്കിൽ നേരിട്ട് താഴെയുള്ള "Apply to 1 A4 Sheet" അമർത്താം!',
+    cropGuidance: '📌 ഫോട്ടോ തെന്നിമാറില്ല! നീല ബോക്സിന്റെ മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം മാത്രം സെലക്ട് ചെയ്യുക.',
     useThisCrop: 'ക്രോപ്പ് ഉറപ്പിക്കുക',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
@@ -466,7 +490,7 @@ function calculateSheetsForItem(item: UploadedItem): number {
     return Math.max(1, item.copies);
   }
   const perSide =
-    item.layoutMode === 'grid_4'
+    item.layoutMode === 'grid_4' || item.layoutMode === 'passport_8'
       ? 4
       : item.layoutMode === 'id_card' || item.layoutMode === 'half_a4'
       ? 2
@@ -497,7 +521,8 @@ export default function KioskPage() {
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
   const navigate = useNavigate();
 
-  const [lang, setLang] = useState<'en' | 'ml'>('en');
+  // DEFAULT TO MALAYALAM FOR KERALA SHOPS
+  const [lang, setLang] = useState<'en' | 'ml'>('ml');
   const t = KIOSK_TEXTS[lang];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -511,6 +536,9 @@ export default function KioskPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState(false);
+
+  // Phase 1: Service Selection Cards
+  const [selectedServiceCategory, setSelectedServiceCategory] = useState<ServiceCategory>(null);
 
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
@@ -537,8 +565,9 @@ export default function KioskPage() {
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
 
-  // Interactive Cropper.js State for Front & Back Images (Always Free Edge-to-Edge Crop for Simplicity!)
+  // Interactive Cropper.js State for Front & Back Images
   const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
+  const [cropShape, setCropShape] = useState<CropShapeType>('free');
   const [cropperSourceUrl, setCropperSourceUrl] = useState<string | null>(null);
   const [croppedFrontBlob, setCroppedFrontBlob] = useState<Blob | null>(null);
   const [croppedBackBlob, setCroppedBackBlob] = useState<Blob | null>(null);
@@ -627,6 +656,18 @@ export default function KioskPage() {
     }
   };
 
+  // Phase 1 Category Selection Click
+  const handleCategoryClick = (category: ServiceCategory) => {
+    if (category === 'scanner') {
+      alert(t.comingSoon);
+      return;
+    }
+    setSelectedServiceCategory(category);
+    setTimeout(() => {
+      if (fileInputRef.current) fileInputRef.current.click();
+    }, 100);
+  };
+
   // Supports simultaneous upload of PDFs and Images; opens Image Studio directly when any image is uploaded!
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
@@ -659,6 +700,13 @@ export default function KioskPage() {
       const file = fileKind === 'image' ? await compressLargeImageInBrowser(rawFile) : rawFile;
       const pages = fileKind === 'pdf' ? await getPageCount(file) : 1;
 
+      // Automatically smart-route based on the category the user clicked on the home screen!
+      let initialLayout: ImageLayoutType = 'fit_a4';
+      if (fileKind === 'image') {
+        if (selectedServiceCategory === 'id_card') initialLayout = 'id_card';
+        if (selectedServiceCategory === 'photo') initialLayout = 'passport_8';
+      }
+
       const newItem: UploadedItem = {
         id: `${Date.now()}-${i}-${Math.random().toString(36).substr(2, 5)}`,
         file,
@@ -672,12 +720,13 @@ export default function KioskPage() {
         totalPdfPages: pages,
         pages,
         copies: 1,
-        isColor: false,
+        isColor: selectedServiceCategory === 'photo' ? true : false, // Passport defaults to Color
         isDoubleSided: false,
         paperSize: 'A4',
-        layoutMode: 'fit_a4',
+        layoutMode: initialLayout,
         pageRangeText: '',
-        hasBackImage: false
+        hasBackImage: false,
+        serviceCategory: selectedServiceCategory
       };
 
       if (fileKind === 'pdf') {
@@ -688,7 +737,7 @@ export default function KioskPage() {
     }
 
     // If user uploaded 2 images together (e.g. Front & Back of ID card), pair them into 1 item and open Studio directly!
-    if (newImageItems.length >= 2) {
+    if (newImageItems.length >= 2 && selectedServiceCategory === 'id_card') {
       const primaryImageItem: UploadedItem = {
         ...newImageItems[0],
         backOriginalFile: newImageItems[1].originalFile,
@@ -715,8 +764,10 @@ export default function KioskPage() {
   const openImageStudio = (item: UploadedItem, preloadedBackFile?: File | null) => {
     setEditingItem(item);
     setFrontFile(item.originalFile);
-    const initialLayout = item.layoutMode === 'fit_a4' ? 'id_card' : item.layoutMode;
+    const initialLayout = item.layoutMode === 'fit_a4' && item.serviceCategory === 'id_card' ? 'id_card' : item.layoutMode;
     setStudioLayout(initialLayout);
+    // Auto-select Passport ratio (35/45=0.777) if photo category, else free crop
+    setCropShape(initialLayout === 'passport_8' ? 'passport' : 'free');
     setActiveCropSide('front');
     setFrontRotation(0);
     setFrontCropPct(0);
@@ -753,8 +804,7 @@ export default function KioskPage() {
     };
   }, [editingItem, activeCropSide, frontFile, backFile]);
 
-  // Initialize Cropper.js instance: ALWAYS FREE CROP (aspectRatio: NaN) & PHOTO LOCKED STEADY
-  // so any common man can simply drag any of the 4 sides or corners without fighting a ratio lock!
+  // Initialize Cropper.js instance: PHOTO IS LOCKED STEADY
   useEffect(() => {
     let mounted = true;
     async function initCropper() {
@@ -771,8 +821,11 @@ export default function KioskPage() {
       const CropperClass = (window as any).Cropper;
       if (!CropperClass) return;
 
+      const aspectRatio =
+        cropShape === 'id_card' ? 1.586 : cropShape === 'square' ? 1 : cropShape === 'passport' ? (35 / 45) : NaN;
+
       cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
-        aspectRatio: NaN, // Always Free Crop (Edge-to-Edge like Paint)
+        aspectRatio: aspectRatio,
         viewMode: 1, // Restrict crop box to never exceed the photo boundaries
         dragMode: 'none', // Locks photo steady so dragging fingers only moves the crop box
         movable: false,
@@ -806,6 +859,15 @@ export default function KioskPage() {
       }
     };
   }, [cropperSourceUrl]);
+
+  // Update aspect ratio immediately without resetting the photo when dropdown changes
+  const handleChangeCropShape = (newShape: CropShapeType) => {
+    setCropShape(newShape);
+    if (cropperInstanceRef.current && isCropperReady) {
+      const ratio = newShape === 'id_card' ? 1.586 : newShape === 'square' ? 1 : newShape === 'passport' ? (35 / 45) : NaN;
+      cropperInstanceRef.current.setAspectRatio(ratio);
+    }
+  };
 
   // Helper to get a clean cropped Blob from current active Cropper.js instance
   const extractCurrentCropperBlob = async (): Promise<Blob | null> => {
@@ -851,10 +913,12 @@ export default function KioskPage() {
     setTimeout(() => setCropAppliedToast(null), 2200);
   };
 
-  // "Reset" button handler in Cropper.js
+  // "Reset" button handler in Cropper.js (resets back to full photo and selected shape)
   const handleResetCropper = () => {
     if (cropperInstanceRef.current && isCropperReady) {
       cropperInstanceRef.current.reset();
+      const ratio = cropShape === 'id_card' ? 1.586 : cropShape === 'square' ? 1 : cropShape === 'passport' ? (35 / 45) : NaN;
+      cropperInstanceRef.current.setAspectRatio(ratio);
     }
     if (activeCropSide === 'front') {
       setCroppedFrontBlob(null);
@@ -893,7 +957,7 @@ export default function KioskPage() {
     }
   };
 
-  // Optional Step-Zoom Buttons (+ / -)
+  // Optional Step-Zoom Buttons (+ / -) while keeping touch drag locked
   const handleZoomCropper = (delta: number) => {
     if (cropperInstanceRef.current && isCropperReady) {
       cropperInstanceRef.current.zoom(delta);
@@ -1026,7 +1090,7 @@ export default function KioskPage() {
         ctx.fillStyle = '#94a3b8';
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('No Image Selected — Tap "+ Add Image" below', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('No Image Selected — Tap "+ Add" below', canvas.width / 2, canvas.height / 2);
         return;
       }
 
@@ -1060,6 +1124,24 @@ export default function KioskPage() {
               true,
               true
             );
+          }
+        } else if (studioLayout === 'passport_8') {
+          // 8 Passport Photos (35x45mm scale -> roughly 70x90px on 420x594 preview canvas)
+          const pW = 70;
+          const pH = 90;
+          const spacingX = 15;
+          const spacingY = 20;
+          const startX = (canvas.width - (pW * 4 + spacingX * 3)) / 2;
+          const startY = 40;
+          
+          for (let row = 0; row < 2; row++) {
+            for (let col = 0; col < 4; col++) {
+              drawProcessedImage(
+                ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 
+                startX + col * (pW + spacingX), startY + row * (pH + spacingY), 
+                pW, pH, true, false
+              );
+            }
           }
         } else if (studioLayout === 'half_a4') {
           const boxW = 360;
@@ -1189,6 +1271,25 @@ export default function KioskPage() {
             true,
             true
           );
+        }
+      } else if (studioLayout === 'passport_8') {
+        // High-Res Passport Tiling (8 copies of 35x45mm) on top half of A4
+        // 35x45mm at ~150 DPI is roughly 206x265 px
+        const pW = 206;
+        const pH = 265;
+        const spacingX = 45;
+        const spacingY = 60;
+        const startX = (a4W - (pW * 4 + spacingX * 3)) / 2;
+        const startY = 120;
+        
+        for (let row = 0; row < 2; row++) {
+          for (let col = 0; col < 4; col++) {
+            drawProcessedImage(
+              ctx, frontImg, finalFrontBlob ? 0 : frontRotation, frontCropPct, 
+              startX + col * (pW + spacingX), startY + row * (pH + spacingY), 
+              pW, pH, true, false
+            );
+          }
         }
       } else if (studioLayout === 'half_a4') {
         const boxW = 1080;
@@ -1609,13 +1710,13 @@ export default function KioskPage() {
         </header>
 
         <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
-          {/* MOVE INPUT HERE SO IT IS ALWAYS AVAILABLE IN DOM */}
+          {/* ALWAYS VISIBLE FILE INPUT */}
           <input
             type="file"
             multiple
             ref={fileInputRef}
             onChange={handleFileSelect}
-            accept=".pdf,.png,.jpg,.jpeg"
+            accept={selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo' ? '.png,.jpg,.jpeg' : '.pdf,.png,.jpg,.jpeg'}
             className="hidden"
           />
 
@@ -1680,18 +1781,54 @@ export default function KioskPage() {
           ) : (
             <>
               {items.length === 0 ? (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-7 sm:p-8 rounded-3xl text-center cursor-pointer transition space-y-2.5"
-                >
-                  <div className="w-12 h-12 bg-white text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                    <UploadCloud className="w-6 h-6" />
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="text-center space-y-1 mb-6">
+                    <h2 className="text-lg font-black text-slate-900">{t.servicesTitle}</h2>
+                    <p className="text-xs text-slate-500">{t.uploadSub}</p>
                   </div>
-                  <h3 className="font-extrabold text-slate-900 text-sm">
-                    {isProcessingFiles ? t.uploadReading : t.uploadTitle}
-                  </h3>
-                  <p className="text-[11px] text-slate-600">{t.uploadSub}</p>
-                  <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed max-w-md mx-auto">
+                  
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    <button onClick={() => handleCategoryClick('document')} className="bg-white border-2 border-slate-200 hover:border-emerald-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                      <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                        <FileText className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.docPrintTitle}</h3>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{t.docPrintSub}</p>
+                      </div>
+                    </button>
+
+                    <button onClick={() => handleCategoryClick('id_card')} className="bg-white border-2 border-slate-200 hover:border-indigo-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                      <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                        <UserSquare className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.idPrintTitle}</h3>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{t.idPrintSub}</p>
+                      </div>
+                    </button>
+
+                    <button onClick={() => handleCategoryClick('photo')} className="bg-white border-2 border-slate-200 hover:border-pink-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                      <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                        <Camera className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.photoPrintTitle}</h3>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{t.photoPrintSub}</p>
+                      </div>
+                    </button>
+
+                    <button onClick={() => handleCategoryClick('scanner')} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px] opacity-75">
+                      <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                        <UploadCloud className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.scanPdfTitle}</h3>
+                        <p className="text-[10px] font-black text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full inline-block mt-1">{t.comingSoon}</p>
+                      </div>
+                    </button>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-3 text-[11px] text-slate-600 leading-relaxed text-center mt-4">
                     {t.aadhaarSafetyNote}
                   </div>
                 </div>
@@ -1703,7 +1840,10 @@ export default function KioskPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => {
+                        setSelectedServiceCategory(null);
+                        if (fileInputRef.current) fileInputRef.current.click();
+                      }}
                       className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -1749,7 +1889,12 @@ export default function KioskPage() {
                                   </strong>
                                   {item.layoutMode === 'id_card' && (
                                     <span className="ml-1.5 text-indigo-600 font-bold">
-- 🪪 ID Card (2-in-1) {item.hasBackImage ? 'Front+Back' : ''}
+                                      • 🪪 ID Card (2-in-1) {item.hasBackImage ? 'Front+Back' : ''}
+                                    </span>
+                                  )}
+                                  {item.layoutMode === 'passport_8' && (
+                                    <span className="ml-1.5 text-pink-600 font-bold">
+                                      • 📸 Passport (8 Pics)
                                     </span>
                                   )}
                                 </p>
@@ -1764,7 +1909,7 @@ export default function KioskPage() {
                                   className="min-h-[38px] px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] transition flex items-center gap-1"
                                 >
                                   <Scissors className="w-3.5 h-3.5" />
-                                  <span>{item.layoutMode === 'id_card' ? 'Edit ID 2-in-1' : 'Crop / Layout'}</span>
+                                  <span>Edit / Crop</span>
                                 </button>
                               )}
                               <button
@@ -2050,7 +2195,10 @@ export default function KioskPage() {
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => setStudioLayout('id_card')}
+                onClick={() => {
+                  setStudioLayout('id_card');
+                  handleChangeCropShape('id_card');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'id_card'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -2063,7 +2211,10 @@ export default function KioskPage() {
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('fit_a4')}
+                onClick={() => {
+                  setStudioLayout('fit_a4');
+                  handleChangeCropShape('free');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'fit_a4'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -2076,7 +2227,10 @@ export default function KioskPage() {
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('half_a4')}
+                onClick={() => {
+                  setStudioLayout('half_a4');
+                  handleChangeCropShape('free');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'half_a4'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -2089,7 +2243,10 @@ export default function KioskPage() {
 
               <button
                 type="button"
-                onClick={() => setStudioLayout('grid_4')}
+                onClick={() => {
+                  setStudioLayout('grid_4');
+                  handleChangeCropShape('free');
+                }}
                 className={`p-2.5 rounded-2xl border text-left transition ${
                   studioLayout === 'grid_4'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -2101,7 +2258,7 @@ export default function KioskPage() {
               </button>
             </div>
 
-            {/* LARGE, FREE-HAND CROPPER BOX (NO CONFUSING RATIO DROPDOWN!) */}
+            {/* LARGE, FREE-HAND CROPPER BOX */}
             <div className="bg-slate-900 text-white p-3.5 rounded-2xl space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
@@ -2114,7 +2271,7 @@ export default function KioskPage() {
                         : 'text-slate-300 hover:text-white'
                     }`}
                   >
-1. Front Side {croppedFrontBlob ? '✓' : ''}
+                    1. Front Side {croppedFrontBlob ? '✓' : ''}
                   </button>
                   {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
                     <button
@@ -2126,17 +2283,27 @@ export default function KioskPage() {
                           : 'text-slate-300 hover:text-white'
                       }`}
                     >
-2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add Back)'}
+                      2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add Back)'}
                     </button>
                   )}
                 </div>
 
-                <span className="text-[11px] text-emerald-400 font-bold">
-                  ✨ Free Crop (Drag any side)
-                </span>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Crop className="w-3.5 h-3.5 text-emerald-400" />
+                  <select
+                    value={cropShape}
+                    onChange={(e) => handleChangeCropShape(e.target.value as CropShapeType)}
+                    className="bg-slate-800 border border-slate-700 text-white font-bold text-[11px] px-2.5 py-1.5 rounded-xl outline-none"
+                  >
+                    <option value="free">Free (edge to edge)</option>
+                    <option value="id_card">ID card 1.586:1 (Aadhaar / PAN)</option>
+                    <option value="passport">Passport 35x45</option>
+                    <option value="square">Square 1:1</option>
+                  </select>
+                </div>
               </div>
 
-              {/* Extra-Tall 320px/340px Viewport so photos are big and easy to crop on mobile */}
+              {/* Extra-Tall Viewport */}
               {cropperSourceUrl ? (
                 <div className="w-full h-72 sm:h-80 bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center relative">
                   {isRotatingFile && (
@@ -2226,7 +2393,7 @@ export default function KioskPage() {
             {/* Live A4 Sheet Preview Box */}
             <div className="bg-slate-200/80 p-3 rounded-2xl flex flex-col items-center">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 mb-1.5">
-                Live 1-Sheet A4 Paper Preview (No Paper Waste)
+                Live A4 Paper Sheet Preview
               </span>
               <canvas
                 ref={previewCanvasRef}
@@ -2269,85 +2436,6 @@ export default function KioskPage() {
               }}
               className="hidden"
             />
-
-            {/* Front & Back Image Quick Change / Remove / Clarity Controls */}
-            <div className="space-y-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-xs">
-              <div className="flex items-center justify-between gap-1">
-                <span className="font-extrabold text-slate-800 truncate max-w-[160px]">
-1. Front: {frontFile ? frontFile.name : 'None'}
-                </span>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => studioFrontInputRef.current?.click()}
-                    className="min-h-[34px] px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>Change</span>
-                  </button>
-                  {frontFile && (
-                    <button
-                      type="button"
-                      onClick={handleRemoveFrontInStudio}
-                      className="min-h-[34px] px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px]"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
-                <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-1">
-                  <span className="font-extrabold text-indigo-950 truncate max-w-[160px]">
-2. Back: {backFile ? backFile.name : 'Optional'}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (activeCropSide === 'front') {
-                          const fBlob = await extractCurrentCropperBlob();
-                          if (fBlob) setCroppedFrontBlob(fBlob);
-                        }
-                        studioBackInputRef.current?.click();
-                      }}
-                      className="min-h-[34px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center gap-1"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>{backFile ? 'Change Back' : 'Add Back Image'}</span>
-                    </button>
-                    {backFile && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBackFile(null);
-                          setCroppedBackBlob(null);
-                          setActiveCropSide('front');
-                        }}
-                        className="min-h-[34px] px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg font-bold text-[10px]"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
-                <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-[11px] text-slate-500 w-20 shrink-0">Brightness:</span>
-                <input
-                  type="range"
-                  min={80}
-                  max={140}
-                  value={brightness}
-                  onChange={(e) => setBrightness(Number(e.target.value))}
-                  className="flex-1 accent-emerald-600"
-                />
-                <span className="text-[10px] font-mono font-bold text-slate-700 w-8">{brightness}%</span>
-              </div>
-            </div>
 
             <div className="flex gap-2 pt-1">
               <button

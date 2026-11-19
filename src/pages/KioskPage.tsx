@@ -68,13 +68,15 @@ interface ShopConfig {
   gateway_provider?: string | null;
   gateway_key_id?: string | null;
   split_payment_enabled?: boolean;
-  // Duplex, Expiry & ID Card 2-in-1 Pricing Fields
   duplex_supported?: boolean;
   id_card_bw_price?: number | null;
   id_card_color_price?: number | null;
   created_at?: string;
   approved_at?: string | null;
   subscription_days?: number | null;
+  target_printer_name?: string | null;
+  photo_printer_name?: string | null; // Phase 2: For Multi-Printer Routing
+  color_printer_name?: string | null; // Phase 2: For Multi-Printer Routing
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_8';
@@ -97,7 +99,6 @@ interface UploadedItem {
   isColor: boolean;
   isDoubleSided: boolean;
   paperSize: string;
-  // Image Layout & PDF Page Range Options
   layoutMode: ImageLayoutType;
   pageRangeText: string;
   hasBackImage?: boolean;
@@ -432,7 +433,7 @@ export default function KioskPage() {
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // New State for Professional Mobile Homepage Categories
+  // Phase 1: Service Selection Cards
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<ServiceCategory>(null);
 
   const [items, setItems] = useState<UploadedItem[]>([]);
@@ -459,6 +460,9 @@ export default function KioskPage() {
   const [contrast, setContrast] = useState<number>(110);
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
+  
+  // Track if this item is newly uploaded so we can discard it if user hits X without applying
+  const isNewItemBeingEdited = useRef<boolean>(false);
 
   const [activeCropSide, setActiveCropSide] = useState<'front' | 'back'>('front');
   const [cropShape, setCropShape] = useState<CropShapeType>('free');
@@ -483,16 +487,9 @@ export default function KioskPage() {
     async function init() {
       setLoadingShop(true);
       try {
-        const { data: shopData } = await supabase
-          .from('shops')
-          .select('*')
-          .eq('slug', activeSlug)
-          .single();
-
+        const { data: shopData } = await supabase.from('shops').select('*').eq('slug', activeSlug).single();
         if (shopData) {
-          const approvalDate = shopData.approved_at 
-            ? new Date(shopData.approved_at).getTime() 
-            : new Date(shopData.created_at || Date.now()).getTime();
+          const approvalDate = shopData.approved_at ? new Date(shopData.approved_at).getTime() : new Date(shopData.created_at || Date.now()).getTime();
           const elapsedDays = Math.floor((Date.now() - approvalDate) / (1000 * 60 * 60 * 24));
           const remainingDays = Math.max(0, (shopData.subscription_days || 7) - elapsedDays);
 
@@ -520,11 +517,9 @@ export default function KioskPage() {
     e.preventDefault();
     if (!shop) return;
     if (enteredPin.trim() === (shop.counter_pin || '1234').trim()) {
-      setIsUnlocked(true);
-      setPinError(false);
+      setIsUnlocked(true); setPinError(false);
     } else {
-      setPinError(true);
-      setEnteredPin('');
+      setPinError(true); setEnteredPin('');
     }
   };
 
@@ -533,12 +528,9 @@ export default function KioskPage() {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       return pdf.numPages || 1;
-    } catch {
-      return 1;
-    }
+    } catch { return 1; }
   };
 
-  // Phase 1 Category Selection Click
   const handleCategoryClick = (category: ServiceCategory) => {
     setSelectedServiceCategory(category);
     setTimeout(() => {
@@ -555,6 +547,7 @@ export default function KioskPage() {
     const newPdfItems: UploadedItem[] = [];
     const newImageItems: UploadedItem[] = [];
 
+    // Process all files in a loop to fix multiple upload bug!
     for (let i = 0; i < selectedFiles.length; i++) {
       const rawFile = selectedFiles[i];
 
@@ -601,11 +594,12 @@ export default function KioskPage() {
       };
       const remainingImages = newImageItems.slice(2);
       setItems((prev) => [...prev, ...newPdfItems, primaryImageItem, ...remainingImages]);
+      isNewItemBeingEdited.current = true;
       openImageStudio(primaryImageItem, newImageItems[1].originalFile);
-    } else if (newImageItems.length === 1) {
-      const singleImageItem = newImageItems[0];
-      setItems((prev) => [...prev, ...newPdfItems, singleImageItem]);
-      openImageStudio(singleImageItem);
+    } else if (newImageItems.length > 0) {
+      setItems((prev) => [...prev, ...newPdfItems, ...newImageItems]);
+      isNewItemBeingEdited.current = true;
+      openImageStudio(newImageItems[0]);
     } else if (newPdfItems.length > 0) {
       setItems((prev) => [...prev, ...newPdfItems]);
     }
@@ -760,6 +754,15 @@ export default function KioskPage() {
     if (!editingItem) return;
     removeItem(editingItem.id);
     setEditingItem(null);
+    isNewItemBeingEdited.current = false;
+  };
+
+  const handleCancelStudio = () => {
+    if (isNewItemBeingEdited.current && editingItem) {
+      removeItem(editingItem.id);
+    }
+    setEditingItem(null);
+    isNewItemBeingEdited.current = false;
   };
 
   const drawProcessedImage = (
@@ -810,7 +813,7 @@ export default function KioskPage() {
 
       if (!frontFile) {
         ctx.fillStyle = '#94a3b8'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText('No Image Selected — Tap "+ Add" below', canvas.width / 2, canvas.height / 2); return;
+        ctx.fillText('No Image Selected — Tap "+ Add Image" below', canvas.width / 2, canvas.height / 2); return;
       }
 
       try {
@@ -960,6 +963,7 @@ export default function KioskPage() {
         pages: 1, hasBackImage: Boolean(backFile)
       });
 
+      isNewItemBeingEdited.current = false;
       setLastEditedItemId(editingItem.id);
       setEditingItem(null);
       setShowEditConfirmPopup(true);
@@ -1010,7 +1014,7 @@ export default function KioskPage() {
     if (!shop || items.length === 0) return;
     setSubmittingOrder(true);
     try {
-      const { data: latestShop } = await supabase.from('shops').select('auto_print_enabled, require_payment, split_payment_enabled').eq('id', shop.id).maybeSingle();
+      const { data: latestShop } = await supabase.from('shops').select('auto_print_enabled, require_payment, split_payment_enabled, target_printer_name, color_printer_name, photo_printer_name').eq('id', shop.id).maybeSingle();
       const isAutoPilot = latestShop ? Boolean(latestShop.auto_print_enabled) : Boolean(shop.auto_print_enabled);
       const isCashMode = !(latestShop ? latestShop.require_payment : shop.require_payment);
       const isGatewayVerified = Boolean(verifiedGatewayPaymentId);
@@ -1062,7 +1066,28 @@ export default function KioskPage() {
         const itemTotal = Number(calculateItemPrice(item).toFixed(2));
         const displayDocName = item.fileKind === 'image' && item.layoutMode === 'id_card' ? `[ID-2in1] ${item.name}` : item.fileKind === 'image' && item.layoutMode === 'grid_4' ? `[4-Per-Page] ${item.name}` : item.pageRangeText ? `[Pages ${item.pageRangeText}] ${item.name}` : item.name;
 
-        const { error: orderError } = await supabase.from('print_orders').insert([{ shop_id: shop.id, order_number: orderNumber, file_name: displayDocName, file_url: storagePath, page_count: calculateSheetsForItem(item), copies: item.copies, is_color: item.isColor, is_double_sided: item.isDoubleSided, paper_size: item.paperSize, total_amount: itemTotal, status: targetStatus, payment_ref: finalPaymentRef }]);
+        // Dynamic Multi-Printer Routing Logic
+        let routedPrinter = shop.target_printer_name;
+        if (latestShop) {
+          if (item.serviceCategory === 'photo' && latestShop.photo_printer_name) routedPrinter = latestShop.photo_printer_name;
+          else if (item.isColor && latestShop.color_printer_name) routedPrinter = latestShop.color_printer_name;
+        }
+
+        const { error: orderError } = await supabase.from('print_orders').insert([{ 
+          shop_id: shop.id, 
+          order_number: orderNumber, 
+          file_name: displayDocName, 
+          file_url: storagePath, 
+          page_count: calculateSheetsForItem(item), 
+          copies: item.copies, 
+          is_color: item.isColor, 
+          is_double_sided: item.isDoubleSided, 
+          paper_size: item.paperSize, 
+          total_amount: itemTotal, 
+          status: targetStatus, 
+          payment_ref: finalPaymentRef,
+          target_printer_name: routedPrinter
+        }]);
         if (orderError) throw orderError;
       }
       try { await supabase.from('shop_transactions').insert([{ shop_id: shop.id, order_number: orderNumber, amount: Number(formattedAmount), payment_mode: isGatewayVerified ? activeGatewayProvider.toUpperCase() : isCashMode ? 'CASH' : 'UPI', collection_type: shop.split_payment_enabled ? 'SPLIT_SETTLEMENT' : 'DIRECT_SHOP', payment_ref: finalPaymentRef, status: targetStatus }]); } catch {}
@@ -1222,7 +1247,7 @@ export default function KioskPage() {
                       </div>
                     </button>
 
-                    <button onClick={() => { if (fileInputRef.current) fileInputRef.current.click(); }} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px]">
+                    <button onClick={() => handleCategoryClick('scanner')} className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-lg rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center gap-3 transition text-center group min-h-[140px] opacity-90">
                       <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
                         <UploadCloud className="w-7 h-7" />
                       </div>
@@ -1396,7 +1421,7 @@ export default function KioskPage() {
                 <h3 className="font-black text-slate-900 text-sm flex items-center gap-1.5"><Scissors className="w-4 h-4 text-indigo-600" /><span>A4 Page Layout & Crop Studio</span></h3>
                 <p className="text-[11px] text-slate-500">Drag blue corners to crop, then tap Save.</p>
               </div>
-              <button type="button" onClick={() => setEditingItem(null)} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"><X className="w-4 h-4" /></button>
+              <button type="button" onClick={handleCancelStudio} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"><X className="w-4 h-4" /></button>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1432,7 +1457,7 @@ export default function KioskPage() {
                 <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl">
                   <button type="button" onClick={() => handleSwitchCropSideTab('front')} className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${activeCropSide === 'front' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'}`}>1. Front Side {croppedFrontBlob ? '✓' : ''}</button>
                   {(studioLayout === 'id_card' || studioLayout === 'half_a4' || studioLayout === 'grid_4') && (
-                    <button type="button" onClick={() => handleSwitchCropSideTab('back')} className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${activeCropSide === 'back' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:text-white'}`}>2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add Back)'}</button>
+                    <button type="button" onClick={() => handleSwitchCropSideTab('back')} className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${activeCropSide === 'back' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:text-white'}`}>2. Back Side {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add)'}</button>
                   )}
                 </div>
 
@@ -1506,7 +1531,7 @@ export default function KioskPage() {
 
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={handleDeleteItemFromStudio} className="min-h-[46px] px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 font-bold rounded-xl text-xs text-rose-700 flex items-center justify-center gap-1"><Trash2 className="w-3.5 h-3.5" /><span>Discard File</span></button>
-              <button type="button" onClick={() => setEditingItem(null)} className="min-h-[46px] px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-xs text-slate-700">Keep Original</button>
+              <button type="button" onClick={handleCancelStudio} className="min-h-[46px] px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-xs text-slate-700">Cancel / Keep Original</button>
               <button type="button" disabled={applyingStudio || !frontFile} onClick={handleApplyImageStudio} className="flex-1 min-h-[46px] py-2.5 bg-[#003399] hover:bg-blue-800 disabled:bg-slate-300 text-white font-black rounded-xl text-xs sm:text-sm shadow-lg transition flex items-center justify-center gap-1.5"><Check className="w-4 h-4 text-[#78C900]" /><span>{applyingStudio ? 'Saving A4 PDF...' : 'Done • Apply to 1 A4 Sheet →'}</span></button>
             </div>
           </div>

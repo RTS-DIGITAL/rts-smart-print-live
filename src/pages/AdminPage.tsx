@@ -35,7 +35,11 @@ import {
   Building2,
   Clock,
   Scissors,
-  Layers
+  Layers,
+  Camera,
+  UserSquare,
+  UploadCloud,
+  Sparkles
 } from 'lucide-react';
 
 interface ShopData {
@@ -47,6 +51,7 @@ interface ShopData {
   upi_id: string | null;
   upi_name?: string | null;
   target_printer_name: string | null;
+  photo_printer_name?: string | null;
   counter_notice: string | null;
   is_accepting_orders: boolean;
   require_payment: boolean;
@@ -77,10 +82,19 @@ interface ShopData {
   bank_account_number?: string | null;
   bank_ifsc?: string | null;
   daily_statement_enabled?: boolean;
-  // Duplex & ID Card 2-in-1 Custom Rate Fields
+  // Duplex & ID Card 2-in-1 / Passport Custom Rate Fields
   duplex_supported?: boolean;
   id_card_bw_price?: number | null;
   id_card_color_price?: number | null;
+  passport_bw_price?: number | null;
+  passport_color_price?: number | null;
+  // Kiosk Feature Controls (Shop Admin & Super Admin Plan Locks)
+  id_card_enabled?: boolean;
+  passport_enabled?: boolean;
+  scan_pdf_enabled?: boolean;
+  plan_id_card_allowed?: boolean;
+  plan_passport_allowed?: boolean;
+  plan_scan_pdf_allowed?: boolean;
 }
 
 interface OrderRow {
@@ -183,10 +197,10 @@ const SHOP_ADMIN_FAQS = [
   },
   {
     id: 'q6',
-    qEn: '6. How do I connect my shop computer to RTS Smart Print?',
-    aEn: '1. Log in to the Shop Admin Dashboard and copy your permanent 6-digit pairing code.\n2. Download the PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Install it on the shop computer and run it.\n4. Enter the 6-digit pairing code when asked.\nThe pairing code does not change when you refresh the page. You can download the agent up to 3 times per account. If you need more, request re-download approval from RTS Support.',
-    qMl: '6. കടയിലെ കമ്പ്യൂട്ടർ എങ്ങനെ കണക്റ്റ് ചെയ്യാം?',
-    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്ത് റൺ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക.\nഈ കോഡ് പേജ് റീഫ്രഷ് ചെയ്താലും മാറില്ല. 3 തവണ വരെ സോഫ്റ്റ്‌വെയർ ഡൗൺലോഡ് ചെയ്യാം.'
+    qEn: '6. How do I connect or update my shop computer Print Agent?',
+    aEn: '1. Log in to the Shop Admin Dashboard and copy your permanent 6-digit pairing code.\n2. Download the latest PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Close any running rts_agent in Task Manager, install the new setup, and run it.\n4. Enter your 6-digit pairing code when asked (if resetting pairing code, clear %LOCALAPPDATA%\\RTS_Smart_Print\\rts_agent_config.json).',
+    qMl: '6. കടയിലെ കമ്പ്യൂട്ടർ എങ്ങനെ കണക്റ്റ് / അപ്ഡേറ്റ് ചെയ്യാം?',
+    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. പുതിയ RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്ത് റൺ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക. പഴയ സെറ്റപ്പ് അപ്‌ഡേറ്റ് ചെയ്യുമ്പോൾ ആദ്യം പഴയ ആപ്പ് ക്ലോസ് ചെയ്ത ശേഷം പുതിയത് ഇൻസ്റ്റാൾ ചെയ്യുക.'
   },
   {
     id: 'q7',
@@ -267,6 +281,7 @@ export default function AdminPage() {
   const [upiName, setUpiName] = useState('');
   const [targetPrinter, setTargetPrinter] = useState('');
   const [isCustomPrinter, setIsCustomPrinter] = useState(false);
+  const [photoPrinter, setPhotoPrinter] = useState('');
   const [counterNotice, setCounterNotice] = useState('');
   const [isAccepting, setIsAccepting] = useState(true);
   const [requirePayment, setRequirePayment] = useState(false);
@@ -275,6 +290,11 @@ export default function AdminPage() {
   const [adminPin, setAdminPin] = useState('123456');
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
+
+  // Kiosk Service Toggles (ID Card, Passport Photo, Scan & PDF Tools)
+  const [idCardEnabled, setIdCardEnabled] = useState(true);
+  const [passportEnabled, setPassportEnabled] = useState(true);
+  const [scanPdfEnabled, setScanPdfEnabled] = useState(true);
 
   // Self Payment Gateway (Razorpay / Cashfree / PhonePe) & Split Bank States
   const [gatewayEnabled, setGatewayEnabled] = useState(false);
@@ -288,10 +308,12 @@ export default function AdminPage() {
   const [bankIfsc, setBankIfsc] = useState('');
   const [dailyStatementEnabled, setDailyStatementEnabled] = useState(true);
 
-  // Duplex & ID Card 2-in-1 Custom Pricing States
+  // Duplex, ID Card 2-in-1 & Passport Photo Custom Pricing States
   const [duplexSupported, setDuplexSupported] = useState(true);
   const [idCardBwPrice, setIdCardBwPrice] = useState<number>(5);
   const [idCardColorPrice, setIdCardColorPrice] = useState<number>(15);
+  const [passportBwPrice, setPassportBwPrice] = useState<number>(20);
+  const [passportColorPrice, setPassportColorPrice] = useState<number>(40);
 
   // 1-Month Statement & Transaction Ledger States
   const [transactions, setTransactions] = useState<TransactionLedgerRow[]>([]);
@@ -420,10 +442,11 @@ export default function AdminPage() {
       setOwnerEmail(shopRes.owner_email || '');
       setUpiId(shopRes.upi_id || '');
       setUpiName(shopRes.upi_name || '');
-      
+
       const savedPrinter = shopRes.target_printer_name || 'Microsoft Print to PDF';
       setTargetPrinter(savedPrinter);
       setIsCustomPrinter(Boolean(savedPrinter && !COMMON_PRINTERS.includes(savedPrinter)));
+      setPhotoPrinter(shopRes.photo_printer_name || '');
 
       setCounterNotice(shopRes.counter_notice || '');
       setIsAccepting(shopRes.is_accepting_orders ?? true);
@@ -433,6 +456,15 @@ export default function AdminPage() {
       setAdminPin(shopRes.admin_pin || '123456');
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
       setAutoDeleteHours(shopRes.auto_delete_hours || 24);
+
+      // Load Kiosk Feature Toggles (Respects Super Admin Plan Overrides)
+      const planAllowsId = shopRes.plan_id_card_allowed !== false;
+      const planAllowsPassport = shopRes.plan_passport_allowed !== false;
+      const planAllowsScan = shopRes.plan_scan_pdf_allowed !== false;
+
+      setIdCardEnabled(planAllowsId ? (shopRes.id_card_enabled ?? true) : false);
+      setPassportEnabled(planAllowsPassport ? (shopRes.passport_enabled ?? true) : false);
+      setScanPdfEnabled(planAllowsScan ? (shopRes.scan_pdf_enabled ?? true) : false);
 
       // Load Self Gateway & Split Settings
       setGatewayEnabled(Boolean(shopRes.gateway_enabled));
@@ -445,10 +477,12 @@ export default function AdminPage() {
       setBankIfsc(shopRes.bank_ifsc || '');
       setDailyStatementEnabled(shopRes.daily_statement_enabled ?? true);
 
-      // Load Duplex & ID Card 2-in-1 Custom Pricing
+      // Load Duplex & ID Card / Passport Custom Pricing
       setDuplexSupported(shopRes.duplex_supported ?? true);
       setIdCardBwPrice(Number(shopRes.id_card_bw_price ?? 5));
       setIdCardColorPrice(Number(shopRes.id_card_color_price ?? 15));
+      setPassportBwPrice(Number(shopRes.passport_bw_price ?? 20));
+      setPassportColorPrice(Number(shopRes.passport_color_price ?? 40));
 
       const { data: ordersRes } = await supabase
         .from('print_orders')
@@ -483,7 +517,7 @@ export default function AdminPage() {
         setTransactions(fallbackTx);
       }
 
-      // Ensure all 6 standard pricing rules exist for every shop (A4 B&W/Color Single & Double, Letter, Legal)
+      // Ensure all 6 standard pricing rules exist for every shop
       const { data: pricingRes } = await supabase
         .from('pricing_rules')
         .select('*')
@@ -585,7 +619,7 @@ export default function AdminPage() {
     return () => clearInterval(digestInterval);
   }, [shop, dailyStatementEnabled, transactions]);
 
-  // Auto-Expire Shop Admin Live Chat Session after customizable timeout (5, 10, 15, 20 min)
+  // Auto-Expire Shop Admin Live Chat Session after customizable timeout
   useEffect(() => {
     if (!shopChatSessionId || !shopChatStartedAt) return;
     const timeoutMs = (chatTimeoutMinutes || 10) * 60 * 1000;
@@ -656,7 +690,7 @@ export default function AdminPage() {
     shopChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [shopChatMessages, supportOpen, supportTab]);
 
-  // Start Live Chat Session from Shop Admin to Super Admin (First Submit sends 1 email alert)
+  // Start Live Chat Session from Shop Admin to Super Admin
   const handleStartShopLiveChat = async () => {
     if (!shop) return;
     setStartingShopChat(true);
@@ -955,41 +989,62 @@ export default function AdminPage() {
     setSaving(true);
     try {
       const cleanAdminPin = adminPin.trim() || '123456';
+
+      // Core update payload
+      const corePayload: Record<string, any> = {
+        name: shopName,
+        phone: phone,
+        owner_email: ownerEmail,
+        upi_id: upiId.trim(),
+        upi_name: upiName.trim(),
+        target_printer_name: targetPrinter.trim() || 'Microsoft Print to PDF',
+        counter_notice: counterNotice,
+        is_accepting_orders: isAccepting,
+        require_payment: requirePayment,
+        is_pin_protected: isPinProtected,
+        counter_pin: counterPin,
+        admin_pin: cleanAdminPin,
+        auto_print_enabled: autoPrintEnabled,
+        auto_delete_hours: autoDeleteHours,
+        gateway_enabled: gatewayEnabled,
+        gateway_provider: gatewayProvider,
+        gateway_key_id: gatewayKeyId.trim() || null,
+        gateway_key_secret: gatewayKeySecret.trim() || null,
+        split_payment_enabled: splitPaymentEnabled,
+        bank_account_name: bankAccountName.trim() || null,
+        bank_account_number: bankAccountNumber.trim() || null,
+        bank_ifsc: bankIfsc.toUpperCase().trim() || null,
+        daily_statement_enabled: dailyStatementEnabled,
+        duplex_supported: duplexSupported,
+        id_card_bw_price: Number(idCardBwPrice || 5),
+        id_card_color_price: Number(idCardColorPrice || 15)
+      };
+
       const { error } = await supabase
         .from('shops')
-        .update({
-          name: shopName,
-          phone: phone,
-          owner_email: ownerEmail,
-          upi_id: upiId.trim(),
-          upi_name: upiName.trim(),
-          target_printer_name: targetPrinter.trim() || 'Microsoft Print to PDF',
-          counter_notice: counterNotice,
-          is_accepting_orders: isAccepting,
-          require_payment: requirePayment,
-          is_pin_protected: isPinProtected,
-          counter_pin: counterPin,
-          admin_pin: cleanAdminPin,
-          auto_print_enabled: autoPrintEnabled,
-          auto_delete_hours: autoDeleteHours,
-          // Save Self Payment Gateway, Split Bank & 8 PM Statement Settings
-          gateway_enabled: gatewayEnabled,
-          gateway_provider: gatewayProvider,
-          gateway_key_id: gatewayKeyId.trim() || null,
-          gateway_key_secret: gatewayKeySecret.trim() || null,
-          split_payment_enabled: splitPaymentEnabled,
-          bank_account_name: bankAccountName.trim() || null,
-          bank_account_number: bankAccountNumber.trim() || null,
-          bank_ifsc: bankIfsc.toUpperCase().trim() || null,
-          daily_statement_enabled: dailyStatementEnabled,
-          // Save Duplex & ID Card 2-in-1 Custom Pricing
-          duplex_supported: duplexSupported,
-          id_card_bw_price: Number(idCardBwPrice || 5),
-          id_card_color_price: Number(idCardColorPrice || 15)
-        })
+        .update(corePayload)
         .eq('id', shop.id);
 
       if (error) throw error;
+
+      // Optional extended columns (Kiosk Feature Toggles, Passport Rates, Photo Printer)
+      // Saved separately so older DB schemas never fail core save
+      try {
+        await supabase
+          .from('shops')
+          .update({
+            id_card_enabled: shop.plan_id_card_allowed === false ? false : idCardEnabled,
+            passport_enabled: shop.plan_passport_allowed === false ? false : passportEnabled,
+            scan_pdf_enabled: shop.plan_scan_pdf_allowed === false ? false : scanPdfEnabled,
+            passport_bw_price: Number(passportBwPrice || 20),
+            passport_color_price: Number(passportColorPrice || 40),
+            photo_printer_name: photoPrinter.trim() || null
+          })
+          .eq('id', shop.id);
+      } catch {
+        // Ignore if optional columns have not been added via SQL yet
+      }
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       loadShopData();
@@ -1000,7 +1055,7 @@ export default function AdminPage() {
     }
   };
 
-  // Approves ONLY the specific clicked file row by unique `orderRow.id` and locks button immediately
+  // Approves ONLY the specific clicked file row by unique `orderRow.id`
   const handleApproveOrder = async (orderRow: OrderRow) => {
     if (approvingIds.includes(orderRow.id)) return;
     setApprovingIds((prev) => [...prev, orderRow.id]);
@@ -1011,7 +1066,6 @@ export default function AdminPage() {
         .update({ status: 'paid' })
         .eq('id', orderRow.id);
 
-      // Record into 30-day lightweight transaction ledger
       if (shop) {
         await supabase.from('shop_transactions').insert([
           {
@@ -1093,14 +1147,21 @@ export default function AdminPage() {
     }
   };
 
-  // Instant onBlur save for ID Card 2-in-1 / Cropping Service Rates
-  const handleUpdateIdCardRate = async (field: 'id_card_bw_price' | 'id_card_color_price', newRate: number) => {
+  // Instant onBlur save for ID Card 2-in-1 / Passport Custom Rates
+  const handleUpdateCustomServiceRate = async (
+    field: 'id_card_bw_price' | 'id_card_color_price' | 'passport_bw_price' | 'passport_color_price',
+    newRate: number
+  ) => {
     if (!shop || isNaN(newRate)) return;
-    await supabase.from('shops').update({ [field]: newRate }).eq('id', shop.id);
-    loadShopData();
+    try {
+      await supabase.from('shops').update({ [field]: newRate }).eq('id', shop.id);
+      loadShopData();
+    } catch {
+      // Ignore if optional column not created yet
+    }
   };
 
-  // Filter Transactions by Date Range (Today, 7 Days, 30 Days / 1 Month, or Custom)
+  // Filter Transactions by Date Range
   const getFilteredTransactions = (): TransactionLedgerRow[] => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -1127,7 +1188,7 @@ export default function AdminPage() {
     });
   };
 
-  // Send Consolidated Daily 8 PM Statement Email (or On-Demand Statement)
+  // Send Consolidated Daily 8 PM Statement Email
   const handleSendStatementEmail = async (silent: boolean = false) => {
     if (!shop || !shop.owner_email) {
       if (!silent) alert('Please save an Owner Email in Counter Configuration first.');
@@ -1165,7 +1226,7 @@ export default function AdminPage() {
       if (!silent) {
         alert(`📧 Consolidated Statement (${filtered.length} orders • ₹${totalAmount.toFixed(2)}) emailed to ${shop.owner_email}!`);
       }
-    } catch (err) {
+    } catch {
       if (!silent) alert('Failed to email statement.');
     } finally {
       setSendingStatementEmail(false);
@@ -1451,6 +1512,10 @@ export default function AdminPage() {
   const remainingSubscriptionDays = Math.max(0, (shop.subscription_days || 7) - elapsedSubscriptionDays);
   const isSubscriptionExpired = remainingSubscriptionDays <= 0 || shop.subscription_status === 'suspended';
 
+  const isPlanIdLocked = shop.plan_id_card_allowed === false;
+  const isPlanPassportLocked = shop.plan_passport_allowed === false;
+  const isPlanScanLocked = shop.plan_scan_pdf_allowed === false;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
@@ -1652,6 +1717,104 @@ export default function AdminPage() {
             </p>
           </div>
 
+          {/* KIOSK SERVICE FEATURE CONTROLS (SHOP ADMIN & PLAN LOCKS) */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                Kiosk Service Modules
+              </span>
+              <span className="text-[10px] font-bold text-slate-400">Show / Hide on Kiosk</span>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              {/* ID Card 2-in-1 Toggle */}
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UserSquare className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-slate-800 block">ID Card Print (2-in-1)</span>
+                    {isPlanIdLocked && (
+                      <span className="text-[9px] font-black text-amber-700">🔒 Upgrade Plan to Unlock</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isPlanIdLocked}
+                  onClick={() => setIdCardEnabled(!idCardEnabled)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    isPlanIdLocked
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : idCardEnabled
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {isPlanIdLocked ? 'LOCKED' : idCardEnabled ? 'ACTIVE' : 'PAUSED'}
+                </button>
+              </div>
+
+              {/* Passport Photo (8 Pics) Toggle */}
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-pink-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-slate-800 block">Passport Photo (8 Pics)</span>
+                    {isPlanPassportLocked && (
+                      <span className="text-[9px] font-black text-amber-700">🔒 Upgrade Plan to Unlock</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isPlanPassportLocked}
+                  onClick={() => setPassportEnabled(!passportEnabled)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    isPlanPassportLocked
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : passportEnabled
+                      ? 'bg-pink-600 text-white'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {isPlanPassportLocked ? 'LOCKED' : passportEnabled ? 'ACTIVE' : 'PAUSED'}
+                </button>
+              </div>
+
+              {/* Scan & PDF Tools Toggle */}
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UploadCloud className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-slate-800 block">Scan & PDF Tools</span>
+                    {isPlanScanLocked && (
+                      <span className="text-[9px] font-black text-amber-700">🔒 Upgrade Plan to Unlock</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isPlanScanLocked}
+                  onClick={() => setScanPdfEnabled(!scanPdfEnabled)}
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                    isPlanScanLocked
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : scanPdfEnabled
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {isPlanScanLocked ? 'LOCKED' : scanPdfEnabled ? 'ACTIVE' : 'PAUSED'}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Click <strong>Save Settings</strong> below after toggling services to update your customer kiosk immediately.
+            </p>
+          </div>
+
           {/* Configuration Form */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
             <h2 className="text-sm font-extrabold text-slate-900 mb-4 flex items-center gap-2">
@@ -1744,7 +1907,7 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* SELF PAYMENT GATEWAY INTEGRATION BOX (Razorpay / Cashfree / PhonePe) */}
+              {/* SELF PAYMENT GATEWAY INTEGRATION BOX */}
               <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1815,7 +1978,7 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* RTS AUTOMATIC SPLIT SETTLEMENT (COMING SOON - PAUSED TOGGLE + BANK) */}
+              {/* RTS AUTOMATIC SPLIT SETTLEMENT */}
               <div className="p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -2024,9 +2187,9 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* TARGET COUNTER PRINTER DROPDOWN + CUSTOM INPUT */}
+              {/* TARGET COUNTER PRINTER + OPTIONAL PHOTO PRINTER */}
               <div className="space-y-2">
-                <label className="block font-semibold text-slate-700 mb-1">Target Counter Printer</label>
+                <label className="block font-semibold text-slate-700 mb-1">Primary A4 Document Printer</label>
                 <select
                   value={isCustomPrinter ? 'CUSTOM' : targetPrinter}
                   onChange={(e) => {
@@ -2057,9 +2220,19 @@ export default function AdminPage() {
                     className="w-full px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50/30 outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
                   />
                 )}
-                <p className="text-[10px] text-slate-400">
-                  Select from list or choose "Other Printer" to type your exact Windows printer name.
-                </p>
+
+                <div className="pt-1">
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Separate Photo / Color Printer (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Leave empty to use Primary Printer"
+                    value={photoPrinter}
+                    onChange={(e) => setPhotoPrinter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none text-slate-800"
+                  />
+                </div>
               </div>
 
               <div>
@@ -2238,7 +2411,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Pricing Rules + ID Card 2-in-1 Custom Cropping Rate Box */}
+          {/* Pricing Rules + ID Card 2-in-1 & Passport Photo Custom Rates */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
@@ -2278,26 +2451,26 @@ export default function AdminPage() {
               ))}
             </div>
 
-            {/* ID CARD PRINT (2-IN-1 FRONT + BACK / CROPPING SERVICE) CUSTOM RATE */}
-            <div className="pt-3 border-t border-slate-100">
-              <div className="flex items-center justify-between mb-2">
+            {/* ID CARD PRINT (2-IN-1) & PASSPORT PHOTO (8 PICS) CUSTOM RATES */}
+            <div className="pt-3 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
                 <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
                   <Scissors className="w-3.5 h-3.5 text-indigo-600" />
-                  🪪 ID Print Two-in-One (Front + Back on 1 Sheet / Cropping Rate)
+                  🪪 ID Card (2-in-1) & 📸 Passport Photo (8 Pics) Sheet Rates
                 </span>
                 <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full border border-indigo-200">
-                  Saves Paper • Custom 2-Side Charge
+                  Per A4 Sheet Rate
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-200 flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-extrabold text-indigo-950 block">
                       ID Print 2-in-1 (B&W)
                     </span>
                     <span className="text-[10px] text-indigo-600 block">
-                      Front + Back on 1 A4 Sheet
+                      Front + Back on 1 A4
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -2307,7 +2480,7 @@ export default function AdminPage() {
                       step="0.5"
                       value={idCardBwPrice}
                       onChange={(e) => setIdCardBwPrice(parseFloat(e.target.value) || 0)}
-                      onBlur={(e) => handleUpdateIdCardRate('id_card_bw_price', parseFloat(e.target.value))}
+                      onBlur={(e) => handleUpdateCustomServiceRate('id_card_bw_price', parseFloat(e.target.value))}
                       className="w-16 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -2319,7 +2492,7 @@ export default function AdminPage() {
                       ID Print 2-in-1 (Color)
                     </span>
                     <span className="text-[10px] text-indigo-600 block">
-                      Front + Back on 1 A4 Sheet
+                      Front + Back on 1 A4
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -2329,8 +2502,52 @@ export default function AdminPage() {
                       step="0.5"
                       value={idCardColorPrice}
                       onChange={(e) => setIdCardColorPrice(parseFloat(e.target.value) || 0)}
-                      onBlur={(e) => handleUpdateIdCardRate('id_card_color_price', parseFloat(e.target.value))}
+                      onBlur={(e) => handleUpdateCustomServiceRate('id_card_color_price', parseFloat(e.target.value))}
                       className="w-16 px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-pink-50/50 p-3 rounded-2xl border border-pink-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold text-pink-950 block">
+                      Passport 8 Pics (B&W)
+                    </span>
+                    <span className="text-[10px] text-pink-600 block">
+                      8 Photos on 1 A4 Sheet
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-bold text-pink-900">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={passportBwPrice}
+                      onChange={(e) => setPassportBwPrice(parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => handleUpdateCustomServiceRate('passport_bw_price', parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-pink-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-pink-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-pink-50/50 p-3 rounded-2xl border border-pink-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-extrabold text-pink-950 block">
+                      Passport 8 Pics (Color)
+                    </span>
+                    <span className="text-[10px] text-pink-600 block">
+                      8 Photos on 1 A4 Sheet
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-bold text-pink-900">₹</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={passportColorPrice}
+                      onChange={(e) => setPassportColorPrice(parseFloat(e.target.value) || 0)}
+                      onBlur={(e) => handleUpdateCustomServiceRate('passport_color_price', parseFloat(e.target.value))}
+                      className="w-16 px-2 py-1 bg-white border border-pink-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-pink-500"
                     />
                   </div>
                 </div>
@@ -2338,7 +2555,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* 1-MONTH TRANSACTION & SETTLEMENT STATEMENT LEDGER (8 PM Digest) */}
+          {/* 1-MONTH TRANSACTION & SETTLEMENT STATEMENT LEDGER */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
@@ -2372,7 +2589,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Period Filter Pills (Today, 7 Days, 30 Days / 1 Month, Custom) */}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {[
@@ -2415,7 +2631,6 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Summary KPI Cards (Separates Direct Shop Collection vs Split Settlement) */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-2xl">
                 <span className="text-[10px] font-bold uppercase text-emerald-700 block">Total Period Collection</span>
@@ -2436,7 +2651,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Compact Statement Table */}
             <div className="overflow-x-auto max-h-60 border border-slate-100 rounded-2xl">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100 sticky top-0">

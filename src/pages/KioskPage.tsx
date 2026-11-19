@@ -147,7 +147,7 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'Camera Photo / PDF File',
     uploadTitle: 'Tap Here to Pick File (PDF or Photos)',
     uploadReading: 'Preparing your file...',
-    uploadSub: 'PDF, JPG, PNG, HEIC (Up to 10 MB) • 300 DPI Exact A4 Scale',
+    uploadSub: 'PDF, JPG, PNG, HEIC (Up to 10 MB) • Zero Paper Waste on A4',
     aadhaarSafetyNote:
       '🔒 Safe & Private: Upload only the page/ID you need. You can mask the first 8 digits of your ID number before uploading. Files are auto-deleted after printing.',
     uploadedFiles: 'Selected Files',
@@ -161,7 +161,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'Pay & Print Now',
     sendCashBtn: 'Send to Print (Pay Cash at Counter)',
     submitStaffBtn: 'Send to Counter',
-    cropGuidance: 'Drag blue corners to frame cleanly, then tap Save Crop.',
+    cropGuidance: 'Drag any corner freely to crop, then tap Save Crop.',
     useThisCrop: 'Save Crop',
     resetCrop: 'Reset',
     manualVerifyNote: 'Counter staff will verify payment before releasing your print.',
@@ -191,7 +191,7 @@ const KIOSK_TEXTS = {
     scanPdfSub: 'ക്യാമറ ഫോട്ടോ / PDF ഫയൽ',
     uploadTitle: 'ഫയൽ തിരഞ്ഞെടുക്കാൻ ഇവിടെ തൊടുക (PDF / ഫോട്ടോ)',
     uploadReading: 'ഫയൽ തയ്യാറാക്കുന്നു...',
-    uploadSub: 'PDF, JPG, PNG, HEIC (10 MB വരെ) • 300 DPI കൃത്യമായ A4 അളവ്',
+    uploadSub: 'PDF, JPG, PNG, HEIC (10 MB വരെ) • പേപ്പർ വേസ്റ്റ് ഇല്ലാതെ A4-ൽ പ്രിന്റ്',
     aadhaarSafetyNote:
       '🔒 സുരക്ഷിതം: ആവശ്യമുള്ള ഫയൽ മാത്രം അപ്‌ലോഡ് ചെയ്യുക. തിരിച്ചറിയൽ കാർഡിന്റെ ആദ്യ 8 അക്കങ്ങൾ മറച്ചുവെക്കാവുന്നതാണ്. പ്രിന്റിംഗിന് ശേഷം ഫയലുകൾ തനിയെ ഡിലീറ്റ് ആകും.',
     uploadedFiles: 'തിരഞ്ഞെടുത്ത ഫയലുകൾ',
@@ -205,7 +205,7 @@ const KIOSK_TEXTS = {
     proceedPayBtn: 'പണമടച്ച് പ്രിന്റ് ചെയ്യുക',
     sendCashBtn: 'പ്രിന്റ് നൽകുക (കൗണ്ടറിൽ പണം നൽകാം)',
     submitStaffBtn: 'കൗണ്ടറിലേക്ക് അയക്കുക',
-    cropGuidance: 'നീല മൂലകൾ വലിച്ച് ആവശ്യമുള്ള ഭാഗം സെലക്ട് ചെയ്ത് Save Crop അമർത്തുക.',
+    cropGuidance: 'ഏത് ഭാഗവും സ്വതന്ത്രമായി വലിച്ച് ക്രോപ്പ് ചെയ്ത് Save Crop അമർത്തുക.',
     useThisCrop: 'Save Crop',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'കൗണ്ടറിൽ പേയ്‌മെന്റ് പരിശോധിച്ച് പ്രിന്റ് നൽകുന്നതാണ്.',
@@ -242,7 +242,6 @@ async function isFilePdfByBytes(file: File): Promise<boolean> {
   }
 }
 
-// "1-2,5" -> [0, 1, 4] (0-based). Empty range = all pages.
 export function parsePageRange(range: string, max: number): number[] {
   const set = new Set<number>();
   for (const part of range.split(',').map((p) => p.trim()).filter(Boolean)) {
@@ -267,11 +266,16 @@ function slotSpec(layout: ImageLayoutType, hasBack: boolean) {
   if (layout === 'grid_4') return LAYOUTS.grid_4;
   if (layout === 'passport_4') return LAYOUTS.passport_4;
   if (layout === 'passport_8') return LAYOUTS.passport_8;
-  return null; // fit_a4 stays free
+  return null;
 }
 
-// iOS Safari safe pixel brightness/contrast adjustment
-function applyPixelBrightnessContrast(ctx: CanvasRenderingContext2D, w: number, h: number, brightnessPct: number, contrastPct: number) {
+function applyPixelBrightnessContrast(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  brightnessPct: number,
+  contrastPct: number
+) {
   if (brightnessPct === 100 && contrastPct === 100) return;
   try {
     const imgData = ctx.getImageData(0, 0, w, h);
@@ -290,7 +294,7 @@ function applyPixelBrightnessContrast(ctx: CanvasRenderingContext2D, w: number, 
     }
     ctx.putImageData(imgData, 0, 0);
   } catch {
-    // Ignore cross-origin or memory edge cases
+    // Ignore edge cases
   }
 }
 
@@ -334,7 +338,6 @@ function loadHeic2AnyAsset(): Promise<any> {
   });
 }
 
-// Builds 1-up, 2-up, or 4-up A4 PDF with exact page ranges at order submission time
 export async function buildDocumentPdf(
   srcBytes: ArrayBuffer,
   pageIndexes: number[],
@@ -582,7 +585,6 @@ async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'heic' 
     ) {
       return 'image';
     }
-    // Check ISO Base Media File Format 'ftyp' box for HEIC/HEIF (bytes 4..7 == 'ftyp')
     if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
       const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
       if (['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'].includes(brand)) {
@@ -601,7 +603,6 @@ async function detectTrueFileKind(file: File): Promise<'pdf' | 'image' | 'heic' 
 
 async function convertHeicToJpegFile(file: File): Promise<File> {
   const jpgName = file.name.replace(/\.[^/.]+$/, '.jpg');
-  // 1. Try native browser createImageBitmap (works natively on Safari/iOS and modern macOS/Windows with HEVC)
   try {
     if (typeof createImageBitmap === 'function') {
       const bmp = await createImageBitmap(file);
@@ -618,10 +619,9 @@ async function convertHeicToJpegFile(file: File): Promise<File> {
       }
     }
   } catch {
-    // Fall back to heic2any decoder
+    // Fallback to heic2any
   }
 
-  // 2. Fallback to heic2any library for Chrome/Android/Windows
   const heic2any = await loadHeic2AnyAsset();
   if (!heic2any) {
     throw new Error('Could not load HEIC converter. Please convert the iPhone photo to JPG and try again.');
@@ -737,6 +737,7 @@ export default function KioskPage() {
   const [contrast, setContrast] = useState<number>(110);
   const [applyingStudio, setApplyingStudio] = useState<boolean>(false);
   const [isRotatingFile, setIsRotatingFile] = useState<boolean>(false);
+  const [freeCropMode, setFreeCropMode] = useState<boolean>(true);
 
   const isFreshUploadRef = useRef<boolean>(false);
 
@@ -759,7 +760,6 @@ export default function KioskPage() {
     loadPdfLibAsset();
   }, []);
 
-  // Read-only shop config fetch (no anonymous DB writes from customer browser)
   useEffect(() => {
     async function init() {
       setLoadingShop(true);
@@ -814,6 +814,7 @@ export default function KioskPage() {
     }, 60);
   };
 
+  // Pairs 2 images into 1 single sheet item for ID Card or 2-Photos-on-1-A4 so no extra sheet is created
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -840,7 +841,7 @@ export default function KioskPage() {
       }
 
       let processedFile = rawFile;
-      let fileKind: 'pdf' | 'image' = detectedKind === 'pdf' ? 'pdf' : 'image';
+      const fileKind: 'pdf' | 'image' = detectedKind === 'pdf' ? 'pdf' : 'image';
 
       if (detectedKind === 'heic') {
         try {
@@ -890,33 +891,22 @@ export default function KioskPage() {
       }
     }
 
-    if (newImageItems.length >= 2 && selectedServiceCategory === 'id_card') {
-      const primaryImageItem: UploadedItem = {
+    if (newImageItems.length >= 2 && (selectedServiceCategory === 'id_card' || selectedServiceCategory === 'document')) {
+      const targetLayout: ImageLayoutType = selectedServiceCategory === 'id_card' ? 'id_card' : 'half_a4';
+      const pairedItem: UploadedItem = {
         ...newImageItems[0],
         backOriginalFile: newImageItems[1].originalFile,
         hasBackImage: true,
-        layoutMode: 'id_card'
+        layoutMode: targetLayout
       };
       const extraImages = newImageItems.slice(2);
-      setItems((prev) => [...prev, ...newPdfItems, primaryImageItem, ...extraImages]);
+      setItems((prev) => [...prev, ...newPdfItems, pairedItem, ...extraImages]);
       isFreshUploadRef.current = true;
-      openImageStudio(primaryImageItem, newImageItems[1].originalFile);
+      openImageStudio(pairedItem, newImageItems[1].originalFile);
     } else if (newImageItems.length > 0) {
-      if (newImageItems.length === 2 && selectedServiceCategory === 'document') {
-        const pairedHalfA4: UploadedItem = {
-          ...newImageItems[0],
-          backOriginalFile: newImageItems[1].originalFile,
-          hasBackImage: true,
-          layoutMode: 'half_a4'
-        };
-        setItems((prev) => [...prev, ...newPdfItems, pairedHalfA4]);
-        isFreshUploadRef.current = true;
-        openImageStudio(pairedHalfA4, newImageItems[1].originalFile);
-      } else {
-        setItems((prev) => [...prev, ...newPdfItems, ...newImageItems]);
-        isFreshUploadRef.current = true;
-        openImageStudio(newImageItems[0]);
-      }
+      setItems((prev) => [...prev, ...newPdfItems, ...newImageItems]);
+      isFreshUploadRef.current = true;
+      openImageStudio(newImageItems[0]);
     } else if (newPdfItems.length > 0) {
       setItems((prev) => [...prev, ...newPdfItems]);
     }
@@ -926,6 +916,7 @@ export default function KioskPage() {
   };
 
   const activeSlot = (): Slot | null => {
+    if (freeCropMode) return null;
     const spec = slotSpec(studioLayout, Boolean(backFile));
     if (!spec) return null;
     return spec.slots[activeCropSide === 'back' ? Math.min(1, spec.slots.length - 1) : 0];
@@ -945,7 +936,24 @@ export default function KioskPage() {
     setStudioLayout(initialLayout);
     setActiveCropSide('front');
     setFrontRotation(0);
-    setBackFile(preloadedBackFile !== undefined ? preloadedBackFile : item.backOriginalFile || null);
+
+    // If backFile wasn't explicitly passed, check if another unpaired single image exists in items
+    let resolvedBack = preloadedBackFile !== undefined ? preloadedBackFile : item.backOriginalFile || null;
+    if (!resolvedBack && (initialLayout === 'id_card' || initialLayout === 'half_a4')) {
+      const candidate = items.find(
+        (other) =>
+          other.id !== item.id &&
+          other.fileKind === 'image' &&
+          !other.hasBackImage &&
+          !other.backOriginalFile
+      );
+      if (candidate) {
+        resolvedBack = candidate.originalFile;
+        setItems((prev) => prev.filter((other) => other.id !== candidate.id));
+      }
+    }
+
+    setBackFile(resolvedBack);
     setBackRotation(0);
     setCroppedFrontBlob(item.croppedFrontBlob || null);
     setCroppedBackBlob(item.croppedBackBlob || null);
@@ -953,17 +961,49 @@ export default function KioskPage() {
     setContrast(110);
   };
 
-  // Locks cropper to exact slot ratio (ID card, Passport, Half A4) and leaves Full A4 free
+  const applyCropperRatioForCurrentState = (layout: ImageLayoutType, useFree: boolean) => {
+    if (!cropperInstanceRef.current || !isCropperReady) return;
+    if (useFree) {
+      cropperInstanceRef.current.setAspectRatio(NaN);
+    } else {
+      const spec = slotSpec(layout, Boolean(backFile));
+      const slot = spec?.slots[activeCropSide === 'back' ? Math.min(1, spec.slots.length - 1) : 0];
+      cropperInstanceRef.current.setAspectRatio(slot ? slot.w / slot.h : NaN);
+    }
+    cropperInstanceRef.current.reset();
+  };
+
   const handleSelectStudioLayout = (layout: ImageLayoutType) => {
     setStudioLayout(layout);
     setCroppedFrontBlob(null);
     setCroppedBackBlob(null);
-    const spec = slotSpec(layout, Boolean(backFile));
-    const slot = spec?.slots[0];
-    if (cropperInstanceRef.current && isCropperReady) {
-      cropperInstanceRef.current.setAspectRatio(slot ? slot.w / slot.h : NaN);
-      cropperInstanceRef.current.reset();
+
+    let nextBack = backFile;
+    if ((layout === 'id_card' || layout === 'half_a4') && !nextBack && editingItem) {
+      const candidate = items.find(
+        (other) =>
+          other.id !== editingItem.id &&
+          other.fileKind === 'image' &&
+          !other.hasBackImage &&
+          !other.backOriginalFile
+      );
+      if (candidate) {
+        nextBack = candidate.originalFile;
+        setBackFile(candidate.originalFile);
+        setItems((prev) => prev.filter((other) => other.id !== candidate.id));
+      }
     }
+
+    setTimeout(() => {
+      applyCropperRatioForCurrentState(layout, freeCropMode);
+    }, 30);
+  };
+
+  const handleToggleFreeCrop = (nextFree: boolean) => {
+    setFreeCropMode(nextFree);
+    setCroppedFrontBlob(null);
+    setCroppedBackBlob(null);
+    applyCropperRatioForCurrentState(studioLayout, nextFree);
   };
 
   useEffect(() => {
@@ -1005,7 +1045,7 @@ export default function KioskPage() {
       const CropperClass = (window as any).Cropper;
       if (!CropperClass) return;
 
-      const initialSpec = slotSpec(studioLayout, Boolean(backFile));
+      const initialSpec = !freeCropMode ? slotSpec(studioLayout, Boolean(backFile)) : null;
       const initialSlot = initialSpec?.slots[activeCropSide === 'back' ? Math.min(1, initialSpec.slots.length - 1) : 0];
 
       cropperInstanceRef.current = new CropperClass(cropperImageRef.current, {
@@ -1044,7 +1084,6 @@ export default function KioskPage() {
     };
   }, [cropperSourceUrl]);
 
-  // Exports at the slot's exact 300 DPI pixel size so there are zero white bars
   const extractCurrentCropperBlob = async (): Promise<Blob | null> => {
     if (!cropperInstanceRef.current || !isCropperReady) return null;
     const slot = activeSlot();
@@ -1080,7 +1119,7 @@ export default function KioskPage() {
       setCroppedFrontBlob(blob);
       setFrontRotation(0);
       setCropAppliedToast(
-        lang === 'en' ? '✅ Crop saved!' : '✅ ക്രോപ്പ് സേവ് ചെയ്തു!'
+        lang === 'en' ? '✅ Top / Front crop saved!' : '✅ മുൻവശം / മുകളിലെ ഭാഗം ക്രോപ്പ് സേവ് ചെയ്തു!'
       );
       if ((studioLayout === 'id_card' || studioLayout === 'half_a4') && backFile && !croppedBackBlob) {
         setTimeout(() => setActiveCropSide('back'), 350);
@@ -1089,7 +1128,7 @@ export default function KioskPage() {
       setCroppedBackBlob(blob);
       setBackRotation(0);
       setCropAppliedToast(
-        lang === 'en' ? '✅ Second photo crop saved!' : '✅ രണ്ടാമത്തെ ഫോട്ടോ ക്രോപ്പ് സേവ് ചെയ്തു!'
+        lang === 'en' ? '✅ Bottom / Back crop saved!' : '✅ താഴത്തെ / പിൻവശം ക്രോപ്പ് സേവ് ചെയ്തു!'
       );
     }
     setTimeout(() => setCropAppliedToast(null), 2000);
@@ -1186,7 +1225,7 @@ export default function KioskPage() {
     slot: Slot,
     rotationDeg: number,
     drawCutBorder: boolean,
-    isCroppedToSlot: boolean
+    fillSlotExactly: boolean
   ) => {
     const scaleFromMm = canvasW / A4_MM.w;
     const targetX = Math.round(slot.x * scaleFromMm);
@@ -1217,7 +1256,6 @@ export default function KioskPage() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(targetX, targetY, targetW, targetH);
 
-    // Draw into slot-sized temporary canvas so pixel brightness works on iOS Safari too
     const slotCanvas = document.createElement('canvas');
     slotCanvas.width = Math.max(1, targetW);
     slotCanvas.height = Math.max(1, targetH);
@@ -1225,7 +1263,7 @@ export default function KioskPage() {
     if (slotCtx) {
       slotCtx.fillStyle = '#ffffff';
       slotCtx.fillRect(0, 0, targetW, targetH);
-      if (isCroppedToSlot) {
+      if (fillSlotExactly && !freeCropMode) {
         slotCtx.drawImage(offCanvas, 0, 0, outW, outH, 0, 0, targetW, targetH);
       } else {
         const { w, h, dx, dy } = fitInside(outW, outH, targetW, targetH);
@@ -1338,7 +1376,8 @@ export default function KioskPage() {
     croppedBackBlob,
     backRotation,
     brightness,
-    contrast
+    contrast,
+    freeCropMode
   ]);
 
   const handleApplyImageStudio = async () => {
@@ -1540,7 +1579,6 @@ export default function KioskPage() {
         let fileToUpload = item.file;
 
         if (item.fileKind === 'pdf') {
-          // Apply 2-up / 4-up layout and page range if selected; normal full-page PDF uploads unchanged
           if (item.layoutMode !== 'fit_a4' || item.pageRangeText.trim() !== '') {
             const pages = parsePageRange(item.pageRangeText, item.totalPdfPages);
             const perSheet: 1 | 2 | 4 =
@@ -1554,11 +1592,9 @@ export default function KioskPage() {
             );
           }
         } else {
-          // Single source of truth: use the exact A4 PDF already built by "Done • Apply"
           if (await isFilePdfByBytes(item.file)) {
             fileToUpload = item.file;
           } else {
-            // Fallback only if user never opened/applied the studio
             const c = document.createElement('canvas');
             c.width = A4_300DPI_PX.w;
             c.height = A4_300DPI_PX.h;
@@ -2063,7 +2099,7 @@ export default function KioskPage() {
                                   )}
                                   {item.layoutMode === 'half_a4' && !isPdf && (
                                     <span className="ml-1.5 text-blue-600 font-bold">
-                                      • 2 Photos on 1 A4
+                                      • 2 Photos on 1 A4 {item.hasBackImage ? '(Top+Bottom)' : ''}
                                     </span>
                                   )}
                                 </p>
@@ -2344,7 +2380,7 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* SLOT-LOCKED CROP & 300 DPI STUDIO MODAL */}
+      {/* STUDIO MODAL */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
@@ -2388,7 +2424,7 @@ export default function KioskPage() {
                 }`}
               >
                 <span className="font-extrabold block text-[11px]">📄 Full A4 Sheet</span>
-                <span className="text-[10px] opacity-85 block">Free Crop • Fits A4</span>
+                <span className="text-[10px] opacity-85 block">No Paper Waste</span>
               </button>
 
               <button
@@ -2471,14 +2507,22 @@ export default function KioskPage() {
                       }`}
                     >
                       2. {studioLayout === 'half_a4' ? 'Bottom Photo' : 'Back'}{' '}
-                      {croppedBackBlob ? '✓' : backFile ? '' : '(+ Add)'}
+                      {croppedBackBlob ? '✓' : backFile ? '✓' : '(+ Add)'}
                     </button>
                   )}
                 </div>
 
-                <span className="text-[11px] text-emerald-400 font-bold">
-                  {studioLayout === 'fit_a4' ? 'Free Crop' : `Locked • ${activeLayoutSpec.sizeMm}`}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleFreeCrop(!freeCropMode)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition border ${
+                    freeCropMode
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  {freeCropMode ? 'Free Crop: ON' : `Ratio: ${activeLayoutSpec.sizeMm}`}
+                </button>
               </div>
 
               {cropperSourceUrl ? (

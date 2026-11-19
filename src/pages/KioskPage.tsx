@@ -196,7 +196,7 @@ const KIOSK_TEXTS = {
     useThisCrop: 'ക്രോപ്പ് ഉറപ്പിക്കുക',
     resetCrop: 'റീസെറ്റ്',
     manualVerifyNote: 'ശ്രദ്ധിക്കുക: മാനുവൽ മോഡിൽ കടയുടമ പേയ്‌മെന്റ് പരിശോധിച്ച ശേഷമാണ് പ്രിന്റ് നൽകുന്നത്.',
-    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, and PNG files are accepted.',
+    invalidFileMsg: 'അസാധുവായ ഫയൽ! യഥാർത്ഥ PDF, JPEG, PNG ഫയലുകൾ മാത്രമേ സ്വീകരിക്കുകയുള്ളൂ.\n\nInvalid file! Only authentic PDF, JPEG, PNG files are accepted.',
     fileTooLargeMsg: 'ഫയൽ വലിപ്പം 10 MB-ൽ കൂടുതലാണ്! ദയവായി ചെറിയ ഫയൽ തിരഞ്ഞെടുക്കുക.\n\nFile exceeds 10 MB limit!'
   }
 };
@@ -276,7 +276,7 @@ function buildA4PdfFromJpegBytesPureJs(jpegBytes: Uint8Array, imgWidth: number, 
 }
 
 // Load pdf-lib dynamically and convert any A4 JPEG canvas blob into a true A4 PDF file
-// so Windows Print Agent automatically prints images/ID cards just like PDFs!
+// so Windows Print Agent automatically prints images/ID cards without blank output!
 function loadPdfLibAsset(): Promise<any> {
   return new Promise((resolve) => {
     if ((window as any).PDFLib) {
@@ -306,19 +306,23 @@ async function convertJpegBlobToA4PdfBlob(
   const PDFLib = await loadPdfLibAsset();
 
   if (PDFLib && PDFLib.PDFDocument) {
-    const pdfDoc = await PDFLib.PDFDocument.create();
-    const pageW = 595.28;
-    const pageH = 841.89;
-    const page = pdfDoc.addPage([pageW, pageH]);
-    const jpgImage = await pdfDoc.embedJpg(arrayBuffer);
-    page.drawImage(jpgImage, {
-      x: 0,
-      y: 0,
-      width: pageW,
-      height: pageH
-    });
-    const pdfBytes = await pdfDoc.save();
-    return new Blob([pdfBytes], { type: 'application/pdf' });
+    try {
+      const pdfDoc = await PDFLib.PDFDocument.create();
+      const pageW = 595.28;
+      const pageH = 841.89;
+      const page = pdfDoc.addPage([pageW, pageH]);
+      const jpgImage = await pdfDoc.embedJpg(arrayBuffer);
+      page.drawImage(jpgImage, {
+        x: 0,
+        y: 0,
+        width: pageW,
+        height: pageH
+      });
+      const pdfBytes = await pdfDoc.save();
+      return new Blob([pdfBytes], { type: 'application/pdf' });
+    } catch {
+      // Fallback to pure JS PDF builder if embedJpg fails on a specific browser JPEG stream
+    }
   }
 
   return buildA4PdfFromJpegBytesPureJs(new Uint8Array(arrayBuffer), imgWidth, imgHeight);
@@ -1170,7 +1174,6 @@ export default function KioskPage() {
             }
           }
         } else if (studioLayout === 'half_a4') {
-          // Equal full-width half-A4 top & bottom slots
           const boxW = 360;
           const boxH = 250;
           drawProcessedImage(ctx, frontImg, croppedFrontBlob ? 0 : frontRotation, frontCropPct, 30, 25, boxW, boxH, false);
@@ -1535,6 +1538,14 @@ export default function KioskPage() {
                 for (let col = 0; col < 4; col++) {
                   drawProcessedImage(cCtx, fImg, 0, 0, startX + col * (pW + spacingX), startY + row * (pH + spacingY), pW, pH, true, false);
                 }
+              }
+            } else if (item.layoutMode === 'half_a4') {
+              const boxW = 1080;
+              const boxH = 760;
+              drawProcessedImage(cCtx, fImg, 0, 0, 80, 70, boxW, boxH, false);
+              if (item.backOriginalFile) {
+                const bImg = await loadImageElement(item.croppedBackBlob || item.backOriginalFile);
+                drawProcessedImage(cCtx, bImg, 0, 0, 80, 910, boxW, boxH, false);
               }
             } else {
               drawProcessedImage(cCtx, fImg, 0, 0, 60, 60, 1120, 1634, false);
@@ -2662,7 +2673,7 @@ export default function KioskPage() {
             <div className="space-y-1">
               <h3 className="font-black text-slate-900 text-base">Ready on 1 A4 Sheet!</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your document has been converted into a <strong>1-Page A4 PDF</strong> for automatic printing. Proceed to print or add more files.
+                Your document has been converted into a <strong>1-Page A4 PDF</strong> for automatic printing. Proceed or add more files.
               </p>
             </div>
 

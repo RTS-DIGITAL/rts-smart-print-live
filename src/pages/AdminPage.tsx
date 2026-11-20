@@ -39,7 +39,8 @@ import {
   Camera,
   UserSquare,
   UploadCloud,
-  Sparkles
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 
 interface ShopData {
@@ -95,6 +96,13 @@ interface ShopData {
   plan_id_card_allowed?: boolean;
   plan_passport_allowed?: boolean;
   plan_scan_pdf_allowed?: boolean;
+  // QR-Only Anti-Fraud Session Controls
+  qr_only_enabled?: boolean;
+  scan_session_minutes?: number | null;
+  qr_scan_token?: string | null;
+  direct_link_until?: string | null;
+  max_pages_per_session?: number | null;
+  max_copies_per_session?: number | null;
 }
 
 interface OrderRow {
@@ -246,6 +254,10 @@ const SHOP_ADMIN_FAQS = [
   }
 ];
 
+function generateStandeeToken(): string {
+  return `qr_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
+
 export default function AdminPage() {
   const { shopSlug } = useParams<{ shopSlug: string }>();
   const activeSlug = shopSlug || DEFAULT_SHOP_SLUG;
@@ -290,6 +302,15 @@ export default function AdminPage() {
   const [adminPin, setAdminPin] = useState('123456');
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [autoDeleteHours, setAutoDeleteHours] = useState(24);
+
+  // QR-Only Anti-Fraud Session States
+  const [qrOnlyEnabled, setQrOnlyEnabled] = useState(false);
+  const [scanSessionMinutes, setScanSessionMinutes] = useState<number>(10);
+  const [qrScanToken, setQrScanToken] = useState<string>('');
+  const [directLinkUntil, setDirectLinkUntil] = useState<string | null>(null);
+  const [maxPagesPerSession, setMaxPagesPerSession] = useState<number>(50);
+  const [maxCopiesPerSession, setMaxCopiesPerSession] = useState<number>(10);
+  const [resettingQr, setResettingQr] = useState(false);
 
   // Kiosk Service Toggles (ID Card, Passport Photo, Scan & PDF Tools)
   const [idCardEnabled, setIdCardEnabled] = useState(true);
@@ -390,6 +411,24 @@ export default function AdminPage() {
 
       if (shopErr || !shopRes) throw new Error('Shop not found');
 
+      // Auto-restore QR-Only Mode if the 30-minute temporary direct-link window expired
+      if (
+        !shopRes.qr_only_enabled &&
+        shopRes.direct_link_until &&
+        new Date(shopRes.direct_link_until).getTime() <= Date.now()
+      ) {
+        try {
+          await supabase
+            .from('shops')
+            .update({ qr_only_enabled: true, direct_link_until: null })
+            .eq('id', shopRes.id);
+          shopRes.qr_only_enabled = true;
+          shopRes.direct_link_until = null;
+        } catch {
+          // Ignore if optional column not migrated yet
+        }
+      }
+
       // Auto-check subscription countdown and pause kiosk if 0 days left
       const approvalDate = shopRes.approved_at
         ? new Date(shopRes.approved_at).getTime()
@@ -456,6 +495,20 @@ export default function AdminPage() {
       setAdminPin(shopRes.admin_pin || '123456');
       setAutoPrintEnabled(shopRes.auto_print_enabled ?? true);
       setAutoDeleteHours(shopRes.auto_delete_hours || 24);
+
+      // Load QR-Only Anti-Fraud Session Controls
+      setQrOnlyEnabled(Boolean(shopRes.qr_only_enabled));
+      setScanSessionMinutes(
+        [5, 10, 15, 20].includes(Number(shopRes.scan_session_minutes))
+          ? Number(shopRes.scan_session_minutes)
+          : 10
+      );
+      const existingToken =
+        shopRes.qr_scan_token || localStorage.getItem(`rts_qr_token_${shopRes.id}`) || generateStandeeToken();
+      setQrScanToken(existingToken);
+      setDirectLinkUntil(shopRes.direct_link_until || null);
+      setMaxPagesPerSession(Number(shopRes.max_pages_per_session || 50));
+      setMaxCopiesPerSession(Number(shopRes.max_copies_per_session || 10));
 
       // Load Kiosk Feature Toggles (Respects Super Admin Plan Overrides)
       const planAllowsId = shopRes.plan_id_card_allowed !== false;
@@ -689,6 +742,59 @@ export default function AdminPage() {
   useEffect(() => {
     shopChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [shopChatMessages, supportOpen, supportTab]);
+
+  // Toggle QR-Only Mode (ON = Ban Direct Link, OFF = Allow Direct Link for 30 min)
+  const handleToggleQrOnlyMode = () => {
+    const nextQrOnly = !qrOnlyEnabled;
+    setQrOnlyEnabled(nextQrOnly);
+    if (!nextQrOnly) {
+      setDirectLinkUntil(new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    } else {
+      setDirectLinkUntil(null);
+    }
+  };
+
+  // Reset QR Token & Invalidate All Active Scan Sessions Immediately
+  const handleResetStandeeQr = async () => {
+    if (!shop) return;
+    if (
+      !window.confirm(
+        'Reset Counter QR Code?\n\nThis will immediately cancel the old QR standee and close all open customer upload sessions. You will need to print the new Counter Standee.'
+      )
+    ) {
+      return;
+    }
+
+    setResettingQr(true);
+    try {
+      const freshToken = generateStandeeToken();
+      setQrScanToken(freshToken);
+      localStorage.setItem(`rts_qr_token_${shop.id}`, freshToken);
+
+      try {
+        await supabase
+          .from('shops')
+          .update({ qr_scan_token: freshToken })
+          .eq('id', shop.id);
+      } catch {
+        // Ignore if optional column not migrated yet
+      }
+
+      try {
+        await supabase
+          .from('scan_sessions')
+          .update({ status: 'revoked' })
+          .eq('shop_id', shop.id)
+          .eq('status', 'active');
+      } catch {
+        // Ignore if scan_sessions table not migrated yet
+      }
+
+      alert('✅ New QR Token generated and all previous scan sessions revoked! Click "Print Counter Standee" to print the new QR.');
+    } finally {
+      setResettingQr(false);
+    }
+  };
 
   // Start Live Chat Session from Shop Admin to Super Admin
   const handleStartShopLiveChat = async () => {
@@ -1028,7 +1134,6 @@ export default function AdminPage() {
       if (error) throw error;
 
       // Optional extended columns (Kiosk Feature Toggles, Passport Rates, Photo Printer)
-      // Saved separately so older DB schemas never fail core save
       try {
         await supabase
           .from('shops')
@@ -1043,6 +1148,25 @@ export default function AdminPage() {
           .eq('id', shop.id);
       } catch {
         // Ignore if optional columns have not been added via SQL yet
+      }
+
+      // Optional QR-Only Anti-Fraud columns saved safely
+      const activeToken = qrScanToken || generateStandeeToken();
+      localStorage.setItem(`rts_qr_token_${shop.id}`, activeToken);
+      try {
+        await supabase
+          .from('shops')
+          .update({
+            qr_only_enabled: qrOnlyEnabled,
+            scan_session_minutes: scanSessionMinutes,
+            qr_scan_token: activeToken,
+            direct_link_until: qrOnlyEnabled ? null : directLinkUntil,
+            max_pages_per_session: Math.max(1, Number(maxPagesPerSession || 50)),
+            max_copies_per_session: Math.max(1, Number(maxCopiesPerSession || 10))
+          })
+          .eq('id', shop.id);
+      } catch {
+        // Ignore if QR-only columns have not been added via SQL yet
       }
 
       setSaveSuccess(true);
@@ -1295,7 +1419,8 @@ export default function AdminPage() {
 
   const handlePrintStandee = () => {
     if (!shop) return;
-    const kioskUrl = `${window.location.origin}/shop/${shop.slug}`;
+    const activeToken = qrScanToken || shop.qr_scan_token || generateStandeeToken();
+    const kioskUrl = `${window.location.origin}/shop/${shop.slug}?scan=${encodeURIComponent(activeToken)}`;
     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=450x450&data=${encodeURIComponent(kioskUrl)}`;
 
     const printWindow = window.open('', '_blank');
@@ -1357,7 +1482,7 @@ export default function AdminPage() {
             <div class="steps">
               <div><strong>1. Scan QR</strong> using phone camera or Google Lens</div>
               ${isPinProtected ? `<div><strong>2. Enter PIN (${counterPin})</strong> to unlock document upload</div>` : ''}
-              <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> documents</div>
+              <div><strong>${isPinProtected ? '3' : '2'}. Select & Upload</strong> documents (${scanSessionMinutes} min session)</div>
               <div><strong>${isPinProtected ? '4' : '3'}. Collect Prints</strong> at this counter</div>
             </div>
             <div class="footer">Powered by RTS Smart Print</div>
@@ -1516,6 +1641,11 @@ export default function AdminPage() {
   const isPlanPassportLocked = shop.plan_passport_allowed === false;
   const isPlanScanLocked = shop.plan_scan_pdf_allowed === false;
 
+  const staffPreviewToken = qrScanToken || shop.qr_scan_token || '';
+  const staffKioskHref = staffPreviewToken
+    ? `/shop/${shop.slug}?scan=${encodeURIComponent(staffPreviewToken)}`
+    : `/shop/${shop.slug}`;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
       <header className="bg-slate-900 text-white px-6 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 z-40">
@@ -1548,7 +1678,7 @@ export default function AdminPage() {
             <span>Print Counter Standee</span>
           </button>
           <a
-            href={`/shop/${shop.slug}`}
+            href={staffKioskHref}
             target="_blank"
             rel="noreferrer"
             className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs transition flex items-center gap-1.5"
@@ -1862,6 +1992,103 @@ export default function AdminPage() {
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none"
                   />
                 </div>
+              </div>
+
+              {/* QR-ONLY KIOSK SECURITY & AUTO-CLOSE SESSION CONTROLS */}
+              <div className="p-3.5 bg-rose-50/70 border border-rose-200 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-extrabold text-rose-950 flex items-center gap-1.5 text-xs">
+                      <ShieldCheck className="w-3.5 h-3.5 text-rose-600" />
+                      QR-Only Mode (Ban Direct Link)
+                    </span>
+                    <span className="text-[10px] text-rose-800 block">
+                      ON: Only counter QR scan opens kiosk. OFF: Link allowed for 30 min.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleQrOnlyMode}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition shrink-0 ${
+                      qrOnlyEnabled
+                        ? 'bg-rose-600 text-white shadow-sm'
+                        : 'bg-emerald-600 text-white shadow-sm'
+                    }`}
+                  >
+                    {qrOnlyEnabled ? 'ON (QR ONLY)' : 'OFF (LINK OPEN)'}
+                  </button>
+                </div>
+
+                {!qrOnlyEnabled && directLinkUntil && (
+                  <p className="text-[10px] font-bold text-amber-900 bg-amber-100/90 border border-amber-300 rounded-xl px-2.5 py-1.5">
+                    ⏳ Direct link sharing is temporarily active until{' '}
+                    {new Date(directLinkUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, then auto-locks back to QR-Only.
+                  </p>
+                )}
+
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-rose-200/70">
+                  <div>
+                    <label className="block text-[10px] font-bold text-rose-950 mb-1">
+                      Session Timeout
+                    </label>
+                    <select
+                      value={scanSessionMinutes}
+                      onChange={(e) => setScanSessionMinutes(Number(e.target.value))}
+                      className="w-full px-2 py-1.5 rounded-xl border border-rose-300 bg-white font-bold text-slate-900 text-[11px] outline-none"
+                    >
+                      <option value={5}>5 Min</option>
+                      <option value={10}>10 Min</option>
+                      <option value={15}>15 Min</option>
+                      <option value={20}>20 Min</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-rose-950 mb-1">
+                      Max Pages/Scan
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={maxPagesPerSession}
+                      onChange={(e) => setMaxPagesPerSession(Number(e.target.value))}
+                      className="w-full px-2 py-1.5 rounded-xl border border-rose-300 bg-white font-mono font-bold text-slate-900 text-center text-[11px] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-rose-950 mb-1">
+                      Max Copies/Scan
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={maxCopiesPerSession}
+                      onChange={(e) => setMaxCopiesPerSession(Number(e.target.value))}
+                      className="w-full px-2 py-1.5 rounded-xl border border-rose-300 bg-white font-mono font-bold text-slate-900 text-center text-[11px] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-200/70">
+                  <span className="text-[10px] font-mono text-slate-600 truncate">
+                    Standee Token: {qrScanToken || '---'}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={resettingQr}
+                    onClick={handleResetStandeeQr}
+                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-bold transition shrink-0"
+                  >
+                    {resettingQr ? 'Resetting...' : 'Reset QR'}
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-rose-800 leading-tight">
+                  Tip: If someone posts a photo of your counter QR online, keep <strong>Manual Approval</strong> ON so you check each order before printing.
+                </p>
               </div>
 
               {/* 6-DIGIT ADMIN PIN FIELD */}

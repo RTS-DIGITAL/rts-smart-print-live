@@ -198,9 +198,9 @@ const SHOP_ADMIN_FAQS = [
   {
     id: 'q6',
     qEn: '6. How do I connect or update my shop computer Print Agent?',
-    aEn: '1. Log in to the Shop Admin Dashboard and copy your permanent 6-digit pairing code.\n2. Download the latest PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. Close any running rts_agent in Task Manager, install the new setup, and run it.\n4. Enter your 6-digit pairing code when asked (if resetting pairing code, clear %LOCALAPPDATA%\\RTS_Smart_Print\\rts_agent_config.json).',
+    aEn: '1. Log in to the Shop Admin Dashboard and copy your permanent 6-digit pairing code.\n2. Download the latest PC Print Agent (RTS-Print-Setup.exe) from the dashboard.\n3. First-time install note: If Windows shows "Windows protected your PC", click More info -> Run anyway.\n4. Close any running rts_agent in Task Manager, install the new setup, and run it.\n5. Enter your 6-digit pairing code when asked (if resetting pairing code, clear %LOCALAPPDATA%\\RTS_Smart_Print\\rts_agent_config.json).',
     qMl: '6. കടയിലെ കമ്പ്യൂട്ടർ എങ്ങനെ കണക്റ്റ് / അപ്ഡേറ്റ് ചെയ്യാം?',
-    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. പുതിയ RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ ഇൻസ്റ്റാൾ ചെയ്ത് റൺ ചെയ്യുക.\n3. അതിൽ 6-അക്ക Pairing Code നൽകുക. പഴയ സെറ്റപ്പ് അപ്‌ഡേറ്റ് ചെയ്യുമ്പോൾ ആദ്യം പഴയ ആപ്പ് ക്ലോസ് ചെയ്ത ശേഷം പുതിയത് ഇൻസ്റ്റാൾ ചെയ്യുക.'
+    aMl: '1. ഡാഷ്‌ബോർഡിലെ 6-അക്ക Pairing Code കോപ്പി ചെയ്യുക.\n2. പുതിയ RTS-Print-Setup.exe ഡൗൺലോഡ് ചെയ്ത് കമ്പ്യൂട്ടറിൽ തുറക്കുക.\n3. ആദ്യമായി ഇൻസ്റ്റാൾ ചെയ്യുമ്പോൾ Windows-ൽ "Windows protected your PC" എന്ന് കാണിച്ചാൽ More info -> Run anyway ക്ലിക്ക് ചെയ്യുക.\n4. അതിൽ 6-അക്ക Pairing Code നൽകുക. പഴയ സെറ്റപ്പ് അപ്‌ഡേറ്റ് ചെയ്യുമ്പോൾ ആദ്യം പഴയ ആപ്പ് ക്ലോസ് ചെയ്ത ശേഷം പുതിയത് ഇൻസ്റ്റാൾ ചെയ്യുക.'
   },
   {
     id: 'q7',
@@ -1682,6 +1682,15 @@ export default function AdminPage() {
                 </>
               )}
             </button>
+
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed">
+              <p className="font-bold">First-time install note:</p>
+              <p>
+                If Windows shows <strong>"Windows protected your PC"</strong>, click{' '}
+                <span className="underline font-bold">More info</span> →{' '}
+                <strong>Run anyway</strong> to start the installer.
+              </p>
+            </div>
 
             {isDownloadLocked && (
               <div className="pt-2 border-t border-slate-100 space-y-2">

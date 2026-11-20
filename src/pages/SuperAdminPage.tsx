@@ -47,7 +47,8 @@ import {
   EyeOff,
   UserSquare,
   Camera,
-  UploadCloud
+  UploadCloud,
+  QrCode
 } from 'lucide-react';
 
 interface ShopTenant {
@@ -90,6 +91,13 @@ interface ShopTenant {
   plan_id_card_allowed?: boolean;
   plan_passport_allowed?: boolean;
   plan_scan_pdf_allowed?: boolean;
+  // QR-Only Anti-Fraud Session Controls
+  qr_only_enabled?: boolean;
+  scan_session_minutes?: number | null;
+  qr_scan_token?: string | null;
+  direct_link_until?: string | null;
+  max_pages_per_session?: number | null;
+  max_copies_per_session?: number | null;
 }
 
 interface PlatformPlan {
@@ -183,6 +191,10 @@ const COMMON_PRINTERS = [
   "POS-58-Series",
   "POS-80-Printer"
 ];
+
+function createStandeeToken(): string {
+  return `qr_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
 
 export const SuperAdminPage: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -557,7 +569,13 @@ export const SuperAdminPage: React.FC = () => {
       daily_statement_enabled: shop.daily_statement_enabled ?? true,
       plan_id_card_allowed: shop.plan_id_card_allowed ?? true,
       plan_passport_allowed: shop.plan_passport_allowed ?? true,
-      plan_scan_pdf_allowed: shop.plan_scan_pdf_allowed ?? true
+      plan_scan_pdf_allowed: shop.plan_scan_pdf_allowed ?? true,
+      qr_only_enabled: shop.qr_only_enabled ?? false,
+      scan_session_minutes: shop.scan_session_minutes ?? 10,
+      qr_scan_token: shop.qr_scan_token ?? createStandeeToken(),
+      direct_link_until: shop.direct_link_until ?? null,
+      max_pages_per_session: shop.max_pages_per_session ?? 50,
+      max_copies_per_session: shop.max_copies_per_session ?? 10
     });
   };
 
@@ -599,6 +617,7 @@ export const SuperAdminPage: React.FC = () => {
       const uniquePairingCode = Math.floor(100000 + Math.random() * 900000).toString();
       const shortUsername = slug.split('-')[0] || slug;
       const initialDays = inq.selected_plan === 'trial_14' ? 14 : inq.selected_plan === 'yearly' ? 365 : 7;
+      const initialQrToken = createStandeeToken();
 
       const { data: newShop, error: shopErr } = await supabase
         .from('shops')
@@ -615,6 +634,22 @@ export const SuperAdminPage: React.FC = () => {
         .select().single();
 
       if (shopErr) throw shopErr;
+
+      // Enable QR-Only mode by default on newly created shops (safe if optional columns not migrated yet)
+      try {
+        await supabase
+          .from('shops')
+          .update({
+            qr_only_enabled: true,
+            scan_session_minutes: 10,
+            qr_scan_token: initialQrToken,
+            max_pages_per_session: 50,
+            max_copies_per_session: 10
+          })
+          .eq('id', newShop.id);
+      } catch {
+        // Ignore if optional columns not added yet
+      }
 
       await supabase.from('shop_connector_keys').insert([{ shop_id: newShop.id, pairing_code: uniquePairingCode, is_active: true }]);
       await supabase.from('pricing_rules').insert([
@@ -791,6 +826,20 @@ export const SuperAdminPage: React.FC = () => {
         }).eq('id', editingShop.id);
       } catch {
         // Ignore if optional columns not added via SQL yet
+      }
+
+      // Optional QR-Only & session columns saved safely
+      try {
+        await supabase.from('shops').update({
+          qr_only_enabled: Boolean(editingShop.qr_only_enabled ?? false),
+          scan_session_minutes: Number(editingShop.scan_session_minutes ?? 10),
+          qr_scan_token: (editingShop.qr_scan_token || '').trim() || createStandeeToken(),
+          direct_link_until: editingShop.qr_only_enabled ? null : editingShop.direct_link_until || null,
+          max_pages_per_session: Math.max(1, Number(editingShop.max_pages_per_session ?? 50)),
+          max_copies_per_session: Math.max(1, Number(editingShop.max_copies_per_session ?? 10))
+        }).eq('id', editingShop.id);
+      } catch {
+        // Ignore if QR-only columns not added via SQL yet
       }
 
       if (cleanPairingCode) {
@@ -1587,6 +1636,11 @@ export const SuperAdminPage: React.FC = () => {
                             <span className="font-extrabold text-white text-sm block">{shop.name}</span>
                             <span className="text-[11px] font-mono text-emerald-400">/shop/{shop.slug}</span>
                             <span className="text-[10px] text-slate-500 block font-mono">ID: {shop.admin_username || shop.slug}</span>
+                            {shop.qr_only_enabled && (
+                              <span className="inline-block mt-1 mr-1 text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-md">
+                                🔒 QR-Only ({shop.scan_session_minutes || 10}m)
+                              </span>
+                            )}
                             {shop.gateway_enabled && (
                               <span className="inline-block mt-1 mr-1 text-[9px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-md">
                                 ⚡ Own PG: {(shop.gateway_provider || 'razorpay').toUpperCase()}
@@ -2266,7 +2320,7 @@ export const SuperAdminPage: React.FC = () => {
             <div className="flex justify-between items-center pb-2 border-b border-slate-800">
               <div>
                 <h3 className="text-base font-black text-white">Remote Shop Manager: {editingShop.name}</h3>
-                <p className="text-[11px] text-slate-400">Configure credentials, plan features, downloads, gateway keys & notices</p>
+                <p className="text-[11px] text-slate-400">Configure credentials, plan features, QR security, downloads, gateway keys & notices</p>
               </div>
               <button
                 type="button"
@@ -2319,6 +2373,84 @@ export const SuperAdminPage: React.FC = () => {
                     onChange={(e) => setEditingShop({ ...editingShop, pairing_code: e.target.value })}
                     className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-white font-mono text-center text-xs font-bold outline-none focus:border-amber-400"
                   />
+                </div>
+              </div>
+
+              {/* QR-ONLY & SCAN SESSION SECURITY CONTROLS */}
+              <div className="p-3 bg-rose-950/20 border border-rose-800/40 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-extrabold text-rose-300 flex items-center gap-1.5">
+                    <QrCode className="w-3.5 h-3.5 text-rose-400" />
+                    QR-Only Kiosk Access & Session Limits
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingShop({
+                        ...editingShop,
+                        qr_only_enabled: !(editingShop.qr_only_enabled ?? false),
+                        direct_link_until: !(editingShop.qr_only_enabled ?? false)
+                          ? null
+                          : new Date(Date.now() + 30 * 60 * 1000).toISOString()
+                      })
+                    }
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition ${
+                      editingShop.qr_only_enabled
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-emerald-600 text-white'
+                    }`}
+                  >
+                    {editingShop.qr_only_enabled ? 'QR ONLY (LINK BANNED)' : 'LINK ALLOWED'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Timeout (Min)</label>
+                    <select
+                      value={editingShop.scan_session_minutes ?? 10}
+                      onChange={(e) => setEditingShop({ ...editingShop, scan_session_minutes: Number(e.target.value) })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-1.5 text-white font-bold outline-none"
+                    >
+                      <option value={5}>5 Min</option>
+                      <option value={10}>10 Min</option>
+                      <option value={15}>15 Min</option>
+                      <option value={20}>20 Min</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Max Pages/Scan</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={editingShop.max_pages_per_session ?? 50}
+                      onChange={(e) => setEditingShop({ ...editingShop, max_pages_per_session: Number(e.target.value) })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-1.5 text-white font-mono text-center outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Max Copies/Scan</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={editingShop.max_copies_per_session ?? 10}
+                      onChange={(e) => setEditingShop({ ...editingShop, max_copies_per_session: Number(e.target.value) })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2 py-1.5 text-white font-mono text-center outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-800/30">
+                  <span className="text-[10px] font-mono text-slate-400 truncate">
+                    Token: {editingShop.qr_scan_token || '---'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingShop({ ...editingShop, qr_scan_token: createStandeeToken() })}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[10px] font-bold transition shrink-0"
+                  >
+                    Rotate Token
+                  </button>
                 </div>
               </div>
 

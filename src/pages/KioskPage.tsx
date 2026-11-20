@@ -34,7 +34,8 @@ import {
   Languages,
   UserSquare,
   Camera,
-  ArrowLeft
+  ArrowLeft,
+  QrCode
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -91,6 +92,13 @@ interface ShopConfig {
   id_card_enabled?: boolean;
   passport_enabled?: boolean;
   scan_pdf_enabled?: boolean;
+  // QR-Only Anti-Fraud Session Fields
+  qr_only_enabled?: boolean;
+  scan_session_minutes?: number | null;
+  qr_scan_token?: string | null;
+  direct_link_until?: string | null;
+  max_pages_per_session?: number | null;
+  max_copies_per_session?: number | null;
 }
 
 type ImageLayoutType = 'fit_a4' | 'id_card' | 'half_a4' | 'grid_4' | 'actual_size' | 'passport_4' | 'passport_8';
@@ -125,6 +133,8 @@ interface PricingRule {
   price_per_page: number;
 }
 
+type ScanLockReason = 'missing' | 'expired' | 'used' | 'revoked';
+
 const KIOSK_TEXTS = {
   en: {
     backBtn: 'Back',
@@ -136,6 +146,14 @@ const KIOSK_TEXTS = {
     pinRequiredDesc: 'Please enter the 4-digit PIN displayed on the counter standee to unlock printing.',
     unlockBtn: 'Unlock Print Station',
     incorrectPin: 'Incorrect PIN. Please check the counter standee.',
+    scanRequiredTitle: 'Please scan the QR code at the counter to upload your file.',
+    scanRequiredDesc: 'Direct link access is disabled for shop security. Point your phone camera at the counter QR standee.',
+    scanExpiredTitle: 'Your session has ended for security. Please scan the counter QR code again.',
+    scanExpiredDesc: 'Scan sessions close automatically after the counter timeout to prevent unauthorized uploads.',
+    scanUsedTitle: 'This session already has an order. Scan the counter QR code to start a new one.',
+    scanUsedDesc: 'Each QR scan allows one order session for counter safety.',
+    scanRevokedTitle: 'This QR code is no longer active. Please scan the updated QR code at the counter.',
+    scanRevokedDesc: 'The shop counter rotated its QR code. Scan the current standee at the counter.',
     servicesTitle: 'What would you like to print?',
     docPrintTitle: 'Document / PDF',
     docPrintSub: 'Normal PDF or 2 Photos on 1 A4',
@@ -180,6 +198,14 @@ const KIOSK_TEXTS = {
     pinRequiredDesc: 'പ്രിന്റിംഗ് തുടങ്ങാൻ കൗണ്ടറിലെ സ്റ്റാൻഡിയിൽ കാണുന്ന 4-അക്ക PIN നൽകുക.',
     unlockBtn: 'പ്രിന്റ് സ്റ്റേഷൻ തുറക്കുക',
     incorrectPin: 'തെറ്റായ PIN. ദയവായി കൗണ്ടറിൽ പരിശോധിക്കുക.',
+    scanRequiredTitle: 'ഫയൽ അപ്‌ലോഡ് ചെയ്യാൻ കൗണ്ടറിലെ QR കോഡ് സ്കാൻ ചെയ്യുക.',
+    scanRequiredDesc: 'സുരക്ഷാ കാരണങ്ങളാൽ നേരിട്ടുള്ള ലിങ്ക് വഴി അപ്‌ലോഡ് ചെയ്യുന്നത് തടഞ്ഞിരിക്കുന്നു. കൗണ്ടറിലെ QR സ്കാൻ ചെയ്യുക.',
+    scanExpiredTitle: 'സുരക്ഷാ കാരണങ്ങളാൽ സെഷൻ അവസാനിച്ചു. ദയവായി കൗണ്ടറിലെ QR കോഡ് വീണ്ടും സ്കാൻ ചെയ്യുക.',
+    scanExpiredDesc: 'അനാവശ്യ അപ്‌ലോഡുകൾ തടയാൻ നിശ്ചിത സമയത്തിന് ശേഷം സെഷൻ തനിയെ ലോക്ക് ആകുന്നതാണ്.',
+    scanUsedTitle: 'ഈ സെഷനിൽ ഒരു ഓർഡർ പൂർത്തിയായി. പുതിയ ഓർഡറിനായി കൗണ്ടറിലെ QR കോഡ് വീണ്ടും സ്കാൻ ചെയ്യുക.',
+    scanUsedDesc: 'ഓരോ QR സ്കാനിലും ഒരു ഓർഡർ മാത്രമേ നൽകാൻ സാധിക്കുകയുള്ളൂ.',
+    scanRevokedTitle: 'ഈ QR കോഡ് ഇപ്പോൾ പ്രവർത്തനക്ഷമമല്ല. കൗണ്ടറിലെ പുതിയ QR കോഡ് സ്കാൻ ചെയ്യുക.',
+    scanRevokedDesc: 'കൗണ്ടറിലെ QR കോഡ് പുതുക്കിയിട്ടുണ്ട്. ദയവായി നിലവിലുള്ള QR സ്കാൻ ചെയ്യുക.',
     servicesTitle: 'നിങ്ങൾക്ക് എന്താണ് പ്രിന്റ് ചെയ്യേണ്ടത്?',
     docPrintTitle: 'ഡോക്യുമെന്റ് / PDF',
     docPrintSub: 'സാധാരണ PDF അല്ലെങ്കിൽ 2 ഫോട്ടോ 1 A4-ൽ',
@@ -715,6 +741,12 @@ export default function KioskPage() {
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState(false);
 
+  // QR-Only Scan Session States
+  const [scanUnlocked, setScanUnlocked] = useState(true);
+  const [scanLockReason, setScanLockReason] = useState<ScanLockReason>('missing');
+  const [activeSessionToken, setActiveSessionToken] = useState<string | null>(null);
+  const [sessionSecondsLeft, setSessionSecondsLeft] = useState<number | null>(null);
+
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<ServiceCategory>(null);
   const [items, setItems] = useState<UploadedItem[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
@@ -767,6 +799,24 @@ export default function KioskPage() {
         const { data: shopData } = await supabase.from('shops').select('*').eq('slug', activeSlug).single();
 
         if (shopData) {
+          // Auto-relock if a 30-minute temporary direct-link window expired
+          if (
+            !shopData.qr_only_enabled &&
+            shopData.direct_link_until &&
+            new Date(shopData.direct_link_until).getTime() <= Date.now()
+          ) {
+            shopData.qr_only_enabled = true;
+            shopData.direct_link_until = null;
+            try {
+              await supabase
+                .from('shops')
+                .update({ qr_only_enabled: true, direct_link_until: null })
+                .eq('id', shopData.id);
+            } catch {
+              // Ignore if optional column not migrated yet
+            }
+          }
+
           setShop(shopData);
           if (!shopData.is_pin_protected) {
             setIsUnlocked(true);
@@ -783,6 +833,213 @@ export default function KioskPage() {
     }
     init();
   }, [activeSlug]);
+
+  // Enforce QR-Only Scan Session & Auto-Close Timer
+  useEffect(() => {
+    if (!shop) return;
+
+    const isQrOnly = Boolean(shop.qr_only_enabled);
+    if (!isQrOnly) {
+      setScanUnlocked(true);
+      setSessionSecondsLeft(null);
+      return;
+    }
+
+    const sessionMinutes = [5, 10, 15, 20].includes(Number(shop.scan_session_minutes))
+      ? Number(shop.scan_session_minutes)
+      : 10;
+    const expectedStandeeToken =
+      shop.qr_scan_token || localStorage.getItem(`rts_qr_token_${shop.id}`) || '';
+
+    const params = new URLSearchParams(window.location.search);
+    const urlScanToken = (params.get('scan') || '').trim();
+    const storageKey = `rts_kiosk_scan_session_${shop.id}`;
+
+    let cancelled = false;
+
+    async function establishOrVerifyScanSession() {
+      // 1. Fresh scan from QR URL (?scan=<token>)
+      if (urlScanToken) {
+        if (expectedStandeeToken && urlScanToken !== expectedStandeeToken) {
+          if (!cancelled) {
+            sessionStorage.removeItem(storageKey);
+            setScanLockReason('revoked');
+            setScanUnlocked(false);
+            setSessionSecondsLeft(null);
+          }
+          return;
+        }
+
+        const expiresAtMs = Date.now() + sessionMinutes * 60 * 1000;
+        const sessionToken = `sess_${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;
+
+        try {
+          await supabase.from('scan_sessions').insert([
+            {
+              shop_id: shop.id,
+              session_token: sessionToken,
+              status: 'active',
+              expires_at: new Date(expiresAtMs).toISOString(),
+              order_count: 0,
+              page_total: 0
+            }
+          ]);
+        } catch {
+          // Safe fallback if scan_sessions table hasn't been created yet
+        }
+
+        sessionStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            standeeToken: urlScanToken,
+            sessionToken,
+            expiresAt: expiresAtMs,
+            used: false
+          })
+        );
+
+        // Strip ?scan= from address bar so copying the URL won't leak the standee token
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch {
+          // Ignore history restriction
+        }
+
+        if (!cancelled) {
+          setActiveSessionToken(sessionToken);
+          setScanUnlocked(true);
+          setSessionSecondsLeft(Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000)));
+        }
+        return;
+      }
+
+      // 2. Existing active session in sessionStorage
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        if (!raw) {
+          if (!cancelled) {
+            setScanLockReason('missing');
+            setScanUnlocked(false);
+            setSessionSecondsLeft(null);
+          }
+          return;
+        }
+
+        const parsed = JSON.parse(raw);
+        if (expectedStandeeToken && parsed.standeeToken && parsed.standeeToken !== expectedStandeeToken) {
+          sessionStorage.removeItem(storageKey);
+          if (!cancelled) {
+            setScanLockReason('revoked');
+            setScanUnlocked(false);
+            setSessionSecondsLeft(null);
+          }
+          return;
+        }
+
+        if (parsed.used) {
+          if (!cancelled) {
+            setScanLockReason('used');
+            setScanUnlocked(false);
+            setSessionSecondsLeft(null);
+          }
+          return;
+        }
+
+        if (!parsed.expiresAt || Date.now() >= parsed.expiresAt) {
+          sessionStorage.removeItem(storageKey);
+          if (!cancelled) {
+            setScanLockReason('expired');
+            setScanUnlocked(false);
+            setSessionSecondsLeft(null);
+          }
+          return;
+        }
+
+        // Verify against DB if scan_sessions table exists (catches Reset QR immediately)
+        if (parsed.sessionToken) {
+          try {
+            const { data: dbSess, error: dbErr } = await supabase
+              .from('scan_sessions')
+              .select('status, order_count, expires_at')
+              .eq('session_token', parsed.sessionToken)
+              .maybeSingle();
+
+            if (!dbErr && dbSess) {
+              if (dbSess.status === 'revoked') {
+                sessionStorage.removeItem(storageKey);
+                if (!cancelled) {
+                  setScanLockReason('revoked');
+                  setScanUnlocked(false);
+                  setSessionSecondsLeft(null);
+                }
+                return;
+              }
+              if (dbSess.status === 'used' || (dbSess.order_count || 0) >= 1) {
+                sessionStorage.removeItem(storageKey);
+                if (!cancelled) {
+                  setScanLockReason('used');
+                  setScanUnlocked(false);
+                  setSessionSecondsLeft(null);
+                }
+                return;
+              }
+            }
+          } catch {
+            // Safe fallback if table not migrated yet
+          }
+        }
+
+        if (!cancelled) {
+          setActiveSessionToken(parsed.sessionToken || null);
+          setScanUnlocked(true);
+          setSessionSecondsLeft(Math.max(0, Math.ceil((parsed.expiresAt - Date.now()) / 1000)));
+        }
+      } catch {
+        if (!cancelled) {
+          setScanLockReason('missing');
+          setScanUnlocked(false);
+        }
+      }
+    }
+
+    establishOrVerifyScanSession();
+
+    const timer = setInterval(() => {
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        if (!raw) {
+          setScanUnlocked(false);
+          setSessionSecondsLeft(null);
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        if (parsed.used) {
+          setScanLockReason('used');
+          setScanUnlocked(false);
+          setSessionSecondsLeft(null);
+          return;
+        }
+        const remainingSec = Math.ceil(((parsed.expiresAt || 0) - Date.now()) / 1000);
+        if (remainingSec <= 0) {
+          sessionStorage.removeItem(storageKey);
+          setScanLockReason('expired');
+          setScanUnlocked(false);
+          setSessionSecondsLeft(0);
+          setEditingItem(null);
+          setShowCheckout(false);
+        } else {
+          setSessionSecondsLeft(remainingSec);
+        }
+      } catch {
+        setScanUnlocked(false);
+      }
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [shop]);
 
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1552,6 +1809,49 @@ export default function KioskPage() {
 
   const handleProceedOrder = async (verifiedGatewayPaymentId?: string) => {
     if (!shop || items.length === 0) return;
+
+    // Enforce per-session page and copy caps
+    const maxPagesLimit = Number(shop.max_pages_per_session || 50);
+    const maxCopiesLimit = Number(shop.max_copies_per_session || 10);
+    const maxCopiesInOrder = items.reduce((m, it) => Math.max(m, it.copies), 1);
+
+    if (totalSheetsNeeded > maxPagesLimit) {
+      alert(
+        lang === 'ml'
+          ? `ഒരു സ്കാൻ സെഷനിൽ പരമാവധി ${maxPagesLimit} ഷീറ്റുകൾ മാത്രമേ പ്രിന്റ് ചെയ്യാൻ സാധിക്കുകയുള്ളൂ.`
+          : `Maximum ${maxPagesLimit} sheets allowed per scan session.`
+      );
+      return;
+    }
+
+    if (maxCopiesInOrder > maxCopiesLimit) {
+      alert(
+        lang === 'ml'
+          ? `ഒരു ഫയലിന് പരമാവധി ${maxCopiesLimit} കോപ്പികൾ മാത്രമേ അനുവദിക്കൂ.`
+          : `Maximum ${maxCopiesLimit} copies allowed per scan session.`
+      );
+      return;
+    }
+
+    // Re-check QR-Only session validity right before uploading
+    const storageKey = `rts_kiosk_scan_session_${shop.id}`;
+    if (shop.qr_only_enabled) {
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed || parsed.used || !parsed.expiresAt || Date.now() >= parsed.expiresAt) {
+          setScanLockReason(parsed?.used ? 'used' : 'expired');
+          setScanUnlocked(false);
+          setShowCheckout(false);
+          return;
+        }
+      } catch {
+        setScanLockReason('missing');
+        setScanUnlocked(false);
+        return;
+      }
+    }
+
     setSubmittingOrder(true);
 
     try {
@@ -1671,6 +1971,34 @@ export default function KioskPage() {
         ]);
 
         if (orderError) throw orderError;
+      }
+
+      // Mark single-use scan session as consumed so it cannot be reused
+      if (shop.qr_only_enabled) {
+        try {
+          const raw = sessionStorage.getItem(storageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsed, used: true }));
+          }
+        } catch {
+          // Ignore storage error
+        }
+
+        if (activeSessionToken) {
+          try {
+            await supabase
+              .from('scan_sessions')
+              .update({
+                status: 'used',
+                order_count: 1,
+                page_total: totalSheetsNeeded
+              })
+              .eq('session_token', activeSessionToken);
+          } catch {
+            // Ignore if table not migrated yet
+          }
+        }
       }
 
       try {
@@ -1797,12 +2125,17 @@ export default function KioskPage() {
       ? LAYOUTS.passport_8
       : LAYOUTS.fit_a4;
 
+  const formattedSessionTimer =
+    sessionSecondsLeft !== null
+      ? `${Math.floor(sessionSecondsLeft / 60)}:${String(sessionSecondsLeft % 60).padStart(2, '0')}`
+      : null;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between relative overflow-x-hidden">
       <div>
         <header className="bg-white border-b border-slate-200 py-3.5 px-4 sm:px-6 sticky top-0 z-40 shadow-sm flex justify-between items-center gap-2">
           <div className="flex items-center gap-2">
-            {(items.length > 0 || selectedServiceCategory !== null) && (
+            {(items.length > 0 || selectedServiceCategory !== null) && scanUnlocked && (
               <button
                 type="button"
                 onClick={() => {
@@ -1826,6 +2159,13 @@ export default function KioskPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {shop.qr_only_enabled && scanUnlocked && formattedSessionTimer && (
+              <span className="px-2.5 py-1 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-mono font-black text-[11px] flex items-center gap-1">
+                <Clock className="w-3 h-3 text-amber-600" />
+                <span>{formattedSessionTimer}</span>
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => setLang(lang === 'en' ? 'ml' : 'en')}
@@ -1856,454 +2196,485 @@ export default function KioskPage() {
         </header>
 
         <main className="max-w-xl mx-auto px-4 pt-6 space-y-5 relative z-10">
-          <input
-            type="file"
-            multiple
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept={
-              selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo'
-                ? '.png,.jpg,.jpeg,.heic,.heif'
-                : '.pdf,.png,.jpg,.jpeg,.heic,.heif'
-            }
-            className="hidden"
-          />
-
-          {shop.counter_notice && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2">
-              <Printer className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span>{shop.counter_notice}</span>
-            </div>
-          )}
-
-          {uploadErrorBanner && (
-            <div className="bg-rose-50 border-2 border-rose-200 text-rose-900 px-4 py-3 rounded-2xl text-xs flex items-start justify-between gap-2">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <p className="whitespace-pre-line font-semibold leading-relaxed">{uploadErrorBanner}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setUploadErrorBanner(null)}
-                className="p-1 text-rose-500 hover:text-rose-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {!isUnlocked && shop.is_pin_protected ? (
-            <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-sm text-center space-y-4">
-              <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                <Lock className="w-7 h-7" />
+          {Boolean(shop.qr_only_enabled) && !scanUnlocked ? (
+            <div className="bg-white rounded-3xl p-8 border-2 border-rose-200 shadow-sm text-center space-y-4">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto border border-rose-200">
+                <QrCode className="w-8 h-8" />
               </div>
 
-              <div>
-                <h2 className="text-base font-black text-slate-900">{t.pinRequiredTitle}</h2>
-                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{t.pinRequiredDesc}</p>
+              <div className="space-y-1.5">
+                <h2 className="text-base sm:text-lg font-black text-slate-900 leading-snug">
+                  {scanLockReason === 'expired'
+                    ? t.scanExpiredTitle
+                    : scanLockReason === 'used'
+                    ? t.scanUsedTitle
+                    : scanLockReason === 'revoked'
+                    ? t.scanRevokedTitle
+                    : t.scanRequiredTitle}
+                </h2>
+                <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                  {scanLockReason === 'expired'
+                    ? t.scanExpiredDesc
+                    : scanLockReason === 'used'
+                    ? t.scanUsedDesc
+                    : scanLockReason === 'revoked'
+                    ? t.scanRevokedDesc
+                    : t.scanRequiredDesc}
+                </p>
               </div>
-
-              <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3">
-                <div className="relative">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    placeholder="Enter PIN"
-                    value={enteredPin}
-                    onChange={(e) => setEnteredPin(e.target.value)}
-                    className="w-full min-h-[46px] py-3 px-4 border border-slate-200 rounded-2xl text-center font-mono font-black text-lg tracking-widest text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                </div>
-
-                {pinError && <p className="text-xs font-bold text-rose-600">{t.incorrectPin}</p>}
-
-                <button
-                  type="submit"
-                  className="w-full min-h-[46px] py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs shadow transition flex items-center justify-center gap-1.5"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  {t.unlockBtn}
-                </button>
-              </form>
             </div>
           ) : (
             <>
-              {items.length === 0 ? (
-                <div className="space-y-4">
-                  <div className="text-center space-y-1">
-                    <h2 className="text-base sm:text-lg font-black text-slate-900">
-                      {isProcessingFiles ? t.uploadReading : t.servicesTitle}
-                    </h2>
-                    <p className="text-[11px] text-slate-500">{t.uploadSub}</p>
+              <input
+                type="file"
+                multiple
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept={
+                  selectedServiceCategory === 'id_card' || selectedServiceCategory === 'photo'
+                    ? '.png,.jpg,.jpeg,.heic,.heif'
+                    : '.pdf,.png,.jpg,.jpeg,.heic,.heif'
+                }
+                className="hidden"
+              />
+
+              {shop.counter_notice && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2.5 rounded-2xl text-xs flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>{shop.counter_notice}</span>
+                </div>
+              )}
+
+              {uploadErrorBanner && (
+                <div className="bg-rose-50 border-2 border-rose-200 text-rose-900 px-4 py-3 rounded-2xl text-xs flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <p className="whitespace-pre-line font-semibold leading-relaxed">{uploadErrorBanner}</p>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => handleCategoryClick('document')}
-                      className="bg-white border-2 border-slate-200 hover:border-emerald-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
-                    >
-                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-sm">
-                        <FileText className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.docPrintTitle}</h3>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{t.docPrintSub}</p>
-                      </div>
-                    </button>
-
-                    {isIdCardEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => handleCategoryClick('id_card')}
-                        className="bg-white border-2 border-slate-200 hover:border-indigo-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
-                      >
-                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-sm">
-                          <UserSquare className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.idPrintTitle}</h3>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{t.idPrintSub}</p>
-                        </div>
-                      </button>
-                    )}
-
-                    {isPassportEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => handleCategoryClick('photo')}
-                        className="bg-white border-2 border-slate-200 hover:border-pink-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
-                      >
-                        <div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center shadow-sm">
-                          <Camera className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.photoPrintTitle}</h3>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{t.photoPrintSub}</p>
-                        </div>
-                      </button>
-                    )}
-
-                    {isScanPdfEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => handleCategoryClick('scanner')}
-                        className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
-                      >
-                        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-sm">
-                          <UploadCloud className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.scanPdfTitle}</h3>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{t.scanPdfSub}</p>
-                        </div>
-                      </button>
-                    )}
-                  </div>
-
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-5 rounded-3xl text-center cursor-pointer transition space-y-2"
+                  <button
+                    type="button"
+                    onClick={() => setUploadErrorBanner(null)}
+                    className="p-1 text-rose-500 hover:text-rose-800"
                   >
-                    <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">
-                      {isProcessingFiles ? t.uploadReading : t.uploadTitle}
-                    </h3>
-                    <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed max-w-md mx-auto">
-                      {t.aadhaarSafetyNote}
-                    </div>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {!isUnlocked && shop.is_pin_protected ? (
+                <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-sm text-center space-y-4">
+                  <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                    <Lock className="w-7 h-7" />
                   </div>
+
+                  <div>
+                    <h2 className="text-base font-black text-slate-900">{t.pinRequiredTitle}</h2>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{t.pinRequiredDesc}</p>
+                  </div>
+
+                  <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        placeholder="Enter PIN"
+                        value={enteredPin}
+                        onChange={(e) => setEnteredPin(e.target.value)}
+                        className="w-full min-h-[46px] py-3 px-4 border border-slate-200 rounded-2xl text-center font-mono font-black text-lg tracking-widest text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                    </div>
+
+                    {pinError && <p className="text-xs font-bold text-rose-600">{t.incorrectPin}</p>}
+
+                    <button
+                      type="submit"
+                      className="w-full min-h-[46px] py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs shadow transition flex items-center justify-center gap-1.5"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      {t.unlockBtn}
+                    </button>
+                  </form>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center px-1 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setItems([]);
-                        setSelectedServiceCategory(null);
-                      }}
-                      className="min-h-[38px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>{t.backBtn}</span>
-                    </button>
+                <>
+                  {items.length === 0 ? (
+                    <div className="space-y-4">
+                      <div className="text-center space-y-1">
+                        <h2 className="text-base sm:text-lg font-black text-slate-900">
+                          {isProcessingFiles ? t.uploadReading : t.servicesTitle}
+                        </h2>
+                        <p className="text-[11px] text-slate-500">{t.uploadSub}</p>
+                      </div>
 
-                    <span className="text-xs font-bold text-slate-700">
-                      {t.uploadedFiles} ({items.length})
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedServiceCategory(null);
-                        fileInputRef.current?.click();
-                      }}
-                      className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      {t.addMoreBtn}
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    {items.map((item) => {
-                      const itemTotal = calculateItemPrice(item);
-                      const sheetsCount = calculateSheetsForItem(item);
-                      const isPdf = item.fileKind === 'pdf';
-
-                      return (
-                        <div
-                          key={item.id}
-                          className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3"
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCategoryClick('document')}
+                          className="bg-white border-2 border-slate-200 hover:border-emerald-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
                         >
-                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2.5">
-                            <div className="flex items-center gap-2.5 overflow-hidden">
-                              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
-                                {isPdf ? (
-                                  <FileText className="w-4 h-4 text-rose-500" />
-                                ) : (
-                                  <ImageIcon className="w-4 h-4 text-blue-500" />
-                                )}
+                          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-sm">
+                            <FileText className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.docPrintTitle}</h3>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{t.docPrintSub}</p>
+                          </div>
+                        </button>
+
+                        {isIdCardEnabled && (
+                          <button
+                            type="button"
+                            onClick={() => handleCategoryClick('id_card')}
+                            className="bg-white border-2 border-slate-200 hover:border-indigo-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
+                          >
+                            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-sm">
+                              <UserSquare className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.idPrintTitle}</h3>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{t.idPrintSub}</p>
+                            </div>
+                          </button>
+                        )}
+
+                        {isPassportEnabled && (
+                          <button
+                            type="button"
+                            onClick={() => handleCategoryClick('photo')}
+                            className="bg-white border-2 border-slate-200 hover:border-pink-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
+                          >
+                            <div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center shadow-sm">
+                              <Camera className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.photoPrintTitle}</h3>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{t.photoPrintSub}</p>
+                            </div>
+                          </button>
+                        )}
+
+                        {isScanPdfEnabled && (
+                          <button
+                            type="button"
+                            onClick={() => handleCategoryClick('scanner')}
+                            className="bg-white border-2 border-slate-200 hover:border-amber-500 hover:shadow-md rounded-3xl p-4 flex flex-col items-center justify-center gap-2.5 transition text-center min-h-[135px]"
+                          >
+                            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-sm">
+                              <UploadCloud className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">{t.scanPdfTitle}</h3>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{t.scanPdfSub}</p>
+                            </div>
+                          </button>
+                        )}
+                      </div>
+
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="border-2 border-dashed border-emerald-500/60 bg-emerald-50/40 hover:bg-emerald-50/70 p-5 rounded-3xl text-center cursor-pointer transition space-y-2"
+                      >
+                        <h3 className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                          {isProcessingFiles ? t.uploadReading : t.uploadTitle}
+                        </h3>
+                        <div className="bg-white/90 border border-emerald-200/80 rounded-2xl p-2.5 text-[11px] text-slate-600 leading-relaxed max-w-md mx-auto">
+                          {t.aadhaarSafetyNote}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center px-1 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setItems([]);
+                            setSelectedServiceCategory(null);
+                          }}
+                          className="min-h-[38px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                          <span>{t.backBtn}</span>
+                        </button>
+
+                        <span className="text-xs font-bold text-slate-700">
+                          {t.uploadedFiles} ({items.length})
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedServiceCategory(null);
+                            fileInputRef.current?.click();
+                          }}
+                          className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1 shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          {t.addMoreBtn}
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {items.map((item) => {
+                          const itemTotal = calculateItemPrice(item);
+                          const sheetsCount = calculateSheetsForItem(item);
+                          const isPdf = item.fileKind === 'pdf';
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2.5">
+                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                  <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
+                                    {isPdf ? (
+                                      <FileText className="w-4 h-4 text-rose-500" />
+                                    ) : (
+                                      <ImageIcon className="w-4 h-4 text-blue-500" />
+                                    )}
+                                  </div>
+                                  <div className="truncate">
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                          isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
+                                        }`}
+                                      >
+                                        {isPdf ? 'PDF' : 'A4 PDF'}
+                                      </span>
+                                      <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-0.5">
+                                      {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} •{' '}
+                                      <strong className="text-emerald-700">
+                                        {sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}
+                                      </strong>
+                                      {item.layoutMode === 'id_card' && (
+                                        <span className="ml-1.5 text-indigo-600 font-bold">
+                                          • ID Card {item.hasBackImage ? '(Front+Back)' : '(1-Side)'}
+                                        </span>
+                                      )}
+                                      {item.layoutMode === 'passport_4' && (
+                                        <span className="ml-1.5 text-pink-600 font-bold">
+                                          • Passport 4 Pics
+                                        </span>
+                                      )}
+                                      {item.layoutMode === 'passport_8' && (
+                                        <span className="ml-1.5 text-pink-600 font-bold">
+                                          • Passport 8 Pics
+                                        </span>
+                                      )}
+                                      {item.layoutMode === 'half_a4' && !isPdf && (
+                                        <span className="ml-1.5 text-blue-600 font-bold">
+                                          • 2 Photos on 1 A4 {item.hasBackImage ? '(Top+Bottom)' : ''}
+                                        </span>
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                                  {!isPdf && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        isFreshUploadRef.current = false;
+                                        openImageStudio(item);
+                                      }}
+                                      className="min-h-[38px] px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] transition flex items-center gap-1"
+                                    >
+                                      <Scissors className="w-3.5 h-3.5" />
+                                      <span>Crop / Layout</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeItem(item.id)}
+                                    className="min-h-[38px] px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1"
+                                    title="Remove File"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Remove</span>
+                                  </button>
+                                </div>
                               </div>
-                              <div className="truncate">
+
+                              {isPdf && (
+                                <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                  {item.totalPdfPages > 1 && (
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-semibold text-slate-600">
+                                        Pages (1-{item.totalPdfPages}):
+                                      </span>
+                                      <input
+                                        type="text"
+                                        placeholder={`All or e.g. 1-2`}
+                                        value={item.pageRangeText}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          const newCount = countSelectedPages(val, item.totalPdfPages);
+                                          updateItem(item.id, { pageRangeText: val, pages: newCount });
+                                        }}
+                                        className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono w-32 outline-none focus:border-emerald-500"
+                                      />
+                                    </div>
+                                  )}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold text-slate-600">Layout:</span>
+                                    <select
+                                      value={item.layoutMode}
+                                      onChange={(e) =>
+                                        updateItem(item.id, { layoutMode: e.target.value as ImageLayoutType })
+                                      }
+                                      className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                                    >
+                                      <option value="fit_a4">Normal A4 (1 Page)</option>
+                                      <option value="half_a4">2 Pages on 1 A4</option>
+                                      <option value="grid_4">4 Pages on 1 A4</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
                                 <div className="flex items-center gap-1.5">
-                                  <span
-                                    className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                                      isPdf ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'
+                                  <span className="text-[11px] text-slate-500">{t.copies}</span>
+                                  <div className="flex items-center bg-slate-100 rounded-xl p-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })}
+                                      className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
+                                    >
+                                      <Minus className="w-3.5 h-3.5 text-slate-700" />
+                                    </button>
+                                    <span className="px-2.5 font-black text-xs text-slate-900">{item.copies}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateItem(item.id, { copies: item.copies + 1 })}
+                                      className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
+                                    >
+                                      <Plus className="w-3.5 h-3.5 text-slate-700" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <select
+                                  value={item.paperSize}
+                                  onChange={(e) => updateItem(item.id, { paperSize: e.target.value })}
+                                  className="min-h-[36px] px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-xl text-[11px] font-extrabold text-slate-800 outline-none"
+                                >
+                                  <option value="A4">A4</option>
+                                  <option value="A5">A5</option>
+                                  <option value="Legal">Legal</option>
+                                </select>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateItem(item.id, { isColor: false })}
+                                    className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
+                                      !item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
                                     }`}
                                   >
-                                    {isPdf ? 'PDF' : 'A4 PDF'}
-                                  </span>
-                                  <p className="font-bold text-xs text-slate-900 truncate">{item.name}</p>
+                                    B&W
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateItem(item.id, { isColor: true })}
+                                    className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
+                                      item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                  >
+                                    Color
+                                  </button>
                                 </div>
-                                <p className="text-[11px] text-slate-500 mt-0.5">
-                                  {item.pages} {item.pages === 1 ? 'Page' : 'Pages'} •{' '}
-                                  <strong className="text-emerald-700">
-                                    {sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}
-                                  </strong>
-                                  {item.layoutMode === 'id_card' && (
-  <span className="ml-1.5 text-indigo-600 font-bold">
-    • ID Card {item.hasBackImage ? '(Front+Back)' : '(1-Side)'}
-  </span>
-)}
-{item.layoutMode === 'passport_4' && (
-  <span className="ml-1.5 text-pink-600 font-bold">
-    • Passport 4 Pics
-  </span>
-)}
-{item.layoutMode === 'passport_8' && (
-  <span className="ml-1.5 text-pink-600 font-bold">
-    • Passport 8 Pics
-  </span>
-)}
-{item.layoutMode === 'half_a4' && !isPdf && (
-  <span className="ml-1.5 text-blue-600 font-bold">
-    • 2 Photos on 1 A4 {item.hasBackImage ? '(Top+Bottom)' : ''}
-  </span>
-)}
-                                </p>
-                              </div>
-                            </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                              {!isPdf && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    isFreshUploadRef.current = false;
-                                    openImageStudio(item);
-                                  }}
-                                  className="min-h-[38px] px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-extrabold text-[11px] transition flex items-center gap-1"
-                                >
-                                  <Scissors className="w-3.5 h-3.5" />
-                                  <span>Crop / Layout</span>
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeItem(item.id)}
-                                className="min-h-[38px] px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[11px] font-bold transition flex items-center gap-1"
-                                title="Remove File"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Remove</span>
-                              </button>
-                            </div>
-                          </div>
+                                {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateItem(item.id, { isDoubleSided: false })}
+                                      className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
+                                        !item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                                      }`}
+                                    >
+                                      {t.singleSided}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateItem(item.id, { isDoubleSided: true })}
+                                      className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
+                                        item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                                      }`}
+                                    >
+                                      {t.doubleSided}
+                                    </button>
+                                  </div>
+                                )}
 
-                          {isPdf && (
-                            <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                              {item.totalPdfPages > 1 && (
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-semibold text-slate-600">
-                                    Pages (1-{item.totalPdfPages}):
-                                  </span>
-                                  <input
-                                    type="text"
-                                    placeholder={`All or e.g. 1-2`}
-                                    value={item.pageRangeText}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const newCount = countSelectedPages(val, item.totalPdfPages);
-                                      updateItem(item.id, { pageRangeText: val, pages: newCount });
-                                    }}
-                                    className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono w-32 outline-none focus:border-emerald-500"
-                                  />
+                                <div className="font-extrabold text-slate-900 text-sm ml-auto">
+                                  ₹{itemTotal.toFixed(2)}
                                 </div>
-                              )}
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-600">Layout:</span>
-                                <select
-                                  value={item.layoutMode}
-                                  onChange={(e) =>
-                                    updateItem(item.id, { layoutMode: e.target.value as ImageLayoutType })
-                                  }
-                                  className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
-                                >
-                                  <option value="fit_a4">Normal A4 (1 Page)</option>
-                                  <option value="half_a4">2 Pages on 1 A4</option>
-                                  <option value="grid_4">4 Pages on 1 A4</option>
-                                </select>
                               </div>
                             </div>
-                          )}
+                          );
+                        })}
+                      </div>
 
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-slate-500">{t.copies}</span>
-                              <div className="flex items-center bg-slate-100 rounded-xl p-1">
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { copies: Math.max(1, item.copies - 1) })}
-                                  className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
-                                >
-                                  <Minus className="w-3.5 h-3.5 text-slate-700" />
-                                </button>
-                                <span className="px-2.5 font-black text-xs text-slate-900">{item.copies}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { copies: item.copies + 1 })}
-                                  className="w-8 h-8 flex items-center justify-center hover:bg-white rounded-lg transition"
-                                >
-                                  <Plus className="w-3.5 h-3.5 text-slate-700" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <select
-                              value={item.paperSize}
-                              onChange={(e) => updateItem(item.id, { paperSize: e.target.value })}
-                              className="min-h-[36px] px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-xl text-[11px] font-extrabold text-slate-800 outline-none"
-                            >
-                              <option value="A4">A4</option>
-                              <option value="A5">A5</option>
-                              <option value="Legal">Legal</option>
-                            </select>
-
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => updateItem(item.id, { isColor: false })}
-                                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                  !item.isColor ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                B&W
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => updateItem(item.id, { isColor: true })}
-                                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                  item.isColor ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                Color
-                              </button>
-                            </div>
-
-                            {isDuplexSupported && (item.pages > 1 || item.fileKind === 'pdf') && (
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { isDoubleSided: false })}
-                                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                    !item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  {t.singleSided}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateItem(item.id, { isDoubleSided: true })}
-                                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition ${
-                                    item.isDoubleSided ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  {t.doubleSided}
-                                </button>
-                              </div>
-                            )}
-
-                            <div className="font-extrabold text-slate-900 text-sm ml-auto">
-                              ₹{itemTotal.toFixed(2)}
-                            </div>
-                          </div>
+                      <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
+                        <div className="flex justify-between items-center text-xs text-slate-400">
+                          <span>{t.totalDocPages}</span>
+                          <span className="font-bold text-white">
+                            {totalPages} {totalPages === 1 ? 'page' : 'pages'}
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="flex justify-between items-center text-xs text-emerald-300">
+                          <span className="flex items-center gap-1">
+                            <Layers className="w-3.5 h-3.5" />
+                            <span>{t.actualSheetsNeeded}</span>
+                          </span>
+                          <span className="font-black text-white font-mono">
+                            {totalSheetsNeeded} A4 {totalSheetsNeeded === 1 ? 'Sheet' : 'Sheets'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
+                          <span className="text-sm font-bold">{t.totalBill}</span>
+                          <span className="text-2xl font-black text-emerald-400">₹{formattedAmount}</span>
+                        </div>
 
-                  <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl space-y-2.5">
-                    <div className="flex justify-between items-center text-xs text-slate-400">
-                      <span>{t.totalDocPages}</span>
-                      <span className="font-bold text-white">
-                        {totalPages} {totalPages === 1 ? 'page' : 'pages'}
-                      </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!shop.require_payment) {
+                              handleProceedOrder();
+                            } else if (hasActiveShopGateway && activeGatewayProvider === 'razorpay') {
+                              handlePayWithShopGateway();
+                            } else {
+                              setShowCheckout(true);
+                            }
+                          }}
+                          disabled={submittingOrder || launchingGateway}
+                          className="w-full min-h-[48px] py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm"
+                        >
+                          <Printer className="w-4 h-4" />
+                          {submittingOrder
+                            ? 'Sending to Printer...'
+                            : launchingGateway
+                            ? `Opening ${activeGatewayProvider.toUpperCase()}...`
+                            : shop.require_payment
+                            ? hasActiveShopGateway
+                              ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
+                              : t.proceedPayBtn
+                            : shop.auto_print_enabled
+                            ? t.sendCashBtn
+                            : t.submitStaffBtn}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-xs text-emerald-300">
-                      <span className="flex items-center gap-1">
-                        <Layers className="w-3.5 h-3.5" />
-                        <span>{t.actualSheetsNeeded}</span>
-                      </span>
-                      <span className="font-black text-white font-mono">
-                        {totalSheetsNeeded} A4 {totalSheetsNeeded === 1 ? 'Sheet' : 'Sheets'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-baseline border-t border-slate-800 pt-2">
-                      <span className="text-sm font-bold">{t.totalBill}</span>
-                      <span className="text-2xl font-black text-emerald-400">₹{formattedAmount}</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!shop.require_payment) {
-                          handleProceedOrder();
-                        } else if (hasActiveShopGateway && activeGatewayProvider === 'razorpay') {
-                          handlePayWithShopGateway();
-                        } else {
-                          setShowCheckout(true);
-                        }
-                      }}
-                      disabled={submittingOrder || launchingGateway}
-                      className="w-full min-h-[48px] py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm"
-                    >
-                      <Printer className="w-4 h-4" />
-                      {submittingOrder
-                        ? 'Sending to Printer...'
-                        : launchingGateway
-                        ? `Opening ${activeGatewayProvider.toUpperCase()}...`
-                        : shop.require_payment
-                        ? hasActiveShopGateway
-                          ? `Pay ₹${formattedAmount} via ${activeGatewayProvider.toUpperCase()} & Print`
-                          : t.proceedPayBtn
-                        : shop.auto_print_enabled
-                        ? t.sendCashBtn
-                        : t.submitStaffBtn}
-                    </button>
-                  </div>
-                </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -2381,7 +2752,7 @@ export default function KioskPage() {
       </div>
 
       {/* STUDIO MODAL */}
-      {editingItem && (
+      {editingItem && scanUnlocked && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-5 space-y-3.5 shadow-2xl my-auto max-h-[96vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
@@ -2812,7 +3183,7 @@ export default function KioskPage() {
       )}
 
       {/* PAYMENT MODAL */}
-      {showCheckout && shop.require_payment && (
+      {showCheckout && shop.require_payment && scanUnlocked && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl my-auto">
             <div className="flex items-center justify-between">

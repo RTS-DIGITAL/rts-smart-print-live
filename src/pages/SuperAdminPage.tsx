@@ -161,7 +161,7 @@ interface ReviewRow {
   created_at: string;
 }
 
-const AGENT_DOWNLOAD_URL = "https://github.com/RTS-DIGITAL/rts-smart-print-live/releases/download/v1.0.0/RTS-Print-Setup.exe";
+const SITE_BASE_URL = "https://www.rtsprint.online";
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytAx6dxUypNjcrwCHWh537MguDjcvVYqdduYfe4k9_d3-x_HW8xPwc3vxt2NxTpNs/exec";
 
 const COMMON_PRINTERS = [
@@ -296,25 +296,59 @@ export const SuperAdminPage: React.FC = () => {
     return { days: Math.max(0, remaining), isExpired: remaining <= 0 };
   };
 
-  const sendShopStatusEmail = async (email: string, shopName: string, action: 'approved' | 'suspended' | 'reactivated', details?: { slug: string; pairingCode: string }) => {
+  const buildApprovalDetailsSummary = (shopName: string, slug: string, pairingCode: string) => {
+    const adminUrl = `${SITE_BASE_URL}/shop/${slug}/admin`;
+    const kioskUrl = `${SITE_BASE_URL}/shop/${slug}`;
+    const aboutUs =
+      'RTS Smart Print (by Reliable Technology & Services) is a QR & self-service document printing platform for print shops and digital seva centers.';
+    const howToUse = [
+      `1. Open your Shop Admin Link (${adminUrl}) to manage counter settings and print jobs.`,
+      '2. First-time install note: If Windows shows "Windows protected your PC", click More info -> Run anyway to continue installation.',
+      `3. Enter your 6-digit Pairing Code (${pairingCode}) when setting up your counter agent, and share your Customer Kiosk Link (${kioskUrl}) with customers.`
+    ].join('\n');
+
+    return { adminUrl, kioskUrl, aboutUs, howToUse };
+  };
+
+  const sendShopStatusEmail = async (
+    email: string,
+    shopName: string,
+    action: 'approved' | 'suspended' | 'reactivated',
+    details?: { slug: string; pairingCode: string }
+  ) => {
     if (!email) return;
     if (action === 'approved') {
       try {
         const generatedSlug = details?.slug || shopName.toLowerCase().replace(/[^a-z0-9]/g, '-');
         const generatedCode = details?.pairingCode || 'Check Admin';
+        const info = buildApprovalDetailsSummary(shopName, generatedSlug, generatedCode);
+
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'approve', email, shopName, slug: generatedSlug, pairingCode: generatedCode, downloadUrl: AGENT_DOWNLOAD_URL })
+          body: JSON.stringify({
+            action: 'approve',
+            email,
+            shopName,
+            slug: generatedSlug,
+            pairingCode: generatedCode,
+            adminUrl: info.adminUrl,
+            kioskUrl: info.kioskUrl,
+            aboutUs: info.aboutUs,
+            howToUse: info.howToUse
+          })
         });
         alert(`📧 Official activation email sent successfully to ${email}!`);
       } catch (err) {
         alert('Failed to send automated email.');
       }
     } else {
-      let subject = action === 'suspended' ? `⚠️ RTS Smart Print Account Suspended: ${shopName}` : `✅ RTS Smart Print Account Reactivated: ${shopName}`;
-      let body = `Hi ${shopName},\n\nYour account status has been updated to: ${action}. Please contact RTS Support (info@rtsdigitalseva.online) for assistance.`;
+      const subject =
+        action === 'suspended'
+          ? `⚠️ RTS Smart Print Account Suspended: ${shopName}`
+          : `✅ RTS Smart Print Account Reactivated: ${shopName}`;
+      const body = `Hi ${shopName},\n\nYour account status has been updated to: ${action}. Please contact RTS Support (info@rtsdigitalseva.online) for assistance.`;
       window.open(`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
     }
   };
@@ -531,9 +565,29 @@ export const SuperAdminPage: React.FC = () => {
     const slug = inq.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     const existingShop = shops.find(s => s.slug === slug || s.name.toLowerCase() === inq.business_name.toLowerCase());
     const pairingCode = existingShop?.pairing_code || 'Check Admin';
+    const info = buildApprovalDetailsSummary(inq.business_name, slug, pairingCode);
     const cleanPhone = inq.phone.replace(/[^0-9]/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-    const message = `🎉 *Welcome to RTS Smart Print!*\n\nYour shop *${inq.business_name}* is activated and ready to receive print jobs.\n\n🔗 *Customer Kiosk Link:*\nhttps://rtsprint.online/shop/${slug}\n\n⚙️ *Shop Admin Dashboard:*\nhttps://rtsprint.online/shop/${slug}/admin\n\n📥 *Download PC Print Agent Setup:*\n${AGENT_DOWNLOAD_URL}\n\n🔑 *Windows Agent Pairing Code:*\n*${pairingCode}*\n\n*Setup Instructions:*\n1. Download & install *RTS-Print-Setup.exe* on your counter computer (or download from your Shop Admin panel)\n2. Enter your 6-digit pairing code: *${pairingCode}*\n3. Select your printer in Shop Admin settings and start accepting instant prints!\n\n_Support: RTS Reliable Technology Services (info@rtsdigitalseva.online)_`;
+
+    const message = [
+      `🎉 *Welcome to RTS Smart Print — ${inq.business_name}!*`,
+      ``,
+      `*About Us:*`,
+      `${info.aboutUs}`,
+      ``,
+      `*Your Shop Details:*`,
+      `🔑 *6-Digit Pairing Code:* *${pairingCode}*`,
+      `⚙️ *Shop Admin Link:* ${info.adminUrl}`,
+      `🔗 *Shop Kiosk Link:* ${info.kioskUrl}`,
+      ``,
+      `*How to Use:*`,
+      `1. Open your *Shop Admin Link* above on your counter computer to configure settings and manage print orders.`,
+      `2. *First-Time Install Note:* When running the setup on Windows, if you see *"Windows protected your PC"*, click *More info* → *Run anyway*.`,
+      `3. Enter your 6-digit Pairing Code (*${pairingCode}*) when pairing your counter station, and share your *Shop Kiosk Link* with customers.`,
+      ``,
+      `_Support: RTS Reliable Technology Services (info@rtsdigitalseva.online)_`
+    ].join('\n');
+
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
 
@@ -1251,7 +1305,7 @@ export const SuperAdminPage: React.FC = () => {
                       type="number"
                       value={likesData.dislikes}
                       onChange={(e) => handleUpdateLikes('dislikes', Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-rose-400 font-mono font-bold outline-none focus:border-rose-500"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-rose-400 font-mono font-bold outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>

@@ -2083,25 +2083,25 @@ export default function KioskPage() {
                                     {sheetsCount} A4 {sheetsCount === 1 ? 'Sheet' : 'Sheets'}
                                   </strong>
                                   {item.layoutMode === 'id_card' && (
-                                    <span className="ml-1.5 text-indigo-600 font-bold">
-                                      • ID Card {item.hasBackImage ? '(Front+Back)' : '(1-Side)'}
-                                    </span>
-                                  )}
-                                  {item.layoutMode === 'passport_4' && (
-                                    <span className="ml-1.5 text-pink-600 font-bold">
-                                      • Passport 4 Pics
-                                    </span>
-                                  )}
-                                  {item.layoutMode === 'passport_8' && (
-                                    <span className="ml-1.5 text-pink-600 font-bold">
-                                      • Passport 8 Pics
-                                    </span>
-                                  )}
-                                  {item.layoutMode === 'half_a4' && !isPdf && (
-                                    <span className="ml-1.5 text-blue-600 font-bold">
-                                      • 2 Photos on 1 A4 {item.hasBackImage ? '(Top+Bottom)' : ''}
-                                    </span>
-                                  )}
+  <span className="ml-1.5 text-indigo-600 font-bold">
+    • ID Card {item.hasBackImage ? '(Front+Back)' : '(1-Side)'}
+  </span>
+)}
+{item.layoutMode === 'passport_4' && (
+  <span className="ml-1.5 text-pink-600 font-bold">
+    • Passport 4 Pics
+  </span>
+)}
+{item.layoutMode === 'passport_8' && (
+  <span className="ml-1.5 text-pink-600 font-bold">
+    • Passport 8 Pics
+  </span>
+)}
+{item.layoutMode === 'half_a4' && !isPdf && (
+  <span className="ml-1.5 text-blue-600 font-bold">
+    • 2 Photos on 1 A4 {item.hasBackImage ? '(Top+Bottom)' : ''}
+  </span>
+)}
                                 </p>
                               </div>
                             </div>
